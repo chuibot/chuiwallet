@@ -1,7 +1,19 @@
-# Chui Wallet - Run with ease 
-*Chui means leopard in Swahili*
+# Chui Bitcoin Wallet – Production-Style Offline Codebase
 
-Chui Wallet was born from the need to provide **a simpler, business-friendly solution** for handling cryptocurrency payments. We noticed that many existing wallets were overly technical, leaving merchants overwhelmed with complex setups and prone to frustrating issues like missing transactions.
+**Chui** is a non-custodial Bitcoin wallet for merchants, designed to run as a browser extension.  
+It supports:  
 
-Inspired by the leopard—**fast, precise, and calm**—we build Chui to offer the same qualities: **speed, accuracy, and ease of use**. With this vision, Chui aims to **simplify crypto transactions for online businesses** and **eliminate common pain points** so merchants can focus on growing their operations, not troubleshooting their wallets.
-![image](https://github.com/user-attachments/assets/d3bbd43e-d552-40a8-9364-9942aea42adb)
+1. **Multiple address types** (P2PKH, P2SH-P2WPKH, P2WPKH, P2TR)  
+2. **Mainnet / Testnet** switching (stored in IndexedDB settings)  
+3. **Encrypted mnemonic** in IndexedDB (AES-256-CBC with user password)  
+4. **Electrum** connectivity for scanning addresses, fetching balances, transaction history, UTXOs  
+5. **Full gap-limit scanning** to find new addresses up to 20 consecutive empties or 500 total  
+6. **PSBT** building, signing, broadcasting for transactions using the discovered UTXOs  
+7. **Complete test coverage** with Jest (unit + integration)
+
+## Installation
+
+```bash
+npm install
+npm run build
+npm run test
