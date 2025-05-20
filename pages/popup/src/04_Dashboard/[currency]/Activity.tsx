@@ -92,7 +92,7 @@ export const Activity: React.FC = () => {
         <div className="flex flex-col w-full gap-[7px]">
           <div className="flex justify-between items-center">
             <span className="text-white text-sm font-bold">Activity</span>
-            <span className="text-white text-sm">{formatNumber(history.length)} total</span>
+            <span className="text-white text-sm">{formatNumber(txHistory?.length || 0)} total</span>
           </div>
           {loading ? (
             <>
