@@ -53,12 +53,13 @@ export class WalletManager {
   async switchNetwork(network: Network) {
     const sessionPassword = await getSessionPassword();
     if (sessionPassword) {
+      electrumService.disconnect();
+      scanManager.clear();
       await preferenceManager.update({ activeNetwork: network });
       await wallet.restore(preferenceManager.get().activeNetwork, sessionPassword);
       await this.ensureDefaultAccount();
       await electrumService.init(preferenceManager.get().activeNetwork);
       await accountManager.init(preferenceManager.get().activeAccountIndex);
-      scanManager.clear();
       await scanManager.init();
       return true;
     }

@@ -1,5 +1,6 @@
-import type { ExtendedServerConfig, ServerConfig } from '../types/electrum';
+import type { ConnectionStatus, ConnectionUpdate, ExtendedServerConfig, ServerConfig } from '../types/electrum';
 import { logger } from '../utils/logger';
+import { createEmitter } from '../utils/emitter';
 
 type RequestResolver = {
   resolve: (result: unknown) => void;
@@ -24,6 +25,7 @@ export class ElectrumRpcClient {
   private requests: Map<number, RequestResolver> = new Map();
   private jsonRpcVersion: string = '2.0';
   private runningRequestId: number = 0;
+  public readonly onStatus = createEmitter<ConnectionUpdate>();
 
   /**
    * Constructs a new ElectrumRpcClient instance.
@@ -46,6 +48,7 @@ export class ElectrumRpcClient {
       this.socket = new WebSocket(wsUrl);
       this.socket.onopen = () => {
         logger.log(`Connected to Electrum server at ${wsUrl}`);
+        this.setStatus('connected');
         resolve(this);
       };
       this.socket.onmessage = (event: MessageEvent) => this.handleResponse(event.data);
@@ -53,6 +56,7 @@ export class ElectrumRpcClient {
         this.disconnect();
         const errorMessage = 'WebSocket error: ' + (error as ErrorEvent).message || 'Unknown error';
         logger.error(errorMessage, error);
+        this.setStatus('error', errorMessage);
         reject(new Error(errorMessage));
       };
       this.socket.onclose = () => {
@@ -72,6 +76,17 @@ export class ElectrumRpcClient {
     this.requests.clear();
     this.socket.close();
     this.socket = null;
+    this.setStatus('disconnected');
+  }
+
+  /**
+   * set and emit connection status
+   * @param status
+   * @param detail
+   * @private
+   */
+  private setStatus(status: ConnectionStatus, detail?: string) {
+    this.onStatus.emit({ status, detail, ts: Date.now() });
   }
 
   /**

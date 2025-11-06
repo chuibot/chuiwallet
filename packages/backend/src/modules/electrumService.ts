@@ -1,24 +1,45 @@
-import type { ElectrumHistory, ElectrumTransaction, ElectrumUtxo } from '../types/electrum';
-import * as bitcoin from 'bitcoinjs-lib';
+import type {
+  ConnectionStatus,
+  ConnectionUpdate,
+  ElectrumHistory,
+  ElectrumTransaction,
+  ElectrumUtxo,
+} from '../types/electrum';
 import { Network } from '../types/electrum';
 import { selectBestServer } from './electrumServer';
 import { ElectrumRpcClient } from './electrumRpcClient';
 import { logger } from '../utils/logger';
+import { createEmitter } from '../utils/emitter';
 
 export class ElectrumService {
   private network: Network = Network.Mainnet;
   private rpcClient: ElectrumRpcClient | undefined;
+  public readonly onStatus = createEmitter<ConnectionUpdate>();
 
   public async init(network: Network) {
     this.network = network;
-    await this.connect();
+    const server = await selectBestServer(this.network);
+    this.rpcClient = new ElectrumRpcClient(server);
+    this.rpcClient.onStatus.on(status => {
+      this.setStatus(status.status, status.detail);
+    });
     return this;
   }
 
-  private async connect() {
-    logger.log('Connecting Electrum server');
-    const server = await selectBestServer(this.network);
-    this.rpcClient = await new ElectrumRpcClient(server).connect();
+  public async connect() {
+    if (this.rpcClient) {
+      logger.log('Connecting Electrum server');
+      await this.rpcClient.connect();
+    }
+  }
+
+  public disconnect() {
+    logger.log('Disconnecting Electrum server');
+    this.rpcClient?.disconnect();
+  }
+
+  private setStatus(status: ConnectionStatus, detail?: string) {
+    this.onStatus.emit({ status, detail, ts: Date.now() });
   }
 
   public async getRawTransaction(txid: string, verbose = false) {
@@ -64,7 +85,6 @@ export class ElectrumService {
 
     try {
       const response = await this.rpcClient.sendRequest('blockchain.transaction.broadcast', [hex]);
-      console.log('broadcast response', response);
       if (typeof response === 'string' && /^[0-9a-f]{64}$/i.test(response)) {
         return response; // txid from server
       }

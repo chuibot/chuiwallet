@@ -116,7 +116,7 @@ export class ScanManager {
 
     candidates.sort((a, b) => a.lastChecked - b.lastChecked);
     const indicesToScan = candidates.slice(0, this.config.staleBatchSize).map(c => c.index);
-    logger.log(`Scanning from ${indicesToScan[0]} to ${indicesToScan[indicesToScan.length - 1]})`);
+    logger.log(`Scanning from ${indicesToScan[0]} to ${indicesToScan[indicesToScan.length - 1]}`);
     await this.scan(indicesToScan, changeType);
   }
 

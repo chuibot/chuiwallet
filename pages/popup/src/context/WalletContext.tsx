@@ -5,6 +5,7 @@ import type { BalanceData, Preferences } from '@src/types';
 import type { Account } from '@extension/backend/src/types/wallet';
 import type { TxEntry } from '@extension/backend/src/types/cache';
 import { defaultPreferences } from '@extension/backend/dist/preferenceManager';
+import { useChuiEvents } from '@src/hooks/useChuiEvents';
 
 interface WalletContextType {
   onboarded: boolean;
@@ -96,6 +97,13 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       _setAccounts(accounts);
     }
   };
+
+  useChuiEvents({
+    onSnapshot: d => console.log(d),
+    onConnection: e => console.log('connection', e),
+    onBalance: e => console.log(e),
+    onTx: e => console.log(e),
+  });
 
   // Hydrate settings (onboarded, preferences, accounts)
   useEffect(() => {
