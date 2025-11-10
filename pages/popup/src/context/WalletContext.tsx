@@ -4,12 +4,14 @@ import { sendMessage } from '@src/utils/bridge';
 import type { BalanceData, Preferences } from '@src/types';
 import type { Account } from '@extension/backend/src/types/wallet';
 import type { TxEntry } from '@extension/backend/src/types/cache';
+import type { ConnectionStatus } from '@extension/backend/src/types/electrum';
 import { defaultPreferences } from '@extension/backend/dist/preferenceManager';
 import { useChuiEvents } from '@src/hooks/useChuiEvents';
 
 interface WalletContextType {
   onboarded: boolean;
   unlocked: boolean;
+  connected: ConnectionStatus;
   setOnboarded: (onboarded: boolean) => void;
   setUnlocked: (unlocked: boolean) => void;
   preferences: Preferences;
@@ -54,6 +56,7 @@ const WalletContext = createContext<WalletContextType | undefined>(undefined);
 export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [onboarded, setOnboarded] = useState<boolean>(false);
   const [unlocked, setUnlocked] = useState<boolean>(false);
+  const [connected, setConnected] = useState<ConnectionStatus>('disconnected');
   const [preferences, setPreferences] = useState<Preferences>(defaultPreferences);
   const [accounts, _setAccounts] = useState<Account[]>([]);
   const [balance, _setBalance] = useState<BalanceData>();
@@ -100,7 +103,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   useChuiEvents({
     onSnapshot: d => console.log(d),
-    onConnection: e => console.log('connection', e),
+    onConnection: e => setConnected(e.status),
     onBalance: e => console.log(e),
     onTx: e => console.log(e),
   });
@@ -382,6 +385,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       value={{
         onboarded,
         unlocked,
+        connected,
         preferences,
         accounts,
         activeAccount,

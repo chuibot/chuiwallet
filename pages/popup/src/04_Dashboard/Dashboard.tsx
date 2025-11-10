@@ -4,12 +4,12 @@ import { CryptoBalance } from '../components/CryptoBalance';
 import { CryptoButton } from '../components/CryptoButton';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWalletContext } from '@src/context/WalletContext';
-import { formatNumber } from '@src/utils';
+import { capitalize, formatNumber } from '@src/utils';
 import Skeleton from 'react-loading-skeleton';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { preferences, balance, activeAccount, refreshBalance } = useWalletContext();
+  const { preferences, balance, activeAccount, connected, refreshBalance } = useWalletContext();
 
   const [showChooseReceiveCurrencySlide, setShowChooseReceiveCurrencySlide] = React.useState(false);
   const [showChooseSendCurrencySlide, setShowChooseSendCurrencySlide] = React.useState(false);
@@ -297,6 +297,16 @@ export const Dashboard: React.FC = () => {
           </motion.div>
         )}
       </AnimatePresence>
+      <div className="fixed bottom-0 w-full px-4 py-2 flex justify-end">
+        <div className="flex justify-start items-center">
+          {connected === 'connected' ? (
+            <div className="bg-green-600 h-2 w-2 rounded-2xl mr-1"></div>
+          ) : (
+            <div className="bg-red-600 h-2 w-2 rounded-2xl mr-1"></div>
+          )}
+          {capitalize(connected)}
+        </div>
+      </div>
     </div>
   );
 };

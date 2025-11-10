@@ -5,15 +5,16 @@ import type {
   ElectrumTransaction,
   ElectrumUtxo,
 } from '../types/electrum';
-import { Network } from '../types/electrum';
-import { selectBestServer } from './electrumServer';
-import { ElectrumRpcClient } from './electrumRpcClient';
 import { logger } from '../utils/logger';
+import { Network } from '../types/electrum';
+import { ElectrumRpcClient } from './electrumRpcClient';
+import { selectBestServer } from './electrumServer';
 import { createEmitter } from '../utils/emitter';
 
 export class ElectrumService {
   private network: Network = Network.Mainnet;
   private rpcClient: ElectrumRpcClient | undefined;
+  public status: ConnectionStatus = 'disconnected';
   public readonly onStatus = createEmitter<ConnectionUpdate>();
 
   public async init(network: Network) {
@@ -39,6 +40,7 @@ export class ElectrumService {
   }
 
   private setStatus(status: ConnectionStatus, detail?: string) {
+    this.status = status;
     this.onStatus.emit({ status, detail, ts: Date.now() });
   }
 

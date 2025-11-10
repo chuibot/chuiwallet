@@ -1,5 +1,6 @@
 import * as bitcoin from 'bitcoinjs-lib';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
+import type { ConnectionStatus } from '@extension/backend/src/types/electrum';
 import { handle } from './router';
 import { preferenceManager } from '@extension/backend/src/preferenceManager';
 import { walletManager } from '@extension/backend/src/walletManager';
@@ -10,7 +11,6 @@ import { scanManager } from '@extension/backend/src/scanManager';
 import { ChangeType } from '@extension/backend/src/types/cache';
 import browser, { Runtime } from 'webextension-polyfill';
 import MessageSender = Runtime.MessageSender;
-import type { ConnectionStatus } from '@extension/backend/dist/types/electrum';
 
 bitcoin.initEccLib(secp256k1);
 
@@ -42,6 +42,7 @@ browser.runtime.onConnect.addListener(port => {
   ports.add(port);
 
   port.postMessage({ type: 'SNAPSHOT', data: 'this is from snapshot' });
+  onConnection(electrumService.status);
 
   port.onDisconnect.addListener(() => {
     ports.delete(port);

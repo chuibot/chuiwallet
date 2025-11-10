@@ -76,6 +76,7 @@ export interface FeeOptionSetting {
 }
 
 export type ConnectionStatus = 'connected' | 'disconnected' | 'error';
+
 export interface ConnectionUpdate {
   detail?: string;
   status: ConnectionStatus;
