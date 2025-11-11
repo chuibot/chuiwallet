@@ -93,7 +93,7 @@ export const TransactionDetail: React.FC = () => {
           />
         )}
 
-        {status == 'CONFIRMED' && <LabelValue label="Date & Hour" value={formatTimestamp(timestamp)} />}
+        {status == 'CONFIRMED' && <LabelValue label="Date & Time" value={formatTimestamp(timestamp)} />}
         <LabelValue
           label="Confirmations"
           value={
@@ -113,16 +113,6 @@ export const TransactionDetail: React.FC = () => {
             </a>
           }
         />
-        {type == 'RECEIVE' && (
-          <LabelValue
-            label="From"
-            value={
-              <a href={`https://www.blockonomics.co/#/search?q=${sender}`} className="underline" target="_blank">
-                {sender}
-              </a>
-            }
-          />
-        )}
         {type == 'SEND' && (
           <LabelValue
             label="To"
