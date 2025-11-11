@@ -1,4 +1,3 @@
-// src/context/ErrorContext.tsx
 import type { ReactNode } from 'react';
 import type React from 'react';
 import { createContext, useContext, useState, useCallback } from 'react';
