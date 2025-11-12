@@ -55,7 +55,10 @@ export const SendStatus: React.FC = () => {
         {currency ? currencyMapping[currency] : 'Unknown'} Sent
       </div>
       <div className="mt-5 text-lg leading-none text-center text-zinc-600">
-        See the state of <span className="text-primary-yellow">your transaction</span>
+        See the state of
+        <a href={'https://www.blockonomics.co/#/search?q=' + states.transactionHash} className="text-primary-yellow">
+          your transaction
+        </a>
       </div>
       <div className="mt-12 text-sm font-bold leading-none text-center text-white">Transaction ID</div>
       <div className="flex flex-col justify-center items-center gap-2 relative mt-2 max-w-[284px]">
