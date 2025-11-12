@@ -44,7 +44,6 @@ export async function buildSpendPsbt({
 
     switch (input.scriptType) {
       case ScriptType.P2WPKH: {
-        console.log('pubkey: ', pubkey);
         psbt.addInput({
           ...base,
           witnessUtxo: { script: scriptPubKey, value: input.value },
