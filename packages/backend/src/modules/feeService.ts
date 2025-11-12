@@ -45,12 +45,12 @@ export class FeeService {
   }
 
   private estimateTxVbytes(inputs: SpendableUtxo[], toScript: ScriptType, changeScriptType: ScriptType | null = null) {
-    const overhead = 10;
+    const overhead = 10 + 2;
     const assumedInputScript = changeScriptType ?? ScriptType.P2WPKH;
     const ins =
       inputs.length > 0
-        ? inputs.reduce((sum, u) => sum + this.IN_VBYTES[u.scriptType], 0)
-        : this.IN_VBYTES[assumedInputScript]; // assume 1 input if no spendables provided
+        ? inputs.reduce((sum, u) => sum + this.IN_VBYTES[u.scriptType] + 1, 0)
+        : this.IN_VBYTES[assumedInputScript] + 1; // assume 1 input if no spendables provided
     const outs = this.OUT_VBYTES[toScript] + (changeScriptType ? this.OUT_VBYTES[changeScriptType] : 0);
     return overhead + ins + outs;
   }
@@ -61,7 +61,7 @@ export class FeeService {
     const outChg = this.OUT_VBYTES[accountScript];
 
     return (inputCount: number, includeChange: boolean) => {
-      const vbytes = 10 + inputCount * inVB + outTo + (includeChange ? outChg : 0);
+      const vbytes = 10 + 2 + inputCount * inVB + inputCount + outTo + (includeChange ? outChg : 0);
       return Math.ceil(vbytes * feerateSatPerVb);
     };
   }
