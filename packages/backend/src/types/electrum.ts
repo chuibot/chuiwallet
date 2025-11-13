@@ -18,6 +18,7 @@ export type ServerConfig = {
 export interface ExtendedServerConfig extends ServerConfig {
   latency?: number;
   healthy?: boolean;
+  blockHeight?: number;
 }
 
 export interface ElectrumVin {
