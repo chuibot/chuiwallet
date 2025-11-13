@@ -10,12 +10,16 @@ import { scanManager } from '@extension/backend/src/scanManager';
 import { ChangeType } from '@extension/backend/src/types/cache';
 import browser, { Runtime } from 'webextension-polyfill';
 import MessageSender = Runtime.MessageSender;
+import { discoverPeersFrom } from '@extension/backend/src/modules/electrumServer';
 
 bitcoin.initEccLib(secp256k1);
 
 async function init() {
   await preferenceManager.init();
   await walletManager.init();
+
+  await discoverPeers();
+
   await electrumService.init(preferenceManager.get().activeNetwork);
   await accountManager.init(preferenceManager.get().activeAccountIndex);
   if (accountManager.activeAccountIndex >= 0) {
@@ -48,6 +52,36 @@ async function forwardScan() {
   if (accountManager.activeAccountIndex >= 0) {
     await scanManager.forwardScan();
     await scanManager.forwardScan(ChangeType.Internal);
+  }
+}
+async function discoverPeers() {
+  try {
+    const network = preferenceManager.get().activeNetwork;
+    const currentServer = electrumService.getCurrentServer();
+
+    if (currentServer) {
+      logger.log('Discovering peers...');
+      const peers = await discoverPeersFrom(currentServer);
+      logger.log(`Discovered ${peers.length} peers`);
+
+      // Store in chrome.storage
+      await chrome.storage.local.set({
+        [`discoveredPeers_${network}`]: peers,
+        [`lastDiscovery_${network}`]: Date.now(),
+      });
+    }
+  } catch (error) {
+    logger.error('Peer discovery failed:', error);
+  }
+}
+
+async function reconnectElectrum() {
+  try {
+    const network = preferenceManager.get().activeNetwork;
+    logger.log('Reconnecting to best Electrum server...');
+    await electrumService.init(network);
+  } catch (error) {
+    logger.error('Failed to reconnect:', error);
   }
 }
 
@@ -83,6 +117,8 @@ chrome.runtime.onStartup.addListener(() => {
 function setupAlarms() {
   browser.alarms.create('forwardScan', { periodInMinutes: 3 });
   browser.alarms.create('backfillScan', { periodInMinutes: 0.5 });
+  browser.alarms.create('peerDiscovery', { periodInMinutes: 1440 }); // Daily
+  browser.alarms.create('reconnectElectrum', { periodInMinutes: 60 });
 }
 
 browser.alarms.onAlarm.addListener(async alarm => {
@@ -92,5 +128,11 @@ browser.alarms.onAlarm.addListener(async alarm => {
   }
   if (alarm.name === 'backfillScan') {
     await backfillScan();
+  }
+  if (alarm.name === 'peerDiscovery') {
+    await discoverPeers();
+  }
+  if (alarm.name === 'reconnectElectrum') {
+    await reconnectElectrum();
   }
 });

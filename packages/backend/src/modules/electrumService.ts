@@ -1,4 +1,4 @@
-import type { ElectrumHistory, ElectrumTransaction, ElectrumUtxo } from '../types/electrum';
+import type { ElectrumHistory, ElectrumTransaction, ElectrumUtxo, ExtendedServerConfig } from '../types/electrum';
 import * as bitcoin from 'bitcoinjs-lib';
 import { Network } from '../types/electrum';
 import { selectBestServer } from './electrumServer';
@@ -8,6 +8,7 @@ import { logger } from '../utils/logger';
 export class ElectrumService {
   private network: Network = Network.Mainnet;
   private rpcClient: ElectrumRpcClient | undefined;
+  private currentServer: ExtendedServerConfig | undefined;
 
   public async init(network: Network) {
     this.network = network;
@@ -18,7 +19,13 @@ export class ElectrumService {
   private async connect() {
     logger.log('Connecting Electrum server');
     const server = await selectBestServer(this.network);
+    this.currentServer = server;
+    logger.log(server);
     this.rpcClient = await new ElectrumRpcClient(server).connect();
+  }
+
+  public getCurrentServer() {
+    return this.currentServer;
   }
 
   public async getRawTransaction(txid: string, verbose = false) {
