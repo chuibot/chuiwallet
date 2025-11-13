@@ -1,6 +1,7 @@
 import { ELECTRUM_METHODS } from '../config/constants';
 import type { ExtendedServerConfig, ServerConfig } from '../types/electrum';
 import { DefaultPort, Network } from '../types/electrum';
+import { logger } from '../utils/logger';
 
 export const availableServerList: ServerConfig[] = [
   { host: 'bitcoinserver.nl', port: 50004, useTls: true, network: Network.Mainnet },
@@ -28,27 +29,35 @@ export const availableServerList: ServerConfig[] = [
 ];
 
 export async function selectBestServer(network: Network): Promise<ExtendedServerConfig> {
-  const serverList = availableServerList.filter(server => server.network === network);
+  let serverList = availableServerList.filter(server => server.network === network);
+
+  const storageKey = `discoveredPeers_${network}`;
+  const cached = await chrome.storage.local.get(storageKey);
+  if (cached[storageKey]) {
+    const discoveredPeers = cached[storageKey] as ServerConfig[];
+    serverList = [...serverList, ...discoveredPeers];
+  }
+
   if (serverList.length === 0) {
     throw new Error(`No servers available for ${network}`);
   }
 
-  const scannedServers = await scanServers(serverList);
+  // Only scan first 20 servers max (5 hardcoded + 15 random discovered)
+  const serversToScan = serverList.slice(0, 20);
+
+  const scannedServers = await scanServers(serversToScan);
   const healthyServers = scannedServers.filter(server => server.healthy);
+
   if (healthyServers.length === 0) {
     throw new Error('No healthy servers found');
   }
 
-  // Prefer servers that are synced (within 1 block of max height)
   const maxBlockHeight = Math.max(...healthyServers.map(s => s.blockHeight || 0));
-
-  // Only filter by sync if we actually got block heights
   const syncedServers =
     maxBlockHeight > 0 ? healthyServers.filter(s => s.blockHeight && maxBlockHeight - s.blockHeight <= 1) : [];
 
   const serversToRank = syncedServers.length > 0 ? syncedServers : healthyServers;
 
-  // Sort by latency.
   serversToRank.sort((a, b) => a.latency! - b.latency!);
   return serversToRank[0];
 }
@@ -106,6 +115,71 @@ export async function measureServerLatency(server: ExtendedServerConfig): Promis
       clearTimeout(timeout);
       socket.close();
       resolve(Number.MAX_SAFE_INTEGER);
+    };
+  });
+}
+
+/**
+ * Discovers peers from a given server using server.peers.subscribe RPC
+ */
+export async function discoverPeersFrom(server: ServerConfig): Promise<ServerConfig[]> {
+  const protocol = server.useTls ? 'wss://' : 'ws://';
+  const url = `${protocol}${server.host}:${server.port}`;
+
+  return new Promise<ServerConfig[]>(resolve => {
+    const socket = new WebSocket(url);
+    const discoveredPeers: ServerConfig[] = [];
+    const timeout = setTimeout(() => {
+      socket.close();
+      resolve(discoveredPeers);
+    }, 5000);
+
+    socket.onopen = () => {
+      socket.send(JSON.stringify({ id: 1, method: 'server.peers.subscribe', params: [] }));
+    };
+
+    socket.onmessage = (event: MessageEvent) => {
+      try {
+        const response = JSON.parse(event.data);
+        if (response.id === 1 && Array.isArray(response.result)) {
+          for (const peer of response.result) {
+            // Peer format: [ip, host, [version, protocol, ports...]]
+            if (Array.isArray(peer) && peer.length >= 3) {
+              const host = peer[1];
+
+              // Skip .onion addresses
+              if (host.endsWith('.onion')) continue;
+
+              // Skip raw IP addresses (usually have cert issues)
+              if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) continue;
+
+              const features = peer[2];
+
+              // Look for SSL port (usually prefixed with 's')
+              const sslPort = features.find((f: string) => f.startsWith('s'))?.substring(1);
+              if (sslPort) {
+                discoveredPeers.push({
+                  host,
+                  port: parseInt(sslPort),
+                  useTls: true,
+                  network: server.network,
+                });
+              }
+            }
+          }
+          clearTimeout(timeout);
+          socket.close();
+          resolve(discoveredPeers);
+        }
+      } catch {
+        logger.log('Error parsing server.peers.subscribe response:', event.data);
+      }
+    };
+
+    socket.onerror = () => {
+      clearTimeout(timeout);
+      socket.close();
+      resolve(discoveredPeers);
     };
   });
 }
