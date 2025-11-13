@@ -41,7 +41,11 @@ export async function selectBestServer(network: Network): Promise<ExtendedServer
 
   // Prefer servers that are synced (within 1 block of max height)
   const maxBlockHeight = Math.max(...healthyServers.map(s => s.blockHeight || 0));
-  const syncedServers = healthyServers.filter(s => s.blockHeight && maxBlockHeight - s.blockHeight <= 1);
+
+  // Only filter by sync if we actually got block heights
+  const syncedServers =
+    maxBlockHeight > 0 ? healthyServers.filter(s => s.blockHeight && maxBlockHeight - s.blockHeight <= 1) : [];
+
   const serversToRank = syncedServers.length > 0 ? syncedServers : healthyServers;
 
   // Sort by latency.
