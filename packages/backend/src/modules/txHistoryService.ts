@@ -172,7 +172,6 @@ export class TxHistoryService {
     tx: ElectrumTransaction,
     myChangeSet: Set<string>,
   ): { sender: string; receiver: string } {
-    // Narrow vout shape without using `any`
     const vouts = tx.vout as ReadonlyArray<{
       value: number | string;
       scriptPubKey?: ScriptPubKey;
@@ -180,8 +179,6 @@ export class TxHistoryService {
 
     if (txType === 'SEND') {
       const sender = inputs.find(i => i.mine)?.address || '';
-
-      // external = not change, not OP_RETURN, has address
       const externals = vouts
         .map(v => {
           const addr = this.addrFromScript(v.scriptPubKey);
