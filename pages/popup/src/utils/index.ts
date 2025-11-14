@@ -128,3 +128,5 @@ export async function getBtcToUsdRate(): Promise<number> {
   const data = await response.json();
   return data.price;
 }
+
+export const capitalize = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
