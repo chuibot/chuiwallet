@@ -320,16 +320,16 @@ export class WalletManager {
    * @private
    */
   private async ensureDefaultAccount(forceCreate: boolean = false): Promise<void> {
-    const hasDefaultAccount = accountManager.accounts.some(
-      a => a.index === 0 && a.network === preferenceManager.get().activeNetwork,
-    );
+    const activeNetwork = preferenceManager.get().activeNetwork;
+    let defaultAccountIndex = accountManager.accounts.findIndex(a => a.network === activeNetwork && a.index === 0);
 
-    if (forceCreate || !hasDefaultAccount) {
+    if (forceCreate || defaultAccountIndex === -1) {
       const defaultAccount = wallet.deriveAccount(0);
-      const activeAccountIndex = await accountManager.add(defaultAccount);
-      preferenceManager.get().activeAccountIndex = activeAccountIndex;
-      await preferenceManager.update({ activeAccountIndex: activeAccountIndex });
+      defaultAccountIndex = await accountManager.add(defaultAccount);
     }
+
+    preferenceManager.get().activeAccountIndex = defaultAccountIndex;
+    await preferenceManager.update({ activeAccountIndex: defaultAccountIndex });
   }
 }
 

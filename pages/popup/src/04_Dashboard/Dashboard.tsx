@@ -100,12 +100,12 @@ export const Dashboard: React.FC = () => {
           </>
         ) : (
           <>
-            <CryptoButton
-              icon="popup/receive_icon.svg"
-              label="Receive"
-              onClick={handleToggleChooseReceiveCurrencySlide}
-            />
-            <CryptoButton icon="popup/send_icon.svg" label="Send" onClick={handleToggleChooseSendCurrencySlide} />
+            {/*<CryptoButton*/}
+            {/*  icon="popup/receive_icon.svg"*/}
+            {/*  label="Receive"*/}
+            {/*  onClick={handleToggleChooseReceiveCurrencySlide}*/}
+            {/*/>*/}
+            {/*<CryptoButton icon="popup/send_icon.svg" label="Send" onClick={handleToggleChooseSendCurrencySlide} />*/}
           </>
         )}
       </div>

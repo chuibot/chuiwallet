@@ -42,7 +42,7 @@ export class PreferenceManager {
    * and return the updated preferences.
    */
   public async update(updates: Partial<Preferences>): Promise<Preferences> {
-    const current = await this.get();
+    const current = this.get();
     this.preferences = { ...current, ...updates };
     await this.save(this.preferences);
     return this.preferences;

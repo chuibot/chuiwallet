@@ -127,7 +127,7 @@ browser.runtime.onStartup.addListener(() => {
 
 function setupAlarms() {
   browser.alarms.create('forwardScan', { periodInMinutes: 3 });
-  browser.alarms.create('backfillScan', { periodInMinutes: 0.5 });
+  browser.alarms.create('backfillScan', { periodInMinutes: 0.2 });
 }
 
 browser.alarms.onAlarm.addListener(async alarm => {

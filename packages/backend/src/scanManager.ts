@@ -21,8 +21,8 @@ export const defaultScanConfig: ScanManagerConfig = {
   externalGapLimit: 500,
   internalGapLimit: 20,
   forwardExtendMaxPasses: 10,
-  staleBatchSize: 60,
-  electrumBatchSize: 20,
+  staleBatchSize: 90,
+  electrumBatchSize: 30,
   pruneThresholdDays: 7,
 };
 
@@ -96,27 +96,44 @@ export class ScanManager {
     const highestUsed = selectByChain(this.highestUsedReceive, this.highestUsedChange, changeType);
     const highestScanned = selectByChain(this.highestScannedReceive, this.highestScannedChange, changeType);
     const addressCache = selectByChain(this.addressCacheReceive, this.addressCacheChange, changeType);
+    const historyCache = selectByChain(this.historyCacheReceive, this.historyCacheChange, changeType);
+    const utxoCache = selectByChain(this.utxoCacheReceive, this.utxoCacheChange, changeType);
 
     // Nothing derived yet
     if (highestScanned < 0) return;
 
     // Backfill window: only within derived space, bounded by highestUsed + gap
     const windowEnd = Math.min(highestScanned, Math.max(0, highestUsed) + gapLimit);
-
-    // Pick stale candidates: UNUSED only, oldest lastChecked first
-    const candidates: Array<{ index: number; lastChecked: number }> = [];
+    const usedPending: number[] = [];
+    const staleUnused: Array<{ index: number; lastChecked: number }> = [];
     for (let idx = 0; idx <= windowEnd; idx++) {
-      const addressEntry = addressCache.get(idx);
-      if (!addressEntry) continue;
-      if (addressEntry.everUsed) continue; // backfill is for "unused" addresses
-      candidates.push({ index: idx, lastChecked: addressEntry.lastChecked || 0 });
+      const addr = addressCache.get(idx);
+      if (!addr) continue;
+
+      // Check index is used but pending
+      if (this.isLiveIndex(idx, historyCache, utxoCache)) {
+        usedPending.push(idx);
+        continue;
+      }
+
+      // Check unused candidate
+      if (!addr.everUsed) {
+        staleUnused.push({ index: idx, lastChecked: addr.lastChecked || 0 });
+      }
     }
 
-    if (candidates.length === 0) return;
+    staleUnused.sort((a, b) => a.lastChecked - b.lastChecked);
+    const room = Math.max(0, this.config.staleBatchSize - usedPending.length);
+    const pickUnused = staleUnused.slice(0, room).map(x => x.index);
+    const indicesToScan = Array.from(new Set([...usedPending, ...pickUnused]));
+    if (indicesToScan.length === 0) return;
 
-    candidates.sort((a, b) => a.lastChecked - b.lastChecked);
-    const indicesToScan = candidates.slice(0, this.config.staleBatchSize).map(c => c.index);
-    logger.log(`Scanning from ${indicesToScan[0]} to ${indicesToScan[indicesToScan.length - 1]}`);
+    const MAX_LOG = 100;
+    const preview =
+      indicesToScan.length > MAX_LOG
+        ? `${indicesToScan.slice(0, MAX_LOG).join(', ')} … (+${indicesToScan.length - MAX_LOG} more)`
+        : indicesToScan.join(', ');
+    logger.log(`Backfill ct=${changeType} | scanning ${indicesToScan.length} indices: [${preview}]`);
     await this.scan(indicesToScan, changeType);
   }
 
@@ -191,9 +208,12 @@ export class ScanManager {
 
         const utxos = utxosByIndex[batchIndex] ?? [];
         if (utxos.length > 0) {
-          entry.lastChecked = batchTimestamp;
           this.upsertUtxo(utxoCache, hdIndex, batchTimestamp, utxos);
           this.bumpHighestUsed(hdIndex, changeType);
+        } else {
+          if (utxoCache.has(hdIndex)) {
+            utxoCache.delete(hdIndex);
+          }
         }
       }
       await this.saveUtxo();
@@ -268,6 +288,12 @@ export class ScanManager {
       max = Math.max(max, k);
     }
     return max;
+  }
+
+  private isLiveIndex(idx: number, historyCache: Map<number, HistoryEntry>, utxoCache: Map<number, UtxoEntry>) {
+    const hasPending = !!historyCache.get(idx)?.txs?.some(([, h]) => h <= 0); // unconfirmed
+    const hasUtxo = (utxoCache.get(idx)?.utxos?.length ?? 0) > 0; // currently holds coins
+    return hasPending || hasUtxo;
   }
 
   private async saveAddress() {
