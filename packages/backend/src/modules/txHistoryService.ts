@@ -87,10 +87,8 @@ export class TxHistoryService {
 
     let amountSat: bigint;
     if (type === 'RECEIVE') {
-      // Everything that arrived to our wallet in this tx (we didn’t spend inputs)
       amountSat = outputs.filter(o => o.mine).reduce((s, o) => s + o.valueSat, 0n);
     } else {
-      // Outgoing to others = all outputs - change - OP_RETURN(usually 0 anyway)
       const sent = outTotalSat - changeSat - opReturnSat;
       amountSat = sent > 0n ? sent : 0n;
     }
@@ -197,8 +195,6 @@ export class TxHistoryService {
       return { sender, receiver };
     } else {
       const sender = inputs.find(i => !i.mine)?.address || '';
-
-      // ours = outputs to us (receive or change), exclude OP_RETURN
       const ours = vouts
         .map(v => {
           const addr = this.addrFromScript(v.scriptPubKey);
