@@ -21,8 +21,8 @@ export const defaultScanConfig: ScanManagerConfig = {
   externalGapLimit: 500,
   internalGapLimit: 20,
   forwardExtendMaxPasses: 10,
-  staleBatchSize: 60,
-  electrumBatchSize: 20,
+  staleBatchSize: 90,
+  electrumBatchSize: 30,
   pruneThresholdDays: 7,
 };
 
