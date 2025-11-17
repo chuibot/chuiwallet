@@ -59,6 +59,7 @@ export class WalletManager {
       await wallet.restore(preferenceManager.get().activeNetwork, sessionPassword);
       await this.ensureDefaultAccount();
       await electrumService.init(preferenceManager.get().activeNetwork);
+      await electrumService.connect();
       await accountManager.init(preferenceManager.get().activeAccountIndex);
       await scanManager.init();
       return true;

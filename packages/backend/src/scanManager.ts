@@ -161,6 +161,10 @@ export class ScanManager {
   }
 
   private async scan(indices: number[], changeType: ChangeType = ChangeType.External) {
+    if (electrumService.status !== 'connected') {
+      return;
+    }
+
     const bitcoinNetwork = toBitcoinNetwork(preferenceManager.get().activeNetwork);
     const addressCache = changeType === ChangeType.External ? this.addressCacheReceive : this.addressCacheChange;
     const historyCache = changeType === ChangeType.External ? this.historyCacheReceive : this.historyCacheChange;
