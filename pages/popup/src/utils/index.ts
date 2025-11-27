@@ -69,7 +69,7 @@ export function capitalizeFirstLetter(value: string) {
 }
 
 export function formatTimestamp(timestamp: number) {
-  const date = new Date(timestamp * 1000);
+  const date = new Date(timestamp);
 
   const day = ('0' + date.getDate()).slice(-2);
   const month = ('0' + (date.getMonth() + 1)).slice(-2);
@@ -128,3 +128,5 @@ export async function getBtcToUsdRate(): Promise<number> {
   const data = await response.json();
   return data.price;
 }
+
+export const capitalize = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);

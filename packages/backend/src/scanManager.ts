@@ -21,8 +21,8 @@ export const defaultScanConfig: ScanManagerConfig = {
   externalGapLimit: 500,
   internalGapLimit: 20,
   forwardExtendMaxPasses: 10,
-  staleBatchSize: 60,
-  electrumBatchSize: 20,
+  staleBatchSize: 90,
+  electrumBatchSize: 30,
   pruneThresholdDays: 7,
 };
 
@@ -111,7 +111,7 @@ export class ScanManager {
       if (!addr) continue;
 
       // Check index is used but pending
-      if (this.isPendingIndex(idx, historyCache, utxoCache)) {
+      if (this.isLiveIndex(idx, historyCache, utxoCache)) {
         usedPending.push(idx);
         continue;
       }
@@ -161,6 +161,10 @@ export class ScanManager {
   }
 
   private async scan(indices: number[], changeType: ChangeType = ChangeType.External) {
+    if (electrumService.status !== 'connected') {
+      return;
+    }
+
     const bitcoinNetwork = toBitcoinNetwork(preferenceManager.get().activeNetwork);
     const addressCache = changeType === ChangeType.External ? this.addressCacheReceive : this.addressCacheChange;
     const historyCache = changeType === ChangeType.External ? this.historyCacheReceive : this.historyCacheChange;
@@ -208,9 +212,12 @@ export class ScanManager {
 
         const utxos = utxosByIndex[batchIndex] ?? [];
         if (utxos.length > 0) {
-          entry.lastChecked = batchTimestamp;
           this.upsertUtxo(utxoCache, hdIndex, batchTimestamp, utxos);
           this.bumpHighestUsed(hdIndex, changeType);
+        } else {
+          if (utxoCache.has(hdIndex)) {
+            utxoCache.delete(hdIndex);
+          }
         }
       }
       await this.saveUtxo();
@@ -287,12 +294,10 @@ export class ScanManager {
     return max;
   }
 
-  private isPendingIndex(idx: number, historyCache: Map<number, HistoryEntry>, utxoCache: Map<number, UtxoEntry>) {
-    const history = historyCache.get(idx);
-    if (history?.txs?.some(([, h]) => h <= 0)) return true;
-    const utxo = utxoCache.get(idx);
-    if (utxo?.utxos?.some(u => u.height <= 0)) return true; // 0 for unconfirmed
-    return false;
+  private isLiveIndex(idx: number, historyCache: Map<number, HistoryEntry>, utxoCache: Map<number, UtxoEntry>) {
+    const hasPending = !!historyCache.get(idx)?.txs?.some(([, h]) => h <= 0); // unconfirmed
+    const hasUtxo = (utxoCache.get(idx)?.utxos?.length ?? 0) > 0; // currently holds coins
+    return hasPending || hasUtxo;
   }
 
   private async saveAddress() {
