@@ -74,3 +74,11 @@ export interface FeeOptionSetting {
   btcAmount: number;
   usdAmount: number;
 }
+
+export type ConnectionStatus = 'connected' | 'disconnected' | 'error';
+
+export interface ConnectionUpdate {
+  detail?: string;
+  status: ConnectionStatus;
+  ts: number;
+}

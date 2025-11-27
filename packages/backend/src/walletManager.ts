@@ -53,12 +53,14 @@ export class WalletManager {
   async switchNetwork(network: Network) {
     const sessionPassword = await getSessionPassword();
     if (sessionPassword) {
+      electrumService.disconnect();
+      scanManager.clear();
       await preferenceManager.update({ activeNetwork: network });
       await wallet.restore(preferenceManager.get().activeNetwork, sessionPassword);
       await this.ensureDefaultAccount();
       await electrumService.init(preferenceManager.get().activeNetwork);
+      await electrumService.connect();
       await accountManager.init(preferenceManager.get().activeAccountIndex);
-      scanManager.clear();
       await scanManager.init();
       return true;
     }
@@ -319,16 +321,16 @@ export class WalletManager {
    * @private
    */
   private async ensureDefaultAccount(forceCreate: boolean = false): Promise<void> {
-    const hasDefaultAccount = accountManager.accounts.some(
-      a => a.index === 0 && a.network === preferenceManager.get().activeNetwork,
-    );
+    const activeNetwork = preferenceManager.get().activeNetwork;
+    let defaultAccountIndex = accountManager.accounts.findIndex(a => a.network === activeNetwork && a.index === 0);
 
-    if (forceCreate || !hasDefaultAccount) {
+    if (forceCreate || defaultAccountIndex === -1) {
       const defaultAccount = wallet.deriveAccount(0);
-      const activeAccountIndex = await accountManager.add(defaultAccount);
-      preferenceManager.get().activeAccountIndex = activeAccountIndex;
-      await preferenceManager.update({ activeAccountIndex: activeAccountIndex });
+      defaultAccountIndex = await accountManager.add(defaultAccount);
     }
+
+    preferenceManager.get().activeAccountIndex = defaultAccountIndex;
+    await preferenceManager.update({ activeAccountIndex: defaultAccountIndex });
   }
 }
 

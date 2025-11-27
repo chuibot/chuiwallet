@@ -1,13 +1,13 @@
 import type { Runtime } from 'webextension-polyfill';
 import type { Network } from '@extension/backend/src/types/electrum';
 import browser from 'webextension-polyfill';
+import { ChangeType } from '@extension/backend/src/types/cache';
 import { getSessionPassword, setSessionPassword } from '@extension/backend/dist/utils/sessionStorageHelper';
 import { preferenceManager } from '@extension/backend/src/preferenceManager';
 import { walletManager } from '@extension/backend/src/walletManager';
 import { accountManager } from '@extension/backend/src/accountManager';
-import { historyService } from '@extension/backend/src/modules/txHistoryService';
 import { scanManager } from '@extension/backend/src/scanManager';
-import { ChangeType } from '@extension/backend/src/types/cache';
+import { historyService } from '@extension/backend/src/modules/txHistoryService';
 
 type Handler = (params: unknown, sender: Runtime.MessageSender) => Promise<unknown> | unknown;
 
