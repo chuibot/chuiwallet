@@ -3,6 +3,7 @@ import { HashRouter } from 'react-router-dom';
 import '@src/index.css';
 import { App } from './00_App/App';
 import { WalletProvider } from './context/WalletContext';
+import { ErrorProvider } from './context/ErrorContext';
 
 function init() {
   const appContainer = document.querySelector('#app-container');
@@ -11,11 +12,13 @@ function init() {
   }
   const root = createRoot(appContainer);
   root.render(
-    <WalletProvider>
-      <HashRouter>
-        <App />
-      </HashRouter>
-    </WalletProvider>,
+    <ErrorProvider>
+      <WalletProvider>
+        <HashRouter>
+          <App />
+        </HashRouter>
+      </WalletProvider>
+    </ErrorProvider>,
   );
 }
 
