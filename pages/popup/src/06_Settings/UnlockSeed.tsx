@@ -30,11 +30,7 @@ export const UnlockSeed: React.FC = () => {
       }
     } catch (error) {
       console.error('Error verifying password:', error);
-      if (error instanceof Error) {
-        setErrorMsg(error.message);
-      } else {
-        setErrorMsg(ERROR_MESSAGES.SOMETHING_WENT_WRONG);
-      }
+      setErrorMsg(ERROR_MESSAGES.SOMETHING_WENT_WRONG);
     } finally {
       setLoading(false);
     }

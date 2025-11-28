@@ -7,14 +7,6 @@ export const ERROR_MESSAGES = {
   INCORRECT_PASSWORD: 'Incorrect password.',
   SOMETHING_WENT_WRONG: 'Something went wrong. Please try again.',
   PLEASE_ENTER_PASSWORD: 'Please enter your password.',
-  CONNECTION_LOST: 'Connection lost. Please refresh and try again.',
-};
-
-export const EXTENSION_ERRORS = {
-  CONTEXT_INVALIDATED: 'Extension context invalidated',
-  CONNECTION_ERROR: 'Could not establish connection',
-  PORT_CLOSED: 'message port closed',
-  NO_RECEIVER: 'Receiving end does not exist',
 };
 
 export const MIN_PASSWORD_LENGTH = 8;
