@@ -7,22 +7,46 @@ import NetworkSelector from '@src/components/NetworkSelector';
 import { useWalletContext } from '@src/context/WalletContext';
 import { useEffect, useState } from 'react';
 import { sendMessage } from '@src/utils/bridge';
+import { useBanner } from '@src/context/BannerContext';
+import { BANNER_DURATIONS, BANNER_TYPES, ERROR_MESSAGES } from '@src/constants';
+
+const isValidNetwork = (value: string): value is Network => {
+  const validNetworks = ['mainnet', 'testnet'];
+  return validNetworks.includes(value.toLowerCase());
+};
 
 export const AdvancedSettings: React.FC = () => {
   const navigate = useNavigate();
   const { preferences, setPreferences } = useWalletContext();
   const [localGap, setLocalGap] = useState<string>(preferences.gapLimitReceive.toString());
-  const displayNetwork = preferences?.activeNetwork === 'mainnet' ? 'Mainnet' : 'Testnet';
+  const { showBanner } = useBanner();
+  const displayNetwork = preferences?.activeNetwork === 'mainnet' ? 'Mainnet 123' : 'Testnet 123';
 
   useEffect(() => {
     setLocalGap(preferences.gapLimitReceive.toString());
   }, [preferences]);
 
   const networkChanged = async (selected: string) => {
-    const selectedNetwork = selected.toLowerCase() as Network;
-    await sendMessage('wallet.switchNetwork', { network: selectedNetwork });
-    preferences.activeNetwork = selectedNetwork;
-    setPreferences(preferences);
+    const selectedNetwork = selected.toLowerCase();
+
+    if (!isValidNetwork(selectedNetwork)) {
+      showBanner(ERROR_MESSAGES.INVALID_NETWORK_SELECTED, BANNER_TYPES.ERROR, BANNER_DURATIONS.ERROR);
+      return;
+    }
+
+    try {
+      await sendMessage('wallet.switchNetwork', { network: selectedNetwork });
+      preferences.activeNetwork = selectedNetwork;
+      setPreferences(preferences);
+      showBanner(
+        `Switched to ${selectedNetwork.charAt(0).toUpperCase() + selectedNetwork.slice(1)}`,
+        BANNER_TYPES.SUCCESS,
+        BANNER_DURATIONS.SUCCESS,
+      );
+    } catch (error) {
+      console.error('Error switching network:', error);
+      showBanner(ERROR_MESSAGES.NETWORK_SWITCH_FAILED, BANNER_TYPES.ERROR, BANNER_DURATIONS.ERROR);
+    }
   };
 
   return (

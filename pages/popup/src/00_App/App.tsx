@@ -24,7 +24,7 @@ import { SendStatus } from '@src/08_Send/[currency]/SendStatus';
 import { Accounts } from '@src/09_Accounts/Accounts';
 import { useWalletContext } from '@src/context/WalletContext';
 import Xpub from '@src/06_Settings/Xpub';
-import { ErrorBanner } from '@src/components/ErrorBanner';
+import { Banner } from '@src/components/Banner';
 
 export const App: React.FC = () => {
   const { onboarded, unlocked } = useWalletContext();
@@ -46,7 +46,7 @@ export const App: React.FC = () => {
 
   return (
     <>
-      <ErrorBanner />
+      <Banner />
       <Routes>
         {onboarded ? (
           unlocked ? (
