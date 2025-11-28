@@ -24,6 +24,7 @@ import { SendStatus } from '@src/08_Send/[currency]/SendStatus';
 import { Accounts } from '@src/09_Accounts/Accounts';
 import { useWalletContext } from '@src/context/WalletContext';
 import Xpub from '@src/06_Settings/Xpub';
+import { ErrorBanner } from '@src/components/ErrorBanner';
 
 export const App: React.FC = () => {
   const { onboarded, unlocked } = useWalletContext();
@@ -44,42 +45,45 @@ export const App: React.FC = () => {
   }
 
   return (
-    <Routes>
-      {onboarded ? (
-        unlocked ? (
-          <>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-          </>
+    <>
+      <ErrorBanner />
+      <Routes>
+        {onboarded ? (
+          unlocked ? (
+            <>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+            </>
+          ) : (
+            <Route path="*" element={<PasswordLock />} />
+          )
         ) : (
-          <Route path="*" element={<PasswordLock />} />
-        )
-      ) : (
-        <Route path="/" element={<Navigate to="/onboard/set-password" replace />} />
-      )}
-      <Route path="/onboard/set-password" element={<SetPassword />} />
-      <Route path="/onboard/choose-method" element={<ChooseMethod />} />
-      <Route path="/onboard/restore-seed" element={<RestoreSeed />} />
-      <Route path="/onboard/generate-seed" element={<GenerateSeed />} />
-      <Route path="/onboard/backup-seed" element={<BackupSeed />} />
-      <Route path="/onboard/verify-seed" element={<VerifySeed />} />
-      <Route path="/onboard/complete" element={<Complete />} />
-      <Route path="/dashboard" element={<Dashboard />} />
-      <Route path="/dashboard/:currency/activity" element={<Activity />} />
-      <Route path="/dashboard/:currency/activity/:txnHash/detail" element={<TransactionDetail />} />
-      <Route path="/send/:currency" element={<Send />} />
-      <Route path="/send/:currency/options" element={<SendOptions />} />
-      <Route path="/send/:currency/preview" element={<SendPreview />} />
-      <Route path="/send/:currency/status" element={<SendStatus />} />
-      <Route path="/receive/:currency" element={<Receive />} />
-      <Route path="/settings" element={<Settings />} />
-      <Route path="/settings/advanced" element={<AdvancedSettings />} />
-      <Route path="/settings/advanced/unlock-seed" element={<UnlockSeed />} />
-      <Route path="/settings/advanced/reveal-seed" element={<RevealSeed />} />
-      <Route path="/settings/advanced/xpub" element={unlocked ? <Xpub /> : <PasswordLock />} />
-      <Route path="/accounts" element={<Accounts />} />
-      <Route path="/locked" element={<PasswordLock />} />
-    </Routes>
+          <Route path="/" element={<Navigate to="/onboard/set-password" replace />} />
+        )}
+        <Route path="/onboard/set-password" element={<SetPassword />} />
+        <Route path="/onboard/choose-method" element={<ChooseMethod />} />
+        <Route path="/onboard/restore-seed" element={<RestoreSeed />} />
+        <Route path="/onboard/generate-seed" element={<GenerateSeed />} />
+        <Route path="/onboard/backup-seed" element={<BackupSeed />} />
+        <Route path="/onboard/verify-seed" element={<VerifySeed />} />
+        <Route path="/onboard/complete" element={<Complete />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/dashboard/:currency/activity" element={<Activity />} />
+        <Route path="/dashboard/:currency/activity/:txnHash/detail" element={<TransactionDetail />} />
+        <Route path="/send/:currency" element={<Send />} />
+        <Route path="/send/:currency/options" element={<SendOptions />} />
+        <Route path="/send/:currency/preview" element={<SendPreview />} />
+        <Route path="/send/:currency/status" element={<SendStatus />} />
+        <Route path="/receive/:currency" element={<Receive />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/settings/advanced" element={<AdvancedSettings />} />
+        <Route path="/settings/advanced/unlock-seed" element={<UnlockSeed />} />
+        <Route path="/settings/advanced/reveal-seed" element={<RevealSeed />} />
+        <Route path="/settings/advanced/xpub" element={unlocked ? <Xpub /> : <PasswordLock />} />
+        <Route path="/accounts" element={<Accounts />} />
+        <Route path="/locked" element={<PasswordLock />} />
+      </Routes>
+    </>
   );
 };
 
