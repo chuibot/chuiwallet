@@ -1,4 +1,4 @@
-export const ERRORS = {
+export const ERROR_MESSAGES = {
   PLEASE_ACCEPT_TERMS: 'Please accept the terms.',
   PASSWORDS_DO_NOT_MATCH: 'Passwords do not match.',
   PLEASE_CHOOSE_STRONGER_PASSWORD: 'Please choose a stronger password.',

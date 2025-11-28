@@ -5,7 +5,7 @@ import { TermsCheckbox } from '../components/TermsCheckbox';
 import { Button } from '@src/components/Button';
 import { getPasswordStrength } from '@src/utils';
 import { setSessionPassword } from '@extension/backend/dist/utils/sessionStorageHelper';
-import { ERRORS, MIN_PASSWORD_LENGTH } from '@src/constants';
+import { ERROR_MESSAGES, MIN_PASSWORD_LENGTH } from '@src/constants';
 
 export const SetPassword: React.FC = () => {
   const navigate = useNavigate();
@@ -28,27 +28,27 @@ export const SetPassword: React.FC = () => {
     setNoMatchMsg('');
 
     if (!password) {
-      setErrorMsg(ERRORS.PASSWORD_REQUIRED);
+      setErrorMsg(ERROR_MESSAGES.PASSWORD_REQUIRED);
       return;
     }
 
     if (password.length < MIN_PASSWORD_LENGTH) {
-      setErrorMsg(ERRORS.PASSWORD_TOO_SHORT);
+      setErrorMsg(ERROR_MESSAGES.PASSWORD_TOO_SHORT);
       return;
     }
 
     if (password !== confirmPassword) {
-      setNoMatchMsg(ERRORS.PASSWORDS_DO_NOT_MATCH);
+      setNoMatchMsg(ERROR_MESSAGES.PASSWORDS_DO_NOT_MATCH);
       return;
     }
 
     if (passwordStrength !== 'strong') {
-      setErrorMsg(ERRORS.PLEASE_CHOOSE_STRONGER_PASSWORD);
+      setErrorMsg(ERROR_MESSAGES.PLEASE_CHOOSE_STRONGER_PASSWORD);
       return;
     }
 
     if (!termsAccepted) {
-      setErrorMsg(ERRORS.PLEASE_ACCEPT_TERMS);
+      setErrorMsg(ERROR_MESSAGES.PLEASE_ACCEPT_TERMS);
       return;
     }
     await setSessionPassword(password);
@@ -57,7 +57,7 @@ export const SetPassword: React.FC = () => {
 
   const handlePasswordConfirmation = (passwordConfirmation: string) => {
     if (passwordConfirmation !== password) {
-      setNoMatchMsg(ERRORS.PASSWORDS_DO_NOT_MATCH);
+      setNoMatchMsg(ERROR_MESSAGES.PASSWORDS_DO_NOT_MATCH);
     } else {
       setNoMatchMsg('');
     }
