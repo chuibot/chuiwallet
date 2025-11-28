@@ -20,7 +20,7 @@ export const AdvancedSettings: React.FC = () => {
   const { preferences, setPreferences } = useWalletContext();
   const [localGap, setLocalGap] = useState<string>(preferences.gapLimitReceive.toString());
   const { showBanner } = useBanner();
-  const displayNetwork = preferences?.activeNetwork === 'mainnet' ? 'Mainnet 123' : 'Testnet 123';
+  const displayNetwork = preferences?.activeNetwork === 'mainnet' ? 'Mainnet' : 'Testnet';
 
   useEffect(() => {
     setLocalGap(preferences.gapLimitReceive.toString());
