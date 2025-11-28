@@ -1,0 +1,8 @@
+<svg width="78" height="78" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Circle -->
+  <circle cx="10" cy="10" r="8" stroke="#ffffff" stroke-width="1.5" fill="none"/>
+  <!-- i dot -->
+  <circle cx="10" cy="6.5" r="1.2" fill="#ffffff"/>
+  <!-- i stem -->
+  <rect x="9" y="9" width="2" height="6" fill="#ffffff"/>
+</svg>
