@@ -1,25 +1,14 @@
-// 1) Inject the inpage script so it runs in the page world
+import type { RpcErrorResponse, RpcRequest, RpcResponse } from '@src/background/router/rpc';
+
 function addChuiToPage() {
-  console.log('try');
   const inpage = document.createElement('script');
-  inpage.src = chrome.runtime.getURL('chuiProvider.ts');
+  inpage.src = chrome.runtime.getURL('inpage/chuiProvider.js');
   inpage.id = 'chui-provider';
   document.body.appendChild(inpage);
 }
 
 requestAnimationFrame(() => addChuiToPage());
 
-// function addLeatherToPage() {
-//   const inpage = document.createElement('script');
-//   inpage.src = chrome.runtime.getURL('inpage.js');
-//   inpage.id = 'leather-provider';
-//   document.body.appendChild(inpage);
-// }
-//
-// // Don't block thread to add Leather to page
-// requestAnimationFrame(() => addLeatherToPage());
-
-// 2) Bridge page <-> background
 window.addEventListener('message', event => {
   if (
     event.source !== window ||
@@ -30,36 +19,34 @@ window.addEventListener('message', event => {
     return;
   }
 
-  const { id, method, params } = event.data;
-
+  const rpcRequest = event.data.payload as RpcRequest;
   chrome.runtime.sendMessage(
     {
-      type: 'CHUI_BTC_RPC_REQUEST',
-      method,
-      params,
+      type: 'PROVIDER_RPC',
+      params: rpcRequest,
       origin: window.location.origin,
     },
     response => {
-      if (chrome.runtime.lastError) {
-        window.postMessage(
-          {
-            source: 'chui-content-script',
-            type: 'CHUI_BTC_RPC_RESPONSE',
-            id,
-            error: chrome.runtime.lastError.message,
+      let rpcResponse: RpcResponse;
+
+      if (chrome.runtime.lastError || !response) {
+        rpcResponse = {
+          jsonrpc: '2.0',
+          id: rpcRequest.id,
+          error: {
+            code: -32000,
+            message: chrome.runtime.lastError?.message ?? 'Extension transport error',
           },
-          '*',
-        );
-        return;
+        } as RpcErrorResponse;
+      } else {
+        rpcResponse = response;
       }
 
       window.postMessage(
         {
           source: 'chui-content-script',
           type: 'CHUI_BTC_RPC_RESPONSE',
-          id,
-          result: response?.result ?? null,
-          error: response?.error ?? null,
+          payload: rpcResponse,
         },
         '*',
       );

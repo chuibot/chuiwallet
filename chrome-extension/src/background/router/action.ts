@@ -1,8 +1,9 @@
 import type { Runtime } from 'webextension-polyfill';
 import type { Network } from '@extension/backend/src/types/electrum';
+import type { RouterAction } from '@src/background/router/index';
 import browser from 'webextension-polyfill';
 import { ChangeType } from '@extension/backend/src/types/cache';
-import { getSessionPassword, setSessionPassword } from '@extension/backend/dist/utils/sessionStorageHelper';
+import { getSessionPassword, setSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
 import { preferenceManager } from '@extension/backend/src/preferenceManager';
 import { walletManager } from '@extension/backend/src/walletManager';
 import { accountManager } from '@extension/backend/src/accountManager';
@@ -12,7 +13,7 @@ import { historyService } from '@extension/backend/src/modules/txHistoryService'
 type Handler = (params: unknown, sender: Runtime.MessageSender) => Promise<unknown> | unknown;
 
 const handlers: Record<string, Handler> = {
-  'wallet.exist': async () => {
+  'wallet.exist': () => {
     return walletManager.isRestorable();
   },
   'wallet.restore': async () => {
@@ -89,14 +90,13 @@ const handlers: Record<string, Handler> = {
   },
 };
 
-export type RouterMessage = { action: string; params?: unknown };
 export type RouterResponse =
   | { status: 'ok'; data: unknown }
   | { status: 'error'; error: { code: string; message: string } };
 
-export async function handle(message: RouterMessage, sender: Runtime.MessageSender): Promise<RouterResponse> {
+export async function handle(message: RouterAction, sender: Runtime.MessageSender): Promise<RouterResponse> {
   try {
-    const fn = handlers[message.action];
+    const fn = handlers[message.action!];
     if (!fn)
       return { status: 'error', error: { code: 'METHOD_NOT_FOUND', message: `Method not found: ${message.action}` } };
     const data = await fn(message.params, sender);
