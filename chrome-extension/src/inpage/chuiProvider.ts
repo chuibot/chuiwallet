@@ -3,6 +3,7 @@
     return;
   }
 
+  console.log('injecting ...');
   window.ChuiWalletProvider = {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     request: async function (method, params) {
