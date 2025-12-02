@@ -29,6 +29,7 @@ const NetworkSelector: React.FC<NetworkSelectorProps> = ({
     if (onChange) {
       await onChange(selected);
     }
+    // TODO: Add logic and UI for if switching networks fails
 
     // Simulate minimum loading time for smooth UX
     await new Promise(resolve => setTimeout(resolve, 500));
