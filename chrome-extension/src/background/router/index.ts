@@ -1,14 +1,12 @@
-import browser, { Runtime } from 'webextension-polyfill';
-import MessageSender = Runtime.MessageSender;
+import type { RpcRequest } from '@src/background/router/rpc';
 import { handle as handleAction } from '@src/background/router/action';
 import { handle as handleRpc } from '@src/background/router/rpc';
+import browser, { Runtime } from 'webextension-polyfill';
+import MessageSender = Runtime.MessageSender;
 
-export type RouterAction = {
-  type: 'POPUP_ACTION' | 'PROVIDER_RPC';
-  action?: string;
-  params?: object;
-  origin?: string;
-};
+export type RouterAction = PopupAction | ProviderRpc;
+export type PopupAction = { type: 'POPUP_ACTION'; action: string; params?: unknown };
+export type ProviderRpc = { type: 'PROVIDER_RPC'; params: RpcRequest; origin: string };
 
 function isRouterAction(message: unknown): message is RouterAction {
   return (

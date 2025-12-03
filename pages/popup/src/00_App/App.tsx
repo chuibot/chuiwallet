@@ -24,6 +24,7 @@ import { SendStatus } from '@src/08_Send/[currency]/SendStatus';
 import { Accounts } from '@src/09_Accounts/Accounts';
 import { useWalletContext } from '@src/context/WalletContext';
 import Xpub from '@src/06_Settings/Xpub';
+import { ProviderApproval } from '@src/provider/Approval';
 
 export const App: React.FC = () => {
   const { onboarded, unlocked } = useWalletContext();
@@ -79,6 +80,7 @@ export const App: React.FC = () => {
       <Route path="/settings/advanced/xpub" element={unlocked ? <Xpub /> : <PasswordLock />} />
       <Route path="/accounts" element={<Accounts />} />
       <Route path="/locked" element={<PasswordLock />} />
+      <Route path="/provider/approve" element={<ProviderApproval />} />
     </Routes>
   );
 };
