@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-import Splash from '@src/01_Splash/Splash';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { SetPassword } from '@src/02_SetPassword/SetPassword';
 import { RestoreSeed } from '@src/03_CreateWallet/RestoreSeed';
 import { ChooseMethod } from '@src/03_CreateWallet/ChooseMethod';
@@ -23,8 +22,22 @@ import { SendPreview } from '@src/08_Send/[currency]/SendPreview';
 import { SendStatus } from '@src/08_Send/[currency]/SendStatus';
 import { Accounts } from '@src/09_Accounts/Accounts';
 import { useWalletContext } from '@src/context/WalletContext';
-import Xpub from '@src/06_Settings/Xpub';
+import { ProviderApproval } from '@src/provider/Approval';
 import { ErrorBanner } from '@src/components/ErrorBanner';
+import Xpub from '@src/06_Settings/Xpub';
+import Splash from '@src/01_Splash/Splash';
+
+const RequireUnlocked: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { unlocked } = useWalletContext();
+  const location = useLocation();
+
+  if (!unlocked) {
+    const next = encodeURIComponent(location.pathname + location.search);
+    return <Navigate to={`/locked?next=${next}`} replace />;
+  }
+
+  return <>{children}</>;
+};
 
 export const App: React.FC = () => {
   const { onboarded, unlocked } = useWalletContext();
@@ -60,6 +73,16 @@ export const App: React.FC = () => {
         ) : (
           <Route path="/" element={<Navigate to="/onboard/set-password" replace />} />
         )}
+
+        <Route
+          path="/provider/approve"
+          element={
+            <RequireUnlocked>
+              <ProviderApproval />
+            </RequireUnlocked>
+          }
+        />
+
         <Route path="/onboard/set-password" element={<SetPassword />} />
         <Route path="/onboard/choose-method" element={<ChooseMethod />} />
         <Route path="/onboard/restore-seed" element={<RestoreSeed />} />
