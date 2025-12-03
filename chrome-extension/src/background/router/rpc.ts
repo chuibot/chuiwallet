@@ -55,7 +55,7 @@ chrome.windows.onRemoved.addListener(windowId => {
   for (const [approvalId, item] of pendingApprovals.entries()) {
     if (item.windowId === windowId) {
       pendingApprovals.delete(approvalId);
-      item.reject('User rejected');
+      item.resolve(false);
     }
   }
 });
@@ -81,7 +81,7 @@ export function rejectApproval(approvalId: number, reason: string) {
   const item = pendingApprovals.get(approvalId);
   if (!item) return;
   pendingApprovals.delete(approvalId);
-  item.reject(reason);
+  item.resolve(false);
 }
 
 async function requestUserApproval(origin: string, rpc: RpcRequest): Promise<boolean> {
