@@ -55,7 +55,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
             </svg>
           </div>
         ) : (
-          <span className="self-stretch my-auto w-full text-left text-foreground-1 text-white font-normal">
+          <span className="self-stretch my-auto w-full text-left text-foreground-1 text-white font-normal py-0.5">
             {selected ?? label}
           </span>
         )}
