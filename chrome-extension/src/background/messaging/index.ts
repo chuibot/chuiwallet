@@ -1,11 +1,11 @@
-import type { RpcRequest } from '@src/background/router/rpc';
-import { handle as handleAction } from '@src/background/router/action';
-import { handle as handleRpc } from '@src/background/router/rpc';
+import type { RpcRequest } from '@src/background/messaging/rpc';
+import { handle as handleAction } from '@src/background/messaging/action';
+import { handle as handleRpc } from '@src/background/messaging/rpc';
 import browser, { Runtime } from 'webextension-polyfill';
 import MessageSender = Runtime.MessageSender;
 
-export type RouterAction = PopupAction | ProviderRpc;
-export type PopupAction = { type: 'POPUP_ACTION'; action: string; params?: unknown };
+export type RouterAction = AppAction | ProviderRpc;
+export type AppAction = { type: 'APP_ACTION'; action: string; params?: unknown };
 export type ProviderRpc = { type: 'PROVIDER_RPC'; params: RpcRequest; origin: string };
 
 function isRouterAction(message: unknown): message is RouterAction {
@@ -13,7 +13,7 @@ function isRouterAction(message: unknown): message is RouterAction {
     typeof message === 'object' &&
     message !== null &&
     'type' in message &&
-    ((message as RouterAction).type === 'POPUP_ACTION' || (message as RouterAction).type === 'PROVIDER_RPC')
+    ((message as RouterAction).type === 'APP_ACTION' || (message as RouterAction).type === 'PROVIDER_RPC')
   );
 }
 
@@ -31,7 +31,7 @@ export function registerMessageRouter() {
     }
 
     switch (message.type) {
-      case 'POPUP_ACTION':
+      case 'APP_ACTION':
         return handleAction(message, sender);
       case 'PROVIDER_RPC':
         return handleRpc(message, sender);
