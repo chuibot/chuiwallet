@@ -1,10 +1,15 @@
 import { useEffect, useRef } from 'react';
 
+type ChuiPortEvent = {
+  type: string;
+  status?: string;
+};
+
 export function useChuiEvents(handlers: {
-  onSnapshot?: (d: any) => void;
-  onBalance?: (e: any) => void;
-  onTx?: (e: any) => void;
-  onConnection?: (e: any) => void;
+  onSnapshot?: (d: ChuiPortEvent) => void;
+  onBalance?: (e: ChuiPortEvent) => void;
+  onTx?: (e: ChuiPortEvent) => void;
+  onConnection?: (e: ChuiPortEvent) => void;
 }) {
   const portRef = useRef<chrome.runtime.Port | null>(null);
 
@@ -16,7 +21,7 @@ export function useChuiEvents(handlers: {
       console.log('Port Received', msg);
       if (msg.type === 'BALANCE') handlers.onBalance?.(msg);
       else if (msg.type === 'TX') handlers.onTx?.(msg);
-      else if (msg.type === 'CONNECTION') handlers.onConnection?.(msg);
+      else if (msg.type === 'CONNECTION') handlers.onConnection?.({ type: msg.type, status: msg.status });
     });
 
     const keepAlive = setInterval(() => port.postMessage({ type: 'PING' }), 45_000);

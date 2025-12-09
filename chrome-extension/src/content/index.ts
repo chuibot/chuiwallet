@@ -1,4 +1,4 @@
-import type { RpcErrorResponse, RpcRequest, RpcResponse } from '@src/background/router/rpc';
+import type { RpcErrorResponse, RpcRequest, RpcResponse } from '@src/background/messaging/rpc';
 
 function addChuiToPage() {
   const inpage = document.createElement('script');
