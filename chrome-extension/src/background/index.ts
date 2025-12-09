@@ -14,12 +14,26 @@ import browser from 'webextension-polyfill';
 
 bitcoin.initEccLib(secp256k1);
 
+let electrumReconnecting = false;
+
 async function init() {
   await preferenceManager.init();
   await walletManager.init();
   await electrumService.init(preferenceManager.get().activeNetwork);
   electrumService.onStatus.on(update => {
     emitConnection(update.status, update.detail);
+    if (update.status === 'disconnected' && !electrumReconnecting) {
+      electrumReconnecting = true;
+      void (async () => {
+        try {
+          await electrumService.connect();
+        } catch (err) {
+          logger.error('Electrum reconnect failed', err);
+        } finally {
+          electrumReconnecting = false;
+        }
+      })();
+    }
   });
   await electrumService.connect();
   await accountManager.init(preferenceManager.get().activeAccountIndex);
