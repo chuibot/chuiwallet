@@ -18,7 +18,6 @@ export function useChuiEvents(handlers: {
     portRef.current = port;
 
     port.onMessage.addListener((msg: ChuiPortEvent) => {
-      console.log('Port Received', msg);
       if (msg.type === 'BALANCE') handlers.onBalance?.(msg);
       else if (msg.type === 'TX') handlers.onTx?.(msg);
       else if (msg.type === 'CONNECTION') handlers.onConnection?.({ type: msg.type, status: msg.status });
