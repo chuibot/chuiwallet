@@ -1,4 +1,4 @@
-import type { RpcErrorObject } from '@src/background/router/rpc';
+import type { RpcErrorObject } from '@src/background/messaging/rpc';
 
 export interface ChuiWalletProvider {
   isChui: boolean;

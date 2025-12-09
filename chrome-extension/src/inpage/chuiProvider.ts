@@ -1,5 +1,5 @@
 import type { BtcProviderInfo, ChuiWalletProvider } from '@src/inpage/types';
-import type { RpcRequest, RpcResponse, RpcSuccessResponse } from '@src/background/router/rpc';
+import type { RpcRequest, RpcResponse, RpcSuccessResponse } from '@src/background/messaging/rpc';
 import { ChuiRpcError } from '@src/inpage/types';
 import { providerInfo } from '@src/inpage/meta';
 

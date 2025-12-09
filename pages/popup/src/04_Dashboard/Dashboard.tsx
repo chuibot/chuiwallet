@@ -23,7 +23,6 @@ export const Dashboard: React.FC = () => {
   };
 
   React.useEffect(() => {
-    console.log('getting new balances..');
     refreshBalance();
   }, []);
 

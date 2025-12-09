@@ -1,13 +1,14 @@
 import * as bitcoin from 'bitcoinjs-lib';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
-import type { ConnectionStatus } from '@extension/backend/src/types/electrum';
 import { preferenceManager } from '@extension/backend/src/preferenceManager';
 import { walletManager } from '@extension/backend/src/walletManager';
 import { accountManager } from '@extension/backend/src/accountManager';
 import { electrumService } from '@extension/backend/src/modules/electrumService';
 import { logger } from '@extension/backend/src/utils/logger';
 import { scanManager } from '@extension/backend/src/scanManager';
-import { registerMessageRouter } from '@src/background/router';
+import { registerMessageRouter } from '@src/background/messaging';
+import { emitBalance, emitConnection, registerMessagePort } from '@src/background/messaging/port';
+import type { ScanEvent } from '@extension/backend/src/types/cache';
 import { ChangeType } from '@extension/backend/src/types/cache';
 import browser from 'webextension-polyfill';
 
@@ -18,12 +19,20 @@ async function init() {
   await walletManager.init();
   await electrumService.init(preferenceManager.get().activeNetwork);
   electrumService.onStatus.on(update => {
-    onConnection(update.status, update.detail);
+    emitConnection(update.status, update.detail);
   });
   await electrumService.connect();
   await accountManager.init(preferenceManager.get().activeAccountIndex);
   if (accountManager.activeAccountIndex >= 0) {
     await scanManager.init();
+    scanManager.onStatus.on(async (event: ScanEvent) => {
+      if (event.historyChanged || event.utxoChanged) {
+        console.log('Scan Event: ', event);
+      }
+      if (event.utxoChanged) {
+        emitBalance(accountManager.activeAccountIndex, await walletManager.getBalance());
+      }
+    });
     await allScan();
   }
 }
@@ -35,48 +44,7 @@ async function init() {
 })();
 
 registerMessageRouter();
-
-const ports = new Set();
-browser.runtime.onConnect.addListener(port => {
-  if (port.name !== 'chui-app') return;
-  console.log('Adding port', port);
-  ports.add(port);
-
-  port.postMessage({ type: 'SNAPSHOT', data: 'this is from snapshot' });
-  onConnection(electrumService.status);
-
-  port.onDisconnect.addListener(() => {
-    ports.delete(port);
-    // if (ports.size === 0) stopScanner();
-  });
-
-  port.onMessage.addListener(msg => {
-    if (msg.type === 'PING') port.postMessage({ type: 'PONG', t: Date.now() });
-  });
-});
-
-function broadcast(payload: any) {
-  for (const p of ports) {
-    try {
-      p.postMessage(payload);
-    } catch {
-      /* empty */
-    }
-  }
-}
-
-// Wire your Electrum scan callbacks to broadcast:
-function onConnection(status: ConnectionStatus, detail?: string) {
-  broadcast({ type: 'CONNECTION', status, detail, ts: Date.now() });
-}
-
-function onBalance(accountIndex: number, sat: number, fiat?: number) {
-  broadcast({ type: 'BALANCE', accountIndex, sat, fiat, ts: Date.now() });
-}
-
-function onTx(accountIndex: number, tx: any) {
-  broadcast({ type: 'TX', accountIndex, tx, ts: Date.now() });
-}
+registerMessagePort();
 
 async function allScan() {
   if (accountManager.activeAccountIndex >= 0) {
