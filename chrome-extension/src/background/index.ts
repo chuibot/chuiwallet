@@ -7,7 +7,8 @@ import { electrumService } from '@extension/backend/src/modules/electrumService'
 import { logger } from '@extension/backend/src/utils/logger';
 import { scanManager } from '@extension/backend/src/scanManager';
 import { registerMessageRouter } from '@src/background/messaging';
-import { emitConnection, registerMessagePort } from '@src/background/messaging/port';
+import { emitBalance, emitConnection, registerMessagePort } from '@src/background/messaging/port';
+import type { ScanEvent } from '@extension/backend/src/types/cache';
 import { ChangeType } from '@extension/backend/src/types/cache';
 import browser from 'webextension-polyfill';
 
@@ -24,6 +25,14 @@ async function init() {
   await accountManager.init(preferenceManager.get().activeAccountIndex);
   if (accountManager.activeAccountIndex >= 0) {
     await scanManager.init();
+    scanManager.onStatus.on(async (event: ScanEvent) => {
+      if (event.historyChanged || event.utxoChanged) {
+        console.log('Scan Event: ', event);
+      }
+      if (event.utxoChanged) {
+        emitBalance(accountManager.activeAccountIndex, await walletManager.getBalance());
+      }
+    });
     await allScan();
   }
 }

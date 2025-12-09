@@ -30,3 +30,10 @@ export enum ScriptType {
   P2WPKH = 'p2wpkh' /** Native SegWit Bech32 (P2WPKH, BIP-84) */,
   P2TR = 'p2tr' /** Taproot (P2TR, BIP-86) */,
 }
+
+export interface Balance {
+  confirmed: number;
+  unconfirmed: number;
+  confirmedUsd: number;
+  unconfirmedUsd: number;
+}

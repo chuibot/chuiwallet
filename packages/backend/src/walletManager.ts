@@ -20,6 +20,7 @@ import { getBitcoinPrice } from './modules/blockonomics';
 import { scriptTypeFromAddress } from './utils/crypto';
 import { deleteSessionPassword, getSessionPassword } from './utils/sessionStorageHelper';
 import { historyService } from './modules/txHistoryService';
+import { Balance } from './types/wallet';
 
 bitcoin.initEccLib(secp256k1);
 
@@ -90,12 +91,7 @@ export class WalletManager {
    * Aggregate confirmed/unconfirmed balance for the active account by summing UTXOs
    * from both external(0/receive) and internal(1/change) chains.
    */
-  public async getBalance(): Promise<{
-    confirmed: number;
-    unconfirmed: number;
-    confirmedUsd: number;
-    unconfirmedUsd: number;
-  }> {
+  public async getBalance(): Promise<Balance> {
     const activeAccount = accountManager.getActiveAccount();
     if (!activeAccount) {
       return { confirmed: 0, unconfirmed: 0, confirmedUsd: 0, unconfirmedUsd: 0 };
@@ -214,7 +210,7 @@ export class WalletManager {
       getPrevTxHex: (txid: string) => electrumService.getRawTransaction(txid), // Todo: only used for legacy P2PKH, consider depracation
     });
     const txHex = wallet.signPsbt(selectedUtxo.inputs, psbt);
-    console.log('Send TX Hex', txHex);
+    logger.log('Send TX Hex', txHex);
     return await electrumService.broadcastTx(txHex!);
   }
 

@@ -1,13 +1,14 @@
-import type { ConnectionStatus } from '@extension/backend/dist/types/electrum';
 import browser from 'webextension-polyfill';
-import { electrumService } from '@extension/backend/dist/modules/electrumService';
+import type { ConnectionStatus } from '@extension/backend/src/types/electrum';
+import type { Balance } from '@extension/backend/src/types/wallet';
+import { electrumService } from '@extension/backend/src/modules/electrumService';
 
 type ChuiPortListeningMessage = { type: 'PING' };
 
 type ChuiPortBroadcastMessage =
   | { type: 'SNAPSHOT'; data: unknown }
   | { type: 'CONNECTION'; status: ConnectionStatus; detail?: string; ts: number }
-  | { type: 'BALANCE'; accountIndex: number; sat: number; fiat?: number; ts: number }
+  | { type: 'BALANCE'; accountIndex: number; balance: Balance; ts: number }
   | { type: 'TX'; accountIndex: number; tx: unknown; ts: number }
   | { type: 'PONG'; t: number };
 
@@ -44,8 +45,8 @@ export function emitConnection(status: ConnectionStatus, detail?: string) {
   broadcast({ type: 'CONNECTION', status, detail, ts: Date.now() });
 }
 
-export function emitBalance(accountIndex: number, sat: number, fiat?: number) {
-  broadcast({ type: 'BALANCE', accountIndex, sat, fiat, ts: Date.now() });
+export function emitBalance(accountIndex: number, balance: Balance) {
+  broadcast({ type: 'BALANCE', accountIndex, balance, ts: Date.now() });
 }
 
 export function emitTx(accountIndex: number, tx: any) {
