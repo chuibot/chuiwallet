@@ -1,20 +1,21 @@
 import * as React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { InputField } from '@src/components/InputField';
 import { Button } from '@src/components/Button';
-import { setSessionPassword } from '@extension/backend/dist/utils/sessionStorageHelper';
+import { setSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
 import { useWalletContext } from '@src/context/WalletContext';
 
 export const PasswordLock: React.FC = () => {
   const navigate = useNavigate();
-  // const location = useLocation();
+  const location = useLocation();
+
   const [password, setPassword] = React.useState('');
   const [errorMsg, setErrorMsg] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const { init } = useWalletContext();
 
-  // const params = new URLSearchParams(location.search);
-  // const redirectToXpub = params.get('redirectToXpub') === 'true';
+  const params = new URLSearchParams(location.search);
+  const next = params.get('next') || '/dashboard';
 
   const handleUnlock = async () => {
     setErrorMsg('');
@@ -28,8 +29,8 @@ export const PasswordLock: React.FC = () => {
 
     try {
       await setSessionPassword(password);
-      init();
-      navigate('/dashboard');
+      await init();
+      navigate(next, { replace: true });
     } catch (err) {
       console.error(err);
       setErrorMsg('An error occurred. Please try again.');

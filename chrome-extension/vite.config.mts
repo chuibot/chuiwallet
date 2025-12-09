@@ -1,15 +1,15 @@
 import { resolve } from 'node:path';
 import { defineConfig, type PluginOption } from 'vite';
-import libAssetsPlugin from '@laynezh/vite-plugin-lib-assets';
-import makeManifestPlugin from './utils/plugins/make-manifest-plugin';
+import makeManifestPlugin from './plugins/make-manifest-plugin';
 import { watchPublicPlugin, watchRebuildPlugin } from '@extension/hmr';
-import { isDev, isProduction, watchOption } from '@extension/vite-config';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
+import libAssetsPlugin from '@laynezh/vite-plugin-lib-assets';
+import { isDev, isProduction, watchOption } from '@extension/vite-config';
 
 const rootDir = resolve(__dirname);
 const srcDir = resolve(rootDir, 'src');
-
 const outDir = resolve(rootDir, '..', 'dist');
+const publicDir = resolve(rootDir, 'public');
 export default defineConfig({
   resolve: {
     alias: {
@@ -26,26 +26,17 @@ export default defineConfig({
     makeManifestPlugin({ outDir }),
     isDev && watchRebuildPlugin({ reload: true, id: 'chrome-extension-hmr' }),
     nodePolyfills({
-      // Specific modules that should not be polyfilled.
       exclude: [],
-      // Whether to polyfill specific globals.
       globals: {
-        Buffer: true, // can also be 'build', 'dev', or false
+        Buffer: true,
         global: true,
         process: true,
       },
-      // Whether to polyfill `node:` protocol imports.
       protocolImports: true,
     }) as PluginOption,
   ],
-  publicDir: resolve(rootDir, 'public'),
+  publicDir,
   build: {
-    lib: {
-      formats: ['iife'],
-      entry: resolve(__dirname, 'src/background/index.ts'),
-      name: 'BackgroundScript',
-      fileName: 'background',
-    },
     outDir,
     emptyOutDir: false,
     sourcemap: isDev,
@@ -53,6 +44,19 @@ export default defineConfig({
     reportCompressedSize: isProduction,
     watch: watchOption,
     rollupOptions: {
+      input: {
+        background: resolve(__dirname, 'src/background/index.ts'),
+        content: resolve(__dirname, 'src/content/index.ts'),
+        inpage: resolve(__dirname, 'src/inpage/chuiProvider.ts'),
+      },
+      output: {
+        entryFileNames(chunk) {
+          if (chunk.name === 'background') return 'background.js';
+          if (chunk.name === 'content') return 'content/index.js';
+          if (chunk.name === 'inpage') return 'inpage/chuiProvider.js';
+          return 'assets/[name].js';
+        },
+      },
       external: ['chrome'],
     },
   },

@@ -5,7 +5,7 @@ import type { BalanceData, Preferences } from '@src/types';
 import type { Account } from '@extension/backend/src/types/wallet';
 import type { TxEntry } from '@extension/backend/src/types/cache';
 import type { ConnectionStatus } from '@extension/backend/src/types/electrum';
-import { defaultPreferences } from '@extension/backend/dist/preferenceManager';
+import { defaultPreferences } from '@extension/backend/src/preferenceManager';
 import { useChuiEvents } from '@src/hooks/useChuiEvents';
 
 interface WalletContextType {
