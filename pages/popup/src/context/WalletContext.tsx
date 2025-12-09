@@ -102,10 +102,12 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   useChuiEvents({
-    onSnapshot: d => console.log(d),
-    onConnection: e => setConnected(e.status),
-    onBalance: e => console.log(e),
-    onTx: e => console.log(e),
+    onConnection: e => setConnected(e.status as ConnectionStatus),
+    onBalance: e => {
+      console.log(e.balance);
+      _setBalance(e.balance);
+    },
+    onTx: () => refreshTransactions(),
   });
 
   // Hydrate settings (onboarded, preferences, accounts)

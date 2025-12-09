@@ -12,9 +12,9 @@ export function useChuiEvents(handlers: {
     const port = chrome.runtime.connect({ name: 'chui-app' });
     portRef.current = port;
 
-    port.onMessage.addListener((msg: any) => {
-      if (msg.type === 'SNAPSHOT') handlers.onSnapshot?.(msg.data);
-      else if (msg.type === 'BALANCE') handlers.onBalance?.(msg);
+    port.onMessage.addListener((msg: ChuiPortEvent) => {
+      console.log('Port Received', msg);
+      if (msg.type === 'BALANCE') handlers.onBalance?.(msg);
       else if (msg.type === 'TX') handlers.onTx?.(msg);
       else if (msg.type === 'CONNECTION') handlers.onConnection?.(msg);
     });
