@@ -5,7 +5,7 @@ import type { ConnectionStatus } from '@extension/backend/src/types/electrum';
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { sendMessage } from '@src/utils/bridge';
 import { useChuiEvents } from '@src/hooks/useChuiEvents';
-import { defaultPreferences } from '@extension/backend/dist/preferenceManager';
+import { defaultPreferences } from '@extension/backend/src/preferenceManager';
 
 interface WalletContextType {
   onboarded: boolean;
@@ -54,10 +54,9 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   useChuiEvents({
-    onSnapshot: d => console.log(d),
-    onConnection: e => setConnected(e.status),
-    onBalance: e => console.log(e),
-    onTx: e => console.log(e),
+    onConnection: e => setConnected(e.status as ConnectionStatus),
+    onBalance: () => refreshBalance(),
+    onTx: () => refreshTransactions(),
   });
 
   // Hydrate settings (onboarded, preferences, accounts)

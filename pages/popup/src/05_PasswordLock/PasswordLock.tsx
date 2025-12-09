@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { InputField } from '@src/components/InputField';
 import { Button } from '@src/components/Button';
-import { setSessionPassword } from '@extension/backend/dist/utils/sessionStorageHelper';
+import { setSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
 import { useWalletContext } from '@src/context/WalletContext';
 
 export const PasswordLock: React.FC = () => {
