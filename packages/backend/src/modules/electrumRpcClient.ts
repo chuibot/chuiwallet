@@ -14,6 +14,19 @@ type JsonRpcObject = {
   params: unknown[];
 };
 
+type JsonRpcResponse = {
+  id: number;
+  result?: unknown;
+  error?: { message?: string; [key: string]: unknown } | null;
+  [key: string]: unknown;
+};
+
+function isJsonRpcResponse(value: unknown): value is JsonRpcResponse {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as { id?: unknown };
+  return typeof v.id === 'number';
+}
+
 /**
  * Client for making RPC calls to an Electrum server over WebSocket.
  * Handles connection, disconnection, and request/response management.
@@ -25,6 +38,7 @@ export class ElectrumRpcClient {
   private requests: Map<number, RequestResolver> = new Map();
   private jsonRpcVersion: string = '2.0';
   private runningRequestId: number = 0;
+  private buffer: string = '';
   public readonly onStatus = createEmitter<ConnectionUpdate>();
 
   /**
@@ -45,20 +59,27 @@ export class ElectrumRpcClient {
       const protocol = this.server.useTls ? 'wss://' : 'ws://';
       const wsUrl = `${protocol}${this.server.host}:${this.server.port}`;
       this.disconnect();
+
       this.socket = new WebSocket(wsUrl);
       this.socket.onopen = () => {
         logger.log(`Connected to Electrum server at ${wsUrl}`);
         this.setStatus('connected');
         resolve(this);
       };
-      this.socket.onmessage = (event: MessageEvent) => this.handleResponse(event.data);
+
+      this.socket.onmessage = (event: MessageEvent) => {
+        const raw = typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data as ArrayBuffer);
+        this.handleIncomingChunk(raw);
+      };
+
       this.socket.onerror = (error: Event) => {
-        this.disconnect();
         const errorMessage = 'WebSocket error: ' + (error as ErrorEvent).message || 'Unknown error';
         logger.error(errorMessage, error);
         this.setStatus('error', errorMessage);
+        this.disconnect();
         reject(new Error(errorMessage));
       };
+
       this.socket.onclose = () => {
         this.disconnect();
         logger.warn('WebSocket closed');
@@ -76,6 +97,7 @@ export class ElectrumRpcClient {
     this.requests.clear();
     this.socket.close();
     this.socket = null;
+    this.buffer = '';
     this.setStatus('disconnected');
   }
 
@@ -90,27 +112,61 @@ export class ElectrumRpcClient {
   }
 
   /**
-   * Handles incoming WebSocket messages, parsing responses and resolve/reject corresponding request(s).
-   * @param {string} data - The raw message data from the WebSocket.
-   * @throws {Error} If the message cannot be parsed.
+   * Handle a raw text chunk from the WebSocket.
+   * Accumulates into a buffer and processes newline-delimited JSON messages.
    */
-  private handleResponse(data: string): void {
+  private handleIncomingChunk(raw: string): void {
+    this.buffer += raw;
+
+    let idx: number;
+    // Process as many complete lines as we have
+    while ((idx = this.buffer.indexOf('\n')) !== -1) {
+      const line = this.buffer.slice(0, idx).trim();
+      this.buffer = this.buffer.slice(idx + 1);
+
+      if (!line) continue;
+
+      let payload: unknown;
+      try {
+        payload = JSON.parse(line) as unknown;
+      } catch (e) {
+        logger.error('Failed to parse Electrum message', e, line);
+        continue;
+      }
+
+      this.dispatchRpcPayload(payload);
+    }
+  }
+
+  /**
+   * Handle parsed JSON-RPC payload from Electrum.
+   * Both single-object and batch (array) responses.
+   */
+  private dispatchRpcPayload(payload: unknown): void {
     try {
-      const payload = JSON.parse(data);
-      const messages = Array.isArray(payload) ? payload : [payload];
-      messages.forEach(message => {
-        if (message.id !== undefined && this.requests.has(message.id)) {
-          const { resolve, reject } = this.requests.get(message.id)!;
-          this.requests.delete(message.id);
-          if (message.error) {
-            reject(new Error(message.error.message || 'Electrum error'));
-          } else {
-            resolve(message.result);
-          }
+      const rawMessages = Array.isArray(payload) ? payload : [payload];
+
+      for (const raw of rawMessages) {
+        if (!isJsonRpcResponse(raw)) {
+          logger.warn('Ignoring non-RPC message from Electrum', raw);
+          continue;
         }
-      });
-    } catch (error) {
-      logger.error('Failed to parse message from Electrum', error, data);
+
+        const { id, result, error } = raw;
+        const resolver = this.requests.get(id);
+        if (!resolver) continue;
+
+        this.requests.delete(id);
+
+        if (error) {
+          const message = error.message ?? 'Electrum error';
+          resolver.reject(new Error(message));
+        } else {
+          resolver.resolve(result);
+        }
+      }
+    } catch (err) {
+      logger.error('Failed to handle Electrum message', err, payload);
     }
   }
 

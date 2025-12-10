@@ -1,5 +1,5 @@
 import type { Runtime } from 'webextension-polyfill';
-import type { ProviderRpc } from '@src/background/router/index';
+import type { ProviderRpc } from '@src/background/messaging/index';
 import { walletManager } from '@extension/backend/src/walletManager';
 
 export type RpcRequest = {
