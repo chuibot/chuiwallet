@@ -28,7 +28,6 @@ const manifest = withSidePanel({
   manifest_version: 3,
   default_locale: 'en',
   /**
-   * if you want to support multiple languages, you can use the following reference
    * https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Internationalization
    */
   name: '__MSG_extensionName__',
@@ -37,7 +36,7 @@ const manifest = withSidePanel({
   host_permissions: ['<all_urls>'],
   permissions: ['storage', 'scripting', 'activeTab', 'notifications', 'alarms'],
   background: {
-    service_worker: 'background.iife.js',
+    service_worker: 'background.js',
     type: 'module',
   },
   action: {

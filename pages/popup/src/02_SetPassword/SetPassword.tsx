@@ -4,7 +4,7 @@ import { InputField } from '../components/InputField';
 import { TermsCheckbox } from '../components/TermsCheckbox';
 import { Button } from '@src/components/Button';
 import { getPasswordStrength } from '@src/utils';
-import { setSessionPassword } from '@extension/backend/dist/utils/sessionStorageHelper';
+import { setSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
 
 export const SetPassword: React.FC = () => {
   const navigate = useNavigate();
