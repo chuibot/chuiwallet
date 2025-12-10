@@ -6,6 +6,7 @@ import { formatNumber } from '@src/utils';
 import { useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { sendMessage } from '@src/utils/bridge';
+import { ERROR_MESSAGES } from '@src/constants';
 
 interface SendPreviewStates {
   destinationAddress: string;
@@ -23,11 +24,11 @@ export function SendPreview() {
   const states = location.state as SendPreviewStates;
 
   const [confirmLoading, setConfirmLoading] = useState<boolean>(false);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [error, setError] = useState('');
 
   const handleConfirm = async () => {
     setConfirmLoading(true);
+    setError('');
     try {
       const txid = await sendMessage('payment.send', {
         toAddress: states.destinationAddress,
@@ -50,7 +51,18 @@ export function SendPreview() {
       }
     } catch (e) {
       console.error(e);
-      setError(e as string);
+      let errorMessage = String((e as Error)?.message || e || '');
+      errorMessage = errorMessage.toLowerCase();
+
+      if (errorMessage.includes('dust')) {
+        setError(ERROR_MESSAGES.SEND_TRANSACTION_TOO_SMALL);
+      } else if (errorMessage.includes('insufficient funds') || errorMessage.includes('Insufficient')) {
+        setError(ERROR_MESSAGES.SEND_TRANSACTION_INSUFFICIENT_FUNDS);
+      } else if (errorMessage.includes('fee')) {
+        setError(ERROR_MESSAGES.SEND_TRANSACTION_FEE_ERROR);
+      } else {
+        setError(ERROR_MESSAGES.SOMETHING_WENT_WRONG_WHILE_SENDING_TRANSACTION);
+      }
     } finally {
       setConfirmLoading(false);
     }
@@ -91,8 +103,14 @@ export function SendPreview() {
           </div>
           <div className="mt-2">{formatNumber(states.feeUsd)} USD</div>
         </div>
+
+        {error && <span className="mt-4 text-xs text-primary-red font-light">{error}</span>}
       </div>
-      <Button className="flex justify-center gap-2 absolute w-full bottom-[19px]" onClick={handleConfirm}>
+
+      <Button
+        className="flex justify-center gap-2 absolute w-full bottom-[19px]"
+        onClick={handleConfirm}
+        disabled={confirmLoading}>
         {confirmLoading && (
           <div role="status">
             <svg
