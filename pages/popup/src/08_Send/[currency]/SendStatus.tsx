@@ -41,6 +41,14 @@ export const SendStatus: React.FC = () => {
     navigate(`/send/${currency}`);
   };
 
+  const handleTransactionLinkClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    // TODO: add logic to go to other page if testnet is the selected network
+    const url = 'https://www.blockonomics.co/#/search?q=' + states.transactionHash;
+    // Set 'active: false' to not close the browser extension on click
+    chrome.tabs.create({ url, active: true });
+  };
+
   return (
     <div className="relative flex flex-col items-center text-white bg-dark h-full px-4 pt-12 pb-[19px]">
       <div className="flex flex-col items-center w-[54px] mt-8">
@@ -54,9 +62,12 @@ export const SendStatus: React.FC = () => {
       <div className="mt-8 text-2xl font-bold leading-none text-center text-white">
         {currency ? currencyMapping[currency] : 'Unknown'} Sent
       </div>
-      <div className="mt-5 text-lg leading-none text-center text-zinc-600">
-        See the state of
-        <a href={'https://www.blockonomics.co/#/search?q=' + states.transactionHash} className="text-primary-yellow">
+      <div className="mt-5 text-lg leading-none text-center text-zinc-400">
+        See the state of{' '}
+        <a
+          href={'https://www.blockonomics.co/#/search?q=' + states.transactionHash}
+          onClick={handleTransactionLinkClick}
+          className="text-primary-yellow cursor-pointer">
           your transaction
         </a>
       </div>
