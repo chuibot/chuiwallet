@@ -1,26 +1,30 @@
 import * as bitcoin from 'bitcoinjs-lib';
 import { Network } from '@src/types';
+import { MIN_PASSWORD_LENGTH } from '@src/constants';
 
-/**
- * Simple password strength checker:
- * - length >= 8 => +1
- * - has uppercase => +1
- * - has digit => +1
- * - has special character => +1
- *
- * Score 0-1 => weak
- * Score 2 => medium
- * Score >=3 => strong
- */
 export function getPasswordStrength(password: string): 'weak' | 'medium' | 'strong' {
-  let score = 0;
-  if (password.length >= 8) score++;
-  if (/[A-Z]/.test(password)) score++;
-  if (/[0-9]/.test(password)) score++;
-  if (/[^A-Za-z0-9]/.test(password)) score++;
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return 'weak';
+  }
 
-  if (score >= 3) return 'strong';
-  if (score === 2) return 'medium';
+  const hasLower = /[a-z]/.test(password);
+  const hasUpper = /[A-Z]/.test(password);
+  const hasDigit = /[0-9]/.test(password);
+  const hasSpecial = /[^A-Za-z0-9]/.test(password);
+
+  const categoriesMet = [hasLower, hasUpper, hasDigit, hasSpecial].filter(Boolean).length;
+
+  // Strong = all 4 categories
+  if (categoriesMet === 4) {
+    return 'strong';
+  }
+
+  // Medium = 3 categories
+  if (categoriesMet === 3) {
+    return 'medium';
+  }
+
+  // Weak = 2 or fewer categories
   return 'weak';
 }
 
