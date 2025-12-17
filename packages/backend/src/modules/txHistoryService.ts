@@ -32,7 +32,8 @@ export class TxHistoryService {
 
     for (const entry of histories) {
       for (const [txid] of entry.txs) {
-        if (!Array.from(this.txHistoryCache.values()).some(e => e.transactionHash === txid)) {
+        const cached = this.txHistoryCache.get(txid);
+        if (!cached || cached.status === 'PENDING') {
           const tx = (await electrumService.getRawTransaction(txid, true)) as ElectrumTransaction;
           const newEntry = await this.buildTxEntry(
             tx,
@@ -40,7 +41,10 @@ export class TxHistoryService {
             scanManager.addressCacheChange,
             bitcoinPrice,
           );
-          this.txHistoryCache.set(txid, newEntry);
+          // Only update if status changed or it wasn't there
+          if (!cached || newEntry.status !== cached.status || newEntry.confirmations !== cached.confirmations) {
+            this.txHistoryCache.set(txid, newEntry);
+          }
         }
       }
     }
