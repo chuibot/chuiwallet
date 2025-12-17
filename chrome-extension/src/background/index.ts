@@ -22,7 +22,7 @@ async function init() {
   await electrumService.init(preferenceManager.get().activeNetwork);
   electrumService.onStatus.on(update => {
     emitConnection(update.status, update.detail);
-    if (update.status === 'disconnected' && !electrumReconnecting) {
+    if (update.status === 'disconnected' && !electrumReconnecting && update.reason !== 'switchNetwork') {
       electrumReconnecting = true;
       void (async () => {
         try {
