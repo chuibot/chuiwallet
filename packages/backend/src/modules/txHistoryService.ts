@@ -81,19 +81,15 @@ export class TxHistoryService {
     const isOpReturn = (spk: ScriptPubKey | undefined) =>
       spk?.type === 'nulldata' || (typeof spk?.asm === 'string' && spk.asm.startsWith('OP_RETURN'));
 
-    const changeSat = tx.vout.reduce((s, v) => {
-      const addr = this.addrFromScript(v.scriptPubKey);
-      if (addr && myChangeSet.has(addr)) return s + toSats(v.value);
-      return s;
-    }, 0n);
-
     const opReturnSat = tx.vout.reduce((s, v) => (isOpReturn(v.scriptPubKey) ? s + toSats(v.value) : s), 0n);
 
     let amountSat: bigint;
     if (type === 'RECEIVE') {
       amountSat = outputs.filter(o => o.mine).reduce((s, o) => s + o.valueSat, 0n);
     } else {
-      const sent = outTotalSat - changeSat - opReturnSat;
+      // For SEND, handle change or self-transfer (subtract everything that came back)
+      const returnedSat = outputs.filter(o => o.mine).reduce((s, o) => s + o.valueSat, 0n);
+      const sent = outTotalSat - returnedSat - opReturnSat;
       amountSat = sent > 0n ? sent : 0n;
     }
 

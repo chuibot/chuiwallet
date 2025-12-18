@@ -34,14 +34,15 @@ export class ElectrumService {
     }
   }
 
-  public disconnect() {
-    logger.log('Disconnecting Electrum server');
+  public disconnect(reason?: string) {
+    logger.log('Disconnecting Electrum server', reason);
+    this.setStatus('disconnected', undefined, reason);
     this.rpcClient?.disconnect();
   }
 
-  private setStatus(status: ConnectionStatus, detail?: string) {
+  private setStatus(status: ConnectionStatus, detail?: string, reason?: string) {
     this.status = status;
-    this.onStatus.emit({ status, detail, ts: Date.now() });
+    this.onStatus.emit({ status, detail, reason, ts: Date.now() });
   }
 
   public async getRawTransaction(txid: string, verbose = false) {
