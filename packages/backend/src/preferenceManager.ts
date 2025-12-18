@@ -11,7 +11,7 @@ export interface Preferences {
 }
 
 export const defaultPreferences: Preferences = {
-  gapLimitReceive: 500,
+  gapLimitReceive: 200,
   gapLimitChange: 20,
   locale: 'en',
   fiatCurrency: 'USD',

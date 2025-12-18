@@ -1,13 +1,13 @@
-import type { AddressEntry, HistoryEntry, ScanEvent, ScanEventInput, ScanUpdateType, UtxoEntry } from './types/cache';
+import type { AddressEntry, HistoryEntry, ScanEvent, ScanEventInput, UtxoEntry } from './types/cache';
 import { CacheType, ChangeType } from './types/cache';
 import browser from 'webextension-polyfill';
 import { addressToScriptHash, toBitcoinNetwork } from './utils/crypto';
 import { getCacheKey, selectByChain } from './utils/cache';
+import { createEmitter } from './utils/emitter';
 import { walletManager } from './walletManager';
 import { preferenceManager } from './preferenceManager';
 import { electrumService } from './modules/electrumService';
 import { logger } from './utils/logger';
-import { createEmitter } from './utils/emitter';
 
 export interface ScanManagerConfig {
   externalGapLimit: number;
@@ -19,8 +19,8 @@ export interface ScanManagerConfig {
 }
 
 export const defaultScanConfig: ScanManagerConfig = {
-  externalGapLimit: 500,
-  internalGapLimit: 20,
+  externalGapLimit: preferenceManager.get().gapLimitReceive,
+  internalGapLimit: preferenceManager.get().gapLimitChange,
   forwardExtendMaxPasses: 10,
   staleBatchSize: 900,
   electrumBatchSize: 150,
