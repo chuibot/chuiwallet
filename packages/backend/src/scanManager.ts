@@ -19,8 +19,8 @@ export interface ScanManagerConfig {
 }
 
 export const defaultScanConfig: ScanManagerConfig = {
-  externalGapLimit: preferenceManager.get().gapLimitReceive,
-  internalGapLimit: preferenceManager.get().gapLimitChange,
+  externalGapLimit: 200,
+  internalGapLimit: 20,
   forwardExtendMaxPasses: 10,
   staleBatchSize: 900,
   electrumBatchSize: 150,
@@ -48,6 +48,16 @@ export class ScanManager {
   }
 
   public async init() {
+    // Sync with user preferences
+    try {
+      const prefs = preferenceManager.get();
+      this.config.externalGapLimit = prefs.gapLimitReceive;
+      this.config.internalGapLimit = prefs.gapLimitChange;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (e) {
+      // ignore if not initialized, use defaults
+    }
+
     await this.loadAddress();
     await this.loadHistory();
     await this.loadUtxo();

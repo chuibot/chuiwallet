@@ -1,3 +1,6 @@
+import type { ScanEvent } from '@extension/backend/src/types/cache';
+import { ChangeType } from '@extension/backend/src/types/cache';
+import browser from 'webextension-polyfill';
 import * as bitcoin from 'bitcoinjs-lib';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import { preferenceManager } from '@extension/backend/src/preferenceManager';
@@ -8,9 +11,6 @@ import { logger } from '@extension/backend/src/utils/logger';
 import { scanManager } from '@extension/backend/src/scanManager';
 import { registerMessageRouter } from '@src/background/messaging';
 import { emitBalance, emitConnection, registerMessagePort } from '@src/background/messaging/port';
-import type { ScanEvent } from '@extension/backend/src/types/cache';
-import { ChangeType } from '@extension/backend/src/types/cache';
-import browser from 'webextension-polyfill';
 
 bitcoin.initEccLib(secp256k1);
 
