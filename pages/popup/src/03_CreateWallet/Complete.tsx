@@ -5,7 +5,8 @@ import { useWalletContext } from '@src/context/WalletContext';
 export function Complete() {
   const navigate = useNavigate();
   const { setOnboarded } = useWalletContext();
-  const isRestored = useSearchParams()[0].get('restored') === '1';
+  const [searchParams] = useSearchParams();
+  const isRestored = searchParams.get('restored') === '1';
 
   const handleComplete = () => {
     setOnboarded(true);
@@ -26,19 +27,19 @@ export function Complete() {
             <img
               loading="lazy"
               src={chrome.runtime.getURL('popup/bch_coin.svg')}
-              alt="Wallet creation success"
+              alt="BCH"
               className="object-contain self-stretch my-auto aspect-square w-[78px]"
             />
             <img
               loading="lazy"
               src={chrome.runtime.getURL('popup/btc_coin.svg')}
-              alt="Wallet creation success"
+              alt="BTC"
               className="object-contain self-stretch my-auto aspect-square w-[78px]"
             />
             <img
               loading="lazy"
               src={chrome.runtime.getURL('popup/usdt_coin.svg')}
-              alt="Wallet creation success"
+              alt="USDT"
               className="object-contain self-stretch my-auto aspect-square w-[78px]"
             />
           </div>
@@ -50,9 +51,20 @@ export function Complete() {
         </div>
       </div>
 
-      <Button className="absolute w-full bottom-[19px]" onClick={handleComplete}>
-        Go to dashboard
-      </Button>
+      <div className="absolute w-full px-5 bottom-[19px] flex flex-col gap-3">
+        {/* Only show Reveal button if the wallet was created, not restored */}
+        {!isRestored && (
+          <button
+            onClick={() => navigate('/settings/advanced/reveal-seed')}
+            className="text-primary-yellow text-lg font-bold py-2 hover:underline">
+            Reveal Seed Phrase
+          </button>
+        )}
+
+        <Button className="relative w-full" onClick={handleComplete}>
+          Go to dashboard
+        </Button>
+      </div>
     </div>
   );
 }
