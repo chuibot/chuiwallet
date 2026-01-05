@@ -44,7 +44,6 @@ export function convertToSlip0132(xpub: string, scriptType: ScriptType, network:
       return xpub;
     }
 
-    // Create a custom network with the desired version bytes
     const customNetwork = {
       ...bitcoinNetwork,
       bip32: {
@@ -55,7 +54,7 @@ export function convertToSlip0132(xpub: string, scriptType: ScriptType, network:
     };
 
     // Temporarily assign the custom network to the node to encode with the new version
-    // We cast to 'any' because strict types might prevent writing to 'network'
+    // Casting to 'any' because strict types might prevent writing to 'network'
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (node as any).network = customNetwork;
 
