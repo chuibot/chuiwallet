@@ -2,6 +2,7 @@ import type { CreateWalletOptions } from './modules/wallet';
 import type { SpendableUtxo, utxoSelectionResult } from './modules/utxoSelection';
 import type { AddressEntry, UtxoEntry } from './types/cache';
 import type { Network } from './types/electrum';
+import type { Balance } from './types/wallet';
 import { CacheType, ChangeType } from './types/cache';
 import browser from 'webextension-polyfill';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
@@ -11,6 +12,7 @@ import { accountManager } from './accountManager';
 import { defaultPreferences, preferenceManager } from './preferenceManager';
 import { scanManager } from './scanManager';
 import { electrumService } from './modules/electrumService';
+import { historyService } from './modules/txHistoryService';
 import { feeService } from './modules/feeService';
 import { logger } from './utils/logger';
 import { selectUtxo } from './modules/utxoSelection';
@@ -19,8 +21,7 @@ import { buildSpendPsbt } from './utils/psbt';
 import { getBitcoinPrice } from './modules/blockonomics';
 import { scriptTypeFromAddress } from './utils/crypto';
 import { deleteSessionPassword, getSessionPassword } from './utils/sessionStorageHelper';
-import { historyService } from './modules/txHistoryService';
-import { Balance } from './types/wallet';
+import { convertToSlip0132 } from './utils/xpubConverter';
 
 bitcoin.initEccLib(secp256k1);
 
@@ -241,7 +242,11 @@ export class WalletManager {
    * Get the xpub of the current wallet
    */
   public getXpub() {
-    return wallet.getXpub();
+    const xpub = wallet.getXpub();
+    if (!xpub) return null;
+
+    const activeAccount = accountManager.getActiveAccount();
+    return convertToSlip0132(xpub, activeAccount.scriptType, activeAccount.network);
   }
 
   /**
