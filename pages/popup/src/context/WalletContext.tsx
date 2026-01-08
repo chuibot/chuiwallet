@@ -19,7 +19,7 @@ interface WalletContextType {
   activeAccount: Account | undefined;
   balance: BalanceData | undefined;
   refreshBalance: () => void;
-  transactions: TxEntry[];
+  transactions: TxEntry[] | undefined;
   refreshTransactions: () => void;
   getReceivingAddress: () => Promise<string>;
   init: () => Promise<void>;
@@ -36,7 +36,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [preferences, setPreferences] = useState<Preferences>(defaultPreferences);
   const [accounts, _setAccounts] = useState<Account[]>([]);
   const [balance, _setBalance] = useState<BalanceData>();
-  const [transactions, _setTransactions] = useState<TxEntry[]>([]);
+  const [transactions, _setTransactions] = useState<TxEntry[] | undefined>();
   const activeAccount = useMemo<Account | undefined>(() => {
     const i = preferences?.activeAccountIndex ?? 0;
     return accounts[i];

@@ -211,7 +211,10 @@ export class WalletManager {
     });
     const txHex = wallet.signPsbt(selectedUtxo.inputs, psbt);
     logger.log('Send TX Hex', txHex);
-    return await electrumService.broadcastTx(txHex!);
+    const txid = await electrumService.broadcastTx(txHex!);
+    await scanManager.forwardScan(ChangeType.External);
+    await scanManager.forwardScan(ChangeType.Internal);
+    return txid;
   }
 
   /**
