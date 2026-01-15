@@ -47,7 +47,7 @@ export const VerifySeed: React.FC = () => {
     setUserInputs(prev => ({ ...prev, [pos]: firstWord }));
   };
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
     let valid = true;
 
     for (const pos of missingPositions) {
@@ -67,7 +67,7 @@ export const VerifySeed: React.FC = () => {
     //Todo: Create wallet
     // const mnemonic = seedWords.join(' ').trim();
     // createWallet(mnemonic, password, 'mainnet', 'bech32');
-
+    await sendMessage('wallet.setBackupStatus', { isBackedUp: true });
     setIsBackedUp(true);
     navigate('/dashboard');
   };

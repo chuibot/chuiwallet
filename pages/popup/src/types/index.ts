@@ -18,6 +18,7 @@ export interface Preferences {
   fiatCurrency: string;
   activeAccountIndex: number;
   activeNetwork: Network;
+  isWalletBackedUp: boolean;
 }
 
 export interface BalanceData {

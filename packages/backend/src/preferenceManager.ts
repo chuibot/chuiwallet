@@ -8,6 +8,7 @@ export interface Preferences {
   fiatCurrency: string;
   activeAccountIndex: number;
   activeNetwork: Network;
+  isWalletBackedUp: boolean;
 }
 
 export const defaultPreferences: Preferences = {
@@ -17,6 +18,7 @@ export const defaultPreferences: Preferences = {
   fiatCurrency: 'USD',
   activeAccountIndex: -1,
   activeNetwork: Network.Mainnet,
+  isWalletBackedUp: false,
 };
 
 const STORAGE_KEY = 'preferences';

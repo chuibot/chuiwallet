@@ -51,6 +51,8 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setUnlocked(true);
       const preferences: Preferences = await sendMessage('preferences.get');
       const accounts = await sendMessage<Account[]>('accounts.get');
+      // This ensures your UI state matches what is in storage
+      setIsBackedUp(!!preferences.isWalletBackedUp);
       setPreferences(preferences);
       _setAccounts(accounts);
     }
