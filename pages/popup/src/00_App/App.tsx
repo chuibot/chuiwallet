@@ -59,7 +59,7 @@ export const App: React.FC = () => {
 
   return (
     <>
-      <ErrorBanner />
+      <ErrorBanner isCloseable />
       <Routes>
         {onboarded ? (
           unlocked ? (

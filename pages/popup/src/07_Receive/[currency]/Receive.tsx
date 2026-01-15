@@ -7,12 +7,20 @@ import Header from '@src/components/Header';
 import { useWalletContext } from '@src/context/WalletContext';
 import type { Currencies } from '@src/types';
 import { useParams } from 'react-router-dom';
+import { useErrorContext } from '@src/context/ErrorContext';
 
 export const Receive: React.FC = () => {
-  const { getReceivingAddress } = useWalletContext();
+  const { getReceivingAddress, isBackedUp } = useWalletContext();
+  const { setErrorMessage } = useErrorContext();
   const { currency } = useParams<{ currency: Currencies }>();
   const [address, setAddress] = useState<string>('Address not found');
   const [copyText, setCopyText] = useState<string>('Copy address');
+
+  useEffect(() => {
+    if (!isBackedUp) {
+      setErrorMessage('Wallet not backed up');
+    }
+  }, [isBackedUp, setErrorMessage]);
 
   useEffect(() => {
     (async () => {

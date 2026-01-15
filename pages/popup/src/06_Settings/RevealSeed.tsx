@@ -5,9 +5,11 @@ import { SeedColumn } from '../components/SeedColumn';
 import { Button } from '@src/components/Button';
 import Header from '@src/components/Header';
 import { sendMessage } from '@src/utils/bridge';
+import { useWalletContext } from '../context/WalletContext';
 
 export const RevealSeed: React.FC = () => {
   const navigate = useNavigate();
+  const { isBackedUp } = useWalletContext();
   const [leftColumnWords, setLeftColumnWords] = useState<string[]>([]);
   const [rightColumnWords, setRightColumnWords] = useState<string[]>([]);
   // const [loading, setLoading] = useState(true);
@@ -51,7 +53,7 @@ export const RevealSeed: React.FC = () => {
   return (
     <div className="relative flex flex-col text-white bg-dark h-full px-4 pt-12 pb-[19px]">
       <Header title="Seed phrase" hideClose={true} />
-      <div className="mt-[60px] flex flex-col self-stretch w-full text-center min-h-[360px] px-[37.5px] gap-[24px]">
+      <div className="mt-[20px] flex flex-col self-stretch w-full text-center min-h-[360px] px-[37.5px] gap-[24px]">
         <div className="flex flex-col w-full">
           <div className="mt-1 text-lg leading-[25px] text-foreground">Write it down and keep it safe.</div>
         </div>
@@ -74,9 +76,16 @@ export const RevealSeed: React.FC = () => {
           )}
         </button>
       </div>
-      <Button className="absolute w-full bottom-[19px]" tabIndex={0} onClick={() => navigate('/dashboard')}>
-        Hide
-      </Button>
+      <div className="left-4 right-4 mt-4 bottom-[19px] flex flex-col gap-3">
+        {!isBackedUp && (
+          <Button className="w-full" onClick={() => navigate('/onboard/verify-seed')}>
+            Verify Seed
+          </Button>
+        )}
+        <Button className="w-full" tabIndex={0} onClick={() => navigate('/dashboard')}>
+          Hide
+        </Button>
+      </div>
     </div>
   );
 };

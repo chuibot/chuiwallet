@@ -10,9 +10,11 @@ import { defaultPreferences } from '@extension/backend/src/preferenceManager';
 interface WalletContextType {
   onboarded: boolean;
   unlocked: boolean;
+  isBackedUp: boolean;
   connected: ConnectionStatus;
   setOnboarded: (onboarded: boolean) => void;
   setUnlocked: (unlocked: boolean) => void;
+  setIsBackedUp: (isBackedUp: boolean) => void;
   preferences: Preferences;
   setPreferences: (preferences: Preferences) => void;
   accounts: Account[];
@@ -32,6 +34,7 @@ const WalletContext = createContext<WalletContextType | undefined>(undefined);
 export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [onboarded, setOnboarded] = useState<boolean>(false);
   const [unlocked, setUnlocked] = useState<boolean>(false);
+  const [isBackedUp, setIsBackedUp] = useState<boolean>(false);
   const [connected, setConnected] = useState<ConnectionStatus>('disconnected');
   const [preferences, setPreferences] = useState<Preferences>(defaultPreferences);
   const [accounts, _setAccounts] = useState<Account[]>([]);
@@ -127,6 +130,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       value={{
         onboarded,
         unlocked,
+        isBackedUp,
         connected,
         preferences,
         accounts,
@@ -135,6 +139,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         transactions,
         setOnboarded,
         setUnlocked,
+        setIsBackedUp,
         setPreferences,
         refreshBalance,
         refreshTransactions,

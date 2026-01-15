@@ -1,10 +1,10 @@
 import type React from 'react';
-import { useError } from '../context/ErrorContext';
+import { useErrorContext } from '../context/ErrorContext';
 
 export const ErrorBanner: React.FC<{ isCloseable?: boolean }> = ({ isCloseable = false }) => {
-  const { error, clearError } = useError();
+  const { errorMessage, clearError } = useErrorContext();
 
-  if (!error) return null;
+  if (!errorMessage) return null;
 
   return (
     <div className="fixed top-0 left-0 right-0 z-50 animate-slideDown">
@@ -15,9 +15,9 @@ export const ErrorBanner: React.FC<{ isCloseable?: boolean }> = ({ isCloseable =
               loading="lazy"
               src={chrome.runtime.getURL('popup/explamation_mark_icon_white.svg')}
               alt="explamation mark icon"
-              className="object-contain shrink-0 self-stretch my-auto w-6 aspect-square"
+              className="object-contain shrink-0 self-stretch my-auto w-5 mb-0.5 aspect-square"
             />
-            <span className="text-sm font-medium">{error}</span>
+            <span className="text-sm font-medium">{errorMessage}</span>
           </div>
           {isCloseable && (
             <button
