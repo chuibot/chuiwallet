@@ -108,18 +108,32 @@ export class WalletManager {
 
     let confirmed = 0;
     let unconfirmed = 0;
-    const addFrom = (pairs: [number, UtxoEntry][]) => {
+
+    const processUtxos = (pairs: [number, UtxoEntry][], isInternalChain: boolean) => {
       for (const [, entry] of pairs) {
         if (!entry?.utxos) continue;
         for (const u of entry.utxos) {
-          if (u.height && u.height > 0) confirmed += u.value;
-          else unconfirmed += u.value;
+          // 1. Strictly Confirmed: Has been mined into a block (height > 0)
+          const isConfirmed = u.height && u.height > 0;
+
+          // 2. Trusted Pending: It is unconfirmed, BUT it is on our Internal (Change) chain.
+          // We trust our own change outputs immediately so the user's balance doesn't flicker/drop.
+          const isTrustedChange = isInternalChain && !isConfirmed;
+
+          if (isConfirmed || isTrustedChange) {
+            confirmed += u.value;
+          } else {
+            unconfirmed += u.value;
+          }
         }
       }
     };
 
-    addFrom(receivePairs);
-    addFrom(changePairs);
+    // External Chain (Receive): Only count as confirmed if actually mined
+    processUtxos(receivePairs, false);
+
+    // Internal Chain (Change): Count as confirmed if mined OR if it's our own pending change
+    processUtxos(changePairs, true);
 
     let confirmedUsd = 0;
     let unconfirmedUsd = 0;
