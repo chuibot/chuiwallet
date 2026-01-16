@@ -59,6 +59,11 @@ const handlers: Record<string, Handler> = {
     scanManager.forwardScan(ChangeType.Internal);
     return success;
   },
+  'wallet.setBackupStatus': async (params: unknown) => {
+    const { isBackedUp } = params as { isBackedUp: boolean };
+    // This will merge the new value and save to chrome.storage automatically
+    return await preferenceManager.update({ isWalletBackedUp: isBackedUp });
+  },
   'preferences.get': async () => {
     return preferenceManager.get();
   },

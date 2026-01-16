@@ -5,9 +5,11 @@ import { Button } from '@src/components/Button';
 import { useWalletContext } from '../context/WalletContext';
 import { pickRandomPositions } from '@src/utils';
 import { sendMessage } from '@src/utils/bridge';
+import Header from '@src/components/Header';
 
 export const VerifySeed: React.FC = () => {
   const navigate = useNavigate();
+  const { setIsBackedUp } = useWalletContext();
   const [seedWords, setSeedWords] = useState<string[]>(Array(12).fill(''));
   const [missingPositions, setMissingPositions] = useState<number[]>([]);
   const [userInputs, setUserInputs] = useState<{ [pos: number]: string }>({});
@@ -45,7 +47,7 @@ export const VerifySeed: React.FC = () => {
     setUserInputs(prev => ({ ...prev, [pos]: firstWord }));
   };
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
     let valid = true;
 
     for (const pos of missingPositions) {
@@ -65,8 +67,9 @@ export const VerifySeed: React.FC = () => {
     //Todo: Create wallet
     // const mnemonic = seedWords.join(' ').trim();
     // createWallet(mnemonic, password, 'mainnet', 'bech32');
-
-    navigate('/onboard/complete');
+    await sendMessage('wallet.setBackupStatus', { isBackedUp: true });
+    setIsBackedUp(true);
+    navigate('/dashboard');
   };
 
   const leftWords = seedWords.slice(0, 6).map((word, i) => {
@@ -96,10 +99,10 @@ export const VerifySeed: React.FC = () => {
 
   return (
     <div className="relative flex overflow-hidden flex-col px-5 pt-12 pb-[19px] bg-dark h-full w-full">
+      <Header title="Verify words" hideClose={true} />
       <div className="flex flex-col self-center w-full text-center">
         <div className="flex flex-col w-full">
-          <div className="text-2xl font-bold leading-loose text-white">Verify words</div>
-          <div className="mt-3 text-lg leading-6 text-foreground">
+          <div className="mt-8 text-lg leading-6 text-foreground">
             Rewrite the correct words on the empty fields to verify your wallet
           </div>
         </div>
