@@ -9,7 +9,7 @@ import Skeleton from 'react-loading-skeleton';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { preferences, balance, activeAccount, connected, refreshBalance, isBackedUp, unlocked } = useWalletContext();
+  const { preferences, balance, activeAccount, connected, refreshBalance, isBackedUp } = useWalletContext();
 
   const [showChooseReceiveCurrencySlide, setShowChooseReceiveCurrencySlide] = React.useState(false);
   const [showChooseSendCurrencySlide, setShowChooseSendCurrencySlide] = React.useState(false);
@@ -54,7 +54,7 @@ export const Dashboard: React.FC = () => {
         </button>
       </div>
 
-      {unlocked && !isBackedUp && (
+      {!isBackedUp && (
         <button
           onClick={() => navigate('/onboard/verify-seed')}
           className="flex items-center justify-center gap-2 mt-4 hover:opacity-80 transition-opacity cursor-pointer mx-auto">
