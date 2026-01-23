@@ -84,3 +84,5 @@ export interface ConnectionUpdate {
   reason?: string;
   ts: number;
 }
+
+export type ElectrumPeerResponse = [string, string, string[]];

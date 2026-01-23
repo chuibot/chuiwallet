@@ -1,180 +1,164 @@
-import { ELECTRUM_METHODS } from '../config/constants';
-import type { ExtendedServerConfig, ServerConfig } from '../types/electrum';
-import { DefaultPort, Network } from '../types/electrum';
+import { ELECTRUM_METHODS, HEALTH_CHECK_TIMEOUT_IN_MS, MAX_SERVERS_TO_RACE } from '../config/constants';
+import type { ElectrumPeerResponse, ExtendedServerConfig, ServerConfig } from '../types/electrum';
+import { Network } from '../types/electrum';
 import { logger } from '../utils/logger';
 
 export const availableServerList: ServerConfig[] = [
+  // --- MAINNET (SSL + Browser-Safe Ports) ---
   { host: 'bitcoinserver.nl', port: 50004, useTls: true, network: Network.Mainnet },
   { host: 'btc.electroncash.dk', port: 60004, useTls: true, network: Network.Mainnet },
-  { host: 'node.xbt.eu', port: DefaultPort.TLS, useTls: true, network: Network.Mainnet },
-  { host: 'us11.einfachmalnettsein.de', port: DefaultPort.TLS, useTls: true, network: Network.Mainnet },
-  { host: 'b.1209k.com', port: DefaultPort.TLS, useTls: true, network: Network.Mainnet },
+  { host: 'electrum.emzy.de', port: 50004, useTls: true, network: Network.Mainnet },
+  { host: 'electrumx.network', port: 50002, useTls: true, network: Network.Mainnet },
+  { host: 'bitcoin.lu.ke', port: 50002, useTls: true, network: Network.Mainnet },
+  { host: 'electrum.data.casa', port: 443, useTls: true, network: Network.Mainnet },
+
+  // --- TESTNET 4 (SSL + Browser-Safe Ports) ---
   { host: 'testnet4.electrs.btcscan.net', port: 443, useTls: true, network: Network.Testnet },
-  // { host: 'blackie.c3-soft.com', port: 60004, useTls: true, network: Network.Testnet },
-  // { host: 'testnet1.bauerj.eu', port: DefaultPort.TLS, useTls: true, network: Network.Testnet },
-  // { host: '14.3.140.101', port: DefaultPort.TLS, useTls: true, network: Network.Testnet },
-  // { host: 'testnet.hsmiths.com', port: 53012, useTls: true, network: Network.Testnet },
-  // { host: 'testnet.qtornado.com', port: 51002, useTls: true, network: Network.Testnet },
-  // { host: 'testnet.blockstream.info', port: 993, useTls: true, network: Network.Testnet },
-  // { host: 'testnet.blockstream.info', port: 993, useTls: true, network: Network.Testnet },
-  // { host: 'testnet.aranguren.org', port: 51002, useTls: true, network: Network.Testnet },
-  // { host: 'testnetnode.arihanc.com', port: 51002, useTls: true, network: Network.Testnet },
-  // { host: 'electrum.akinbo.org', port: 51002, useTls: true, network: Network.Testnet },
-  // { host: 'ELEX05.blackpole.online', port: 52011, useTls: true, network: Network.Testnet },
+  { host: 'testnet4.inventory.mempool.space', port: 443, useTls: true, network: Network.Testnet },
+  { host: 'tn4.mempool.space', port: 443, useTls: true, network: Network.Testnet },
 ];
 
-export async function selectBestServer(network: Network): Promise<ExtendedServerConfig> {
-  let serverList = availableServerList.filter(server => server.network === network);
-
-  const storageKey = `discoveredPeers_${network}`;
-  const cached = await chrome.storage.local.get(storageKey);
-  if (cached[storageKey]) {
-    const discoveredPeers = cached[storageKey] as ServerConfig[];
-    serverList = [...serverList, ...discoveredPeers];
-  }
-
-  if (serverList.length === 0) {
-    throw new Error(`No servers available for ${network}`);
-  }
-
-  // Only scan first 20 servers max (5 hardcoded + 15 random discovered)
-  const serversToScan = serverList.slice(0, 20);
-
-  const scannedServers = await scanServers(serversToScan);
-  const healthyServers = scannedServers.filter(server => server.healthy);
-
-  if (healthyServers.length === 0) {
-    throw new Error('No healthy servers found');
-  }
-
-  const maxBlockHeight = Math.max(...healthyServers.map(s => s.blockHeight || 0));
-  const syncedServers =
-    maxBlockHeight > 0 ? healthyServers.filter(s => s.blockHeight && maxBlockHeight - s.blockHeight <= 1) : [];
-
-  const serversToRank = syncedServers.length > 0 ? syncedServers : healthyServers;
-
-  serversToRank.sort((a, b) => a.latency! - b.latency!);
-  return serversToRank[0];
-}
-
-export async function scanServers(servers: ExtendedServerConfig[]): Promise<ExtendedServerConfig[]> {
-  return await Promise.all(
-    servers.map(async server => {
-      const latency = await measureServerLatency(server);
-      return { ...server, latency, healthy: latency < 5000 }; // healthy if latency is less than 5 seconds
-    }),
-  );
-}
-
-export async function measureServerLatency(server: ExtendedServerConfig): Promise<number> {
+/**
+ * Checks if a server is alive and responding with Bitcoin data.
+ * Returns latency and block height if successful.
+ */
+export async function simpleHealthCheck(server: ServerConfig): Promise<ExtendedServerConfig> {
   const protocol = server.useTls ? 'wss://' : 'ws://';
   const url = `${protocol}${server.host}:${server.port}`;
-  return new Promise<number>(resolve => {
+  const start = performance.now();
+
+  return new Promise(resolve => {
     const socket = new WebSocket(url);
-    const start = performance.now();
-    // Use a timeout to consider the server unresponsive if it takes too long.
     const timeout = setTimeout(() => {
       socket.close();
-      resolve(Number.MAX_SAFE_INTEGER);
-    }, 5000); // 5 seconds
+      resolve({ ...server, healthy: false, latency: 9999 });
+    }, HEALTH_CHECK_TIMEOUT_IN_MS);
 
     socket.onopen = () => {
-      // Optionally send a lightweight RPC call like server.version here.
-      socket.send(JSON.stringify({ id: 1, method: ELECTRUM_METHODS.SERVER_VERSION, params: [] }));
-      socket.send(JSON.stringify({ id: 2, method: ELECTRUM_METHODS.HEADERS_SUBSCRIBE, params: [] }));
+      // One call to verify the server is actually processing Bitcoin logic
+      socket.send(JSON.stringify({ id: 1, method: ELECTRUM_METHODS.HEADERS_SUBSCRIBE, params: [] }));
     };
 
-    // Wait for block height response before measuring latency
-    socket.onmessage = (event: MessageEvent) => {
+    socket.onmessage = event => {
       try {
-        const response = JSON.parse(event.data);
-        // Store block height on the server object
-        if (response.id === 2 && response.result) {
-          server.blockHeight = response.result.height || response.result.block_height;
-        }
-        // Wait for block height response (id: 2) before closing
-        if (response.id === 2) {
+        const data = JSON.parse(event.data);
+        const height = data.result?.block_height || data.result?.height;
+        if (height) {
           clearTimeout(timeout);
-          const end = performance.now();
           socket.close();
-          resolve(end - start);
+          resolve({
+            ...server,
+            healthy: true,
+            latency: performance.now() - start,
+            blockHeight: height,
+          });
         }
       } catch {
-        clearTimeout(timeout);
         socket.close();
-        resolve(Number.MAX_SAFE_INTEGER);
+        resolve({ ...server, healthy: false, latency: 9999 });
       }
     };
 
     socket.onerror = () => {
       clearTimeout(timeout);
       socket.close();
-      resolve(Number.MAX_SAFE_INTEGER);
+      resolve({ ...server, healthy: false, latency: 9999 });
     };
   });
 }
 
+export async function selectBestServer(network: Network): Promise<ExtendedServerConfig> {
+  const hardcodedServers = availableServerList.filter(s => s.network === network);
+
+  // Load discovered peers from storage
+  const storageKey = `discoveredPeers_${network}`;
+  const cached = await chrome.storage.local.get(storageKey);
+  let discoveredPeers: ServerConfig[] = cached[storageKey] || [];
+  // Shuffle discovered peers so we aren't always pinging the same failing ones
+  discoveredPeers = discoveredPeers.sort(() => Math.random() - 0.5);
+
+  const serversToScan = [
+    ...hardcodedServers,
+    ...discoveredPeers.slice(0, MAX_SERVERS_TO_RACE - hardcodedServers.length),
+  ];
+
+  // Race all servers simultaneously
+  const results = await Promise.all(serversToScan.map(s => simpleHealthCheck(s)));
+
+  console.table(
+    results.map(r => ({
+      host: r.host,
+      healthy: r.healthy ? '✅' : '❌',
+      latency: r.healthy ? `${Math.round(r.latency!)}ms` : 'TIMEOUT',
+      height: r.blockHeight || 'N/A',
+    })),
+  );
+
+  // Filter for healthy servers
+  const healthyServers = results.filter(s => s.healthy);
+
+  if (healthyServers.length === 0) {
+    throw new Error(`No healthy servers found for ${network}`);
+  }
+
+  // Find the highest block height reported
+  const maxHeight = Math.max(...healthyServers.map(s => s.blockHeight || 0));
+
+  // Filter out "Zombies" (servers lagging more than 1 block behind)
+  const syncedServers = healthyServers.filter(s => (s.blockHeight || 0) >= maxHeight - 1);
+
+  // Sort synced servers by latency and pick the best one
+  const bestServer = syncedServers.sort((a, b) => (a.latency || 9999) - (b.latency || 9999))[0];
+
+  logger.log(`%c Best Server Picked: ${bestServer.host}`, 'color: #00ffa3; font-weight: bold;');
+  return bestServer;
+}
+
 /**
- * Discovers peers from a given server using server.peers.subscribe RPC
+ * Fetches new peers from the current connected server
  */
 export async function discoverPeersFrom(server: ServerConfig): Promise<ServerConfig[]> {
   const protocol = server.useTls ? 'wss://' : 'ws://';
   const url = `${protocol}${server.host}:${server.port}`;
 
-  return new Promise<ServerConfig[]>(resolve => {
+  return new Promise(resolve => {
     const socket = new WebSocket(url);
-    const discoveredPeers: ServerConfig[] = [];
     const timeout = setTimeout(() => {
       socket.close();
-      resolve(discoveredPeers);
-    }, 5000);
+      resolve([]);
+    }, 4000);
 
     socket.onopen = () => {
       socket.send(JSON.stringify({ id: 1, method: 'server.peers.subscribe', params: [] }));
     };
 
-    socket.onmessage = (event: MessageEvent) => {
+    socket.onmessage = event => {
       try {
         const response = JSON.parse(event.data);
         if (response.id === 1 && Array.isArray(response.result)) {
-          for (const peer of response.result) {
-            // Peer format: [ip, host, [version, protocol, ports...]]
-            if (Array.isArray(peer) && peer.length >= 3) {
-              const host = peer[1];
-
-              // Skip .onion addresses
-              if (host.endsWith('.onion')) continue;
-
-              // Skip raw IP addresses (usually have cert issues)
-              if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) continue;
-
-              const features = peer[2];
-
-              // Look for SSL port (usually prefixed with 's')
-              const sslPort = features.find((f: string) => f.startsWith('s'))?.substring(1);
-              if (sslPort) {
-                discoveredPeers.push({
-                  host,
-                  port: parseInt(sslPort),
-                  useTls: true,
-                  network: server.network,
-                });
+          const peers: ServerConfig[] = response.result
+            .map((p: ElectrumPeerResponse) => {
+              const host = p[1];
+              const sslPort = p[2]?.find((f: string) => f.startsWith('s'))?.substring(1);
+              if (host && sslPort && !host.endsWith('.onion') && !/^\d+\.\d+/.test(host)) {
+                return { host, port: parseInt(sslPort), useTls: true, network: server.network };
               }
-            }
-          }
+              return null;
+            })
+            .filter((p: ServerConfig): p is ServerConfig => p !== null);
+
           clearTimeout(timeout);
           socket.close();
-          resolve(discoveredPeers);
+          resolve(peers);
         }
       } catch {
-        logger.log('Error parsing server.peers.subscribe response:', event.data);
+        socket.close();
+        resolve([]);
       }
     };
-
     socket.onerror = () => {
-      clearTimeout(timeout);
       socket.close();
-      resolve(discoveredPeers);
+      resolve([]);
     };
   });
 }

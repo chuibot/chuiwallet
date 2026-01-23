@@ -1,4 +1,5 @@
 import type { ScanEvent } from '@extension/backend/src/types/cache';
+import type { ServerConfig } from '@extension/backend/src/types/electrum';
 import * as bitcoin from 'bitcoinjs-lib';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import { preferenceManager } from '@extension/backend/src/preferenceManager';
@@ -10,7 +11,7 @@ import { scanManager } from '@extension/backend/src/scanManager';
 import { ChangeType } from '@extension/backend/src/types/cache';
 import browser, { Runtime } from 'webextension-polyfill';
 import MessageSender = Runtime.MessageSender;
-import { discoverPeersFrom } from '@extension/backend/src/modules/electrumServer';
+import { discoverPeersFrom, simpleHealthCheck } from '@extension/backend/src/modules/electrumServer';
 import { registerMessageRouter } from '@src/background/messaging';
 import { emitBalance, emitConnection, registerMessagePort } from '@src/background/messaging/port';
 
@@ -22,25 +23,27 @@ async function init() {
   await preferenceManager.init();
   await walletManager.init();
 
-  await discoverPeers();
+  const network = preferenceManager.get().activeNetwork;
 
-  await electrumService.init(preferenceManager.get().activeNetwork);
+  // 1. Setup Status Listeners
   electrumService.onStatus.on(update => {
     emitConnection(update.status, update.detail);
     if (update.status === 'disconnected' && !electrumReconnecting && update.reason !== 'switchNetwork') {
       electrumReconnecting = true;
-      void (async () => {
-        try {
-          await electrumService.connect();
-        } catch (err) {
-          logger.error('Electrum reconnect failed', err);
-        } finally {
-          electrumReconnecting = false;
-        }
-      })();
+      checkConnection().finally(() => {
+        electrumReconnecting = false;
+      });
     }
   });
+
+  // 2. Connect to the best server first
+  await electrumService.init(network);
   await electrumService.connect();
+
+  // 3. Discover peers in background AFTER we are online
+  void discoverPeers();
+
+  // 4. Initialize account and scanning
   await accountManager.init(preferenceManager.get().activeAccountIndex);
   if (accountManager.activeAccountIndex >= 0) {
     await scanManager.init();
@@ -85,34 +88,69 @@ async function forwardScan() {
     await scanManager.forwardScan(ChangeType.Internal);
   }
 }
+
 async function discoverPeers() {
   try {
     const network = preferenceManager.get().activeNetwork;
     const currentServer = electrumService.getCurrentServer();
 
     if (currentServer) {
-      logger.log('Discovering peers...');
-      const peers = await discoverPeersFrom(currentServer);
-      logger.log(`Discovered ${peers.length} peers`);
+      logger.log('Fetching new peers from current server...');
+      const rawPeers = await discoverPeersFrom(currentServer);
 
-      // Store in chrome.storage
+      // 1. Pick a random sample of 10 to test (don't test all 100+ at once!)
+      const sample = rawPeers.sort(() => Math.random() - 0.5).slice(0, 10);
+
+      // 2. Vet the sample
+      const vettedResults = await Promise.all(sample.map(p => simpleHealthCheck(p)));
+      const healthyNewPeers = vettedResults.filter(p => p.healthy);
+
+      // 3. Merge with existing cached peers
+      const storageKey = `discoveredPeers_${network}`;
+      const cached = await chrome.storage.local.get(storageKey);
+      const existingPeers: ServerConfig[] = cached[storageKey] || [];
+
+      // Add new healthy peers, avoiding duplicates by host
+      const combined = [...healthyNewPeers, ...existingPeers];
+      const uniquePeers = combined.filter((peer, index, self) => index === self.findIndex(p => p.host === peer.host));
+
+      // 4. Store a clean list (capped at 50 to keep storage light)
       await chrome.storage.local.set({
-        [`discoveredPeers_${network}`]: peers,
+        [storageKey]: uniquePeers.slice(0, 50),
         [`lastDiscovery_${network}`]: Date.now(),
       });
+
+      logger.log(`Vetted peers: Found ${healthyNewPeers.length} healthy out of ${sample.length} tested.`);
     }
   } catch (error) {
-    logger.error('Peer discovery failed:', error);
+    logger.error('Peer discovery/vetting failed:', error);
   }
 }
 
-async function reconnectElectrum() {
+async function checkConnection() {
   try {
     const network = preferenceManager.get().activeNetwork;
-    logger.log('Reconnecting to best Electrum server...');
+    const currentServer = electrumService.getCurrentServer();
+
+    if (currentServer) {
+      logger.log(`Checking health of current server: ${currentServer.host}`);
+
+      // Perform a quick health check on the active server
+      const health = await simpleHealthCheck(currentServer);
+
+      if (health.healthy && health.latency && health.latency < 1500) {
+        logger.log('Current server is healthy and fast. Staying connected.');
+        return; // Exit early, no need to reconnect
+      }
+
+      logger.log('Current server is slow or unhealthy. Searching for a better one...');
+    }
+
+    // If no server exists or current one is bad, find the best one and init
     await electrumService.init(network);
+    await electrumService.connect();
   } catch (error) {
-    logger.error('Failed to reconnect:', error);
+    logger.error('Maintenance check failed:', error);
   }
 }
 
@@ -121,10 +159,10 @@ browser.runtime.onInstalled.addListener(() => {
 });
 
 function setupAlarms() {
-  browser.alarms.create('forwardScan', { periodInMinutes: 3 });
-  browser.alarms.create('peerDiscovery', { periodInMinutes: 1440 }); // Daily
-  browser.alarms.create('reconnectElectrum', { periodInMinutes: 60 });
   browser.alarms.create('backfillScan', { periodInMinutes: 0.1 });
+  browser.alarms.create('forwardScan', { periodInMinutes: 3 });
+  browser.alarms.create('checkConnection', { periodInMinutes: 60 });
+  browser.alarms.create('peerDiscovery', { periodInMinutes: 1440 }); // Daily
 }
 
 browser.alarms.onAlarm.addListener(async alarm => {
@@ -138,7 +176,7 @@ browser.alarms.onAlarm.addListener(async alarm => {
   if (alarm.name === 'peerDiscovery') {
     await discoverPeers();
   }
-  if (alarm.name === 'reconnectElectrum') {
-    await reconnectElectrum();
+  if (alarm.name === 'checkConnection') {
+    await checkConnection();
   }
 });
