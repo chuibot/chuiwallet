@@ -32,7 +32,8 @@ export class TxHistoryService {
 
     for (const entry of histories) {
       for (const [txid] of entry.txs) {
-        if (!Array.from(this.txHistoryCache.values()).some(e => e.transactionHash === txid)) {
+        const cached = this.txHistoryCache.get(txid);
+        if (!cached || cached.status === 'PENDING') {
           const tx = (await electrumService.getRawTransaction(txid, true)) as ElectrumTransaction;
           const newEntry = await this.buildTxEntry(
             tx,
@@ -40,7 +41,10 @@ export class TxHistoryService {
             scanManager.addressCacheChange,
             bitcoinPrice,
           );
-          this.txHistoryCache.set(txid, newEntry);
+          // Only update if status changed or it wasn't there
+          if (!cached || newEntry.status !== cached.status || newEntry.confirmations !== cached.confirmations) {
+            this.txHistoryCache.set(txid, newEntry);
+          }
         }
       }
     }
@@ -77,19 +81,15 @@ export class TxHistoryService {
     const isOpReturn = (spk: ScriptPubKey | undefined) =>
       spk?.type === 'nulldata' || (typeof spk?.asm === 'string' && spk.asm.startsWith('OP_RETURN'));
 
-    const changeSat = tx.vout.reduce((s, v) => {
-      const addr = this.addrFromScript(v.scriptPubKey);
-      if (addr && myChangeSet.has(addr)) return s + toSats(v.value);
-      return s;
-    }, 0n);
-
     const opReturnSat = tx.vout.reduce((s, v) => (isOpReturn(v.scriptPubKey) ? s + toSats(v.value) : s), 0n);
 
     let amountSat: bigint;
     if (type === 'RECEIVE') {
       amountSat = outputs.filter(o => o.mine).reduce((s, o) => s + o.valueSat, 0n);
     } else {
-      const sent = outTotalSat - changeSat - opReturnSat;
+      // For SEND, handle change or self-transfer (subtract everything that came back)
+      const returnedSat = outputs.filter(o => o.mine).reduce((s, o) => s + o.valueSat, 0n);
+      const sent = outTotalSat - returnedSat - opReturnSat;
       amountSat = sent > 0n ? sent : 0n;
     }
 

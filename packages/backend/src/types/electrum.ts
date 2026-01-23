@@ -81,5 +81,6 @@ export type ConnectionStatus = 'connected' | 'disconnected' | 'error';
 export interface ConnectionUpdate {
   detail?: string;
   status: ConnectionStatus;
+  reason?: string;
   ts: number;
 }

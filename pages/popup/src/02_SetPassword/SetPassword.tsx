@@ -5,6 +5,7 @@ import { TermsCheckbox } from '../components/TermsCheckbox';
 import { Button } from '@src/components/Button';
 import { getPasswordStrength } from '@src/utils';
 import { setSessionPassword } from '@extension/backend/dist/utils/sessionStorageHelper';
+import { ERROR_MESSAGES, MIN_PASSWORD_LENGTH } from '@src/constants';
 
 export const SetPassword: React.FC = () => {
   const navigate = useNavigate();
@@ -22,34 +23,41 @@ export const SetPassword: React.FC = () => {
     strengthColorClass = 'text-primary-green';
   }
 
-  const passwordsMatch = password.length > 0 && password === confirmPassword;
-  const canProceed = termsAccepted && passwordsMatch && passwordStrength === 'strong';
-
   const handleNext = async () => {
     setErrorMsg('');
+    setNoMatchMsg('');
 
-    if (!termsAccepted) {
-      setErrorMsg('Please accept the terms.');
+    if (!password) {
+      setErrorMsg(ERROR_MESSAGES.PASSWORD_REQUIRED);
+      return;
+    }
+
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setErrorMsg(ERROR_MESSAGES.PASSWORD_TOO_SHORT);
       return;
     }
 
     if (password !== confirmPassword) {
-      setNoMatchMsg('Passwords do not match.');
+      setNoMatchMsg(ERROR_MESSAGES.PASSWORDS_DO_NOT_MATCH);
       return;
     }
 
     if (passwordStrength !== 'strong') {
-      setErrorMsg('Please choose a stronger password.');
+      setErrorMsg(ERROR_MESSAGES.PLEASE_CHOOSE_STRONGER_PASSWORD);
       return;
     }
 
+    if (!termsAccepted) {
+      setErrorMsg(ERROR_MESSAGES.PLEASE_ACCEPT_TERMS);
+      return;
+    }
     await setSessionPassword(password);
     navigate('/onboard/choose-method');
   };
 
   const handlePasswordConfirmation = (passwordConfirmation: string) => {
     if (passwordConfirmation !== password) {
-      setNoMatchMsg('Passwords do not match');
+      setNoMatchMsg(ERROR_MESSAGES.PASSWORDS_DO_NOT_MATCH);
     } else {
       setNoMatchMsg('');
     }
@@ -95,7 +103,8 @@ export const SetPassword: React.FC = () => {
             />
             {noMatchMsg && <span className="mt-1 text-xs text-primary-red font-light">{noMatchMsg}</span>}
             <span className="mt-2 text-xs text-neutral-400 font-normal">
-              Password must be at least 8 characters long, contain uppercase letters, digits, and special characters.
+              Password must be at least {MIN_PASSWORD_LENGTH} characters and include uppercase, lowercase, numbers, and
+              special characters.
             </span>
 
             <TermsCheckbox onAcceptChange={setTermsAccepted} />
@@ -105,7 +114,7 @@ export const SetPassword: React.FC = () => {
         </div>
       </div>
 
-      <Button className="absolute w-full bottom-[19px]" onClick={handleNext} tabIndex={0} disabled={!canProceed}>
+      <Button className="absolute w-full bottom-[19px]" onClick={handleNext} tabIndex={0}>
         Next
       </Button>
     </div>

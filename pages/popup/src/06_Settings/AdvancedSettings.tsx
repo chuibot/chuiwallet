@@ -1,22 +1,15 @@
 import type * as React from 'react';
 import type { Network } from '@src/types';
 import { useNavigate } from 'react-router-dom';
-import { GasLimitInputField } from '@src/components/GasLimitInputField';
+import { useWalletContext } from '@src/context/WalletContext';
+import { sendMessage } from '@src/utils/bridge';
 import Header from '@src/components/Header';
 import NetworkSelector from '@src/components/NetworkSelector';
-import { useWalletContext } from '@src/context/WalletContext';
-import { useEffect, useState } from 'react';
-import { sendMessage } from '@src/utils/bridge';
 
 export const AdvancedSettings: React.FC = () => {
   const navigate = useNavigate();
   const { preferences, setPreferences } = useWalletContext();
-  const [localGap, setLocalGap] = useState<string>(preferences.gapLimitReceive.toString());
   const displayNetwork = preferences?.activeNetwork === 'mainnet' ? 'Mainnet' : 'Testnet';
-
-  useEffect(() => {
-    setLocalGap(preferences.gapLimitReceive.toString());
-  }, [preferences]);
 
   const networkChanged = async (selected: string) => {
     const selectedNetwork = selected.toLowerCase() as Network;
@@ -30,24 +23,6 @@ export const AdvancedSettings: React.FC = () => {
       <Header title="Advanced Settings" />
 
       <main className="flex flex-col self-center mt-10 w-full max-w-[328px]">
-        <GasLimitInputField
-          label="Gap limit"
-          value={localGap}
-          explanation="Explanation"
-          showReset={true}
-          onChange={(e: { target: { value: React.SetStateAction<string> } }) => {
-            setLocalGap(e.target.value);
-            const parsed = Number(e.target.value);
-            if (!isNaN(parsed)) {
-              // setGapLimit(parsed);
-            }
-          }}
-          onReset={() => {
-            setLocalGap('500');
-            // setGapLimit(500);
-          }}
-        />
-
         <div className="flex flex-col mt-3 mb-3 w-full font-bold">
           <NetworkSelector
             initialNetwork={displayNetwork}

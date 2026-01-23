@@ -6,10 +6,8 @@ import { colorLog, ManifestParser } from '@extension/dev-utils';
 import type { PluginOption } from 'vite';
 import type { Manifest } from '@extension/dev-utils/dist/lib/manifest-parser/type';
 
-const rootDir = resolve(__dirname, '..', '..');
-const refreshFile = resolve(__dirname, '..', 'refresh.js');
-const scriptFile = resolve(__dirname, '..', 'script.js');
-const injectedProviderFile = resolve(__dirname, '..', 'injectedProvider.js');
+const rootDir = resolve(__dirname, '..');
+const refreshFile = resolve(__dirname, '../utils', 'refresh.js');
 const manifestFile = resolve(rootDir, 'manifest.js');
 
 const getManifestWithCacheBurst = (): Promise<{ default: chrome.runtime.ManifestV3 }> => {
@@ -38,16 +36,11 @@ export default function makeManifestPlugin(config: { outDir: string }): PluginOp
     if (isDev) {
       addRefreshContentScript(manifest);
     }
-    addQRCodeContentScript(manifest);
-    addInjectedProviderContentScript(manifest);
-
+    addWalletProviderContentScript(manifest);
     fs.writeFileSync(manifestPath, ManifestParser.convertManifestToString(manifest, isFirefox ? 'firefox' : 'chrome'));
     if (isDev) {
       fs.copyFileSync(refreshFile, resolve(to, 'refresh.js'));
     }
-    fs.copyFileSync(scriptFile, resolve(to, 'script.js'));
-    fs.copyFileSync(injectedProviderFile, resolve(to, 'injectedProvider.js'));
-
     colorLog(`Manifest file copy complete: ${manifestPath}`, 'success');
   }
 
@@ -72,20 +65,10 @@ function addRefreshContentScript(manifest: Manifest) {
   });
 }
 
-function addQRCodeContentScript(manifest: Manifest) {
-  console.log('qr code injected');
+function addWalletProviderContentScript(manifest: Manifest) {
   manifest.content_scripts = manifest.content_scripts || [];
   manifest.content_scripts.push({
     matches: ['http://*/*', 'https://*/*', '<all_urls>'],
-    js: ['script.js'],
-    run_at: 'document_idle',
-  });
-}
-
-function addInjectedProviderContentScript(manifest: Manifest) {
-  manifest.content_scripts = manifest.content_scripts || [];
-  manifest.content_scripts.push({
-    matches: ['http://*/*', 'https://*/*', '<all_urls>'],
-    js: ['injectedProvider.js'],
+    js: ['content/index.js'],
   });
 }

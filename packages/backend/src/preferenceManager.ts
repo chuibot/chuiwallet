@@ -8,15 +8,17 @@ export interface Preferences {
   fiatCurrency: string;
   activeAccountIndex: number;
   activeNetwork: Network;
+  isWalletBackedUp: boolean;
 }
 
 export const defaultPreferences: Preferences = {
-  gapLimitReceive: 500,
+  gapLimitReceive: 200,
   gapLimitChange: 20,
   locale: 'en',
   fiatCurrency: 'USD',
   activeAccountIndex: -1,
   activeNetwork: Network.Mainnet,
+  isWalletBackedUp: false,
 };
 
 const STORAGE_KEY = 'preferences';

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { WordColumn } from '../components/WordColumn';
 import { Button } from '@src/components/Button';
 import { sendMessage } from '@src/utils/bridge';
-import { getSessionPassword } from '@extension/backend/dist/utils/sessionStorageHelper';
+import { getSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
 
 export const RestoreSeed: React.FC = () => {
   const navigate = useNavigate();

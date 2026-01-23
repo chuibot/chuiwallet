@@ -2,6 +2,7 @@ import type { CreateWalletOptions } from './modules/wallet';
 import type { SpendableUtxo, utxoSelectionResult } from './modules/utxoSelection';
 import type { AddressEntry, UtxoEntry } from './types/cache';
 import type { Network } from './types/electrum';
+import type { Balance } from './types/wallet';
 import { CacheType, ChangeType } from './types/cache';
 import browser from 'webextension-polyfill';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
@@ -11,6 +12,7 @@ import { accountManager } from './accountManager';
 import { defaultPreferences, preferenceManager } from './preferenceManager';
 import { scanManager } from './scanManager';
 import { electrumService } from './modules/electrumService';
+import { historyService } from './modules/txHistoryService';
 import { feeService } from './modules/feeService';
 import { logger } from './utils/logger';
 import { selectUtxo } from './modules/utxoSelection';
@@ -19,7 +21,7 @@ import { buildSpendPsbt } from './utils/psbt';
 import { getBitcoinPrice } from './modules/blockonomics';
 import { scriptTypeFromAddress } from './utils/crypto';
 import { deleteSessionPassword, getSessionPassword } from './utils/sessionStorageHelper';
-import { historyService } from './modules/txHistoryService';
+import { convertToSlip0132 } from './utils/xpubConverter';
 
 bitcoin.initEccLib(secp256k1);
 
@@ -53,7 +55,7 @@ export class WalletManager {
   async switchNetwork(network: Network) {
     const sessionPassword = await getSessionPassword();
     if (sessionPassword) {
-      electrumService.disconnect();
+      electrumService.disconnect('switchNetwork');
       scanManager.clear();
       await preferenceManager.update({ activeNetwork: network });
       await wallet.restore(preferenceManager.get().activeNetwork, sessionPassword);
@@ -90,12 +92,7 @@ export class WalletManager {
    * Aggregate confirmed/unconfirmed balance for the active account by summing UTXOs
    * from both external(0/receive) and internal(1/change) chains.
    */
-  public async getBalance(): Promise<{
-    confirmed: number;
-    unconfirmed: number;
-    confirmedUsd: number;
-    unconfirmedUsd: number;
-  }> {
+  public async getBalance(): Promise<Balance> {
     const activeAccount = accountManager.getActiveAccount();
     if (!activeAccount) {
       return { confirmed: 0, unconfirmed: 0, confirmedUsd: 0, unconfirmedUsd: 0 };
@@ -111,18 +108,32 @@ export class WalletManager {
 
     let confirmed = 0;
     let unconfirmed = 0;
-    const addFrom = (pairs: [number, UtxoEntry][]) => {
+
+    const processUtxos = (pairs: [number, UtxoEntry][], isInternalChain: boolean) => {
       for (const [, entry] of pairs) {
         if (!entry?.utxos) continue;
         for (const u of entry.utxos) {
-          if (u.height && u.height > 0) confirmed += u.value;
-          else unconfirmed += u.value;
+          // 1. Strictly Confirmed: Has been mined into a block (height > 0)
+          const isConfirmed = u.height && u.height > 0;
+
+          // 2. Trusted Pending: It is unconfirmed, BUT it is on our Internal (Change) chain.
+          // We trust our own change outputs immediately so the user's balance doesn't flicker/drop.
+          const isTrustedChange = isInternalChain && !isConfirmed;
+
+          if (isConfirmed || isTrustedChange) {
+            confirmed += u.value;
+          } else {
+            unconfirmed += u.value;
+          }
         }
       }
     };
 
-    addFrom(receivePairs);
-    addFrom(changePairs);
+    // External Chain (Receive): Only count as confirmed if actually mined
+    processUtxos(receivePairs, false);
+
+    // Internal Chain (Change): Count as confirmed if mined OR if it's our own pending change
+    processUtxos(changePairs, true);
 
     let confirmedUsd = 0;
     let unconfirmedUsd = 0;
@@ -214,7 +225,7 @@ export class WalletManager {
       getPrevTxHex: (txid: string) => electrumService.getRawTransaction(txid), // Todo: only used for legacy P2PKH, consider depracation
     });
     const txHex = wallet.signPsbt(selectedUtxo.inputs, psbt);
-    console.log('Send TX Hex', txHex);
+    logger.log('Send TX Hex', txHex);
     return await electrumService.broadcastTx(txHex!);
   }
 
@@ -245,7 +256,11 @@ export class WalletManager {
    * Get the xpub of the current wallet
    */
   public getXpub() {
-    return wallet.getXpub();
+    const xpub = wallet.getXpub();
+    if (!xpub) return null;
+
+    const activeAccount = accountManager.getActiveAccount();
+    return convertToSlip0132(xpub, activeAccount.scriptType, activeAccount.network);
   }
 
   /**

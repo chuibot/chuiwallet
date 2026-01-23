@@ -1,8 +1,9 @@
-import type { AddressEntry, HistoryEntry, UtxoEntry } from './types/cache';
+import type { AddressEntry, HistoryEntry, ScanEvent, ScanEventInput, UtxoEntry } from './types/cache';
 import { CacheType, ChangeType } from './types/cache';
 import browser from 'webextension-polyfill';
 import { addressToScriptHash, toBitcoinNetwork } from './utils/crypto';
 import { getCacheKey, selectByChain } from './utils/cache';
+import { createEmitter } from './utils/emitter';
 import { walletManager } from './walletManager';
 import { preferenceManager } from './preferenceManager';
 import { electrumService } from './modules/electrumService';
@@ -18,11 +19,11 @@ export interface ScanManagerConfig {
 }
 
 export const defaultScanConfig: ScanManagerConfig = {
-  externalGapLimit: 500,
+  externalGapLimit: 200,
   internalGapLimit: 20,
   forwardExtendMaxPasses: 10,
-  staleBatchSize: 90,
-  electrumBatchSize: 30,
+  staleBatchSize: 900,
+  electrumBatchSize: 150,
   pruneThresholdDays: 7,
 };
 
@@ -40,12 +41,23 @@ export class ScanManager {
   private highestUsedChange = -1;
   public nextReceiveIndex = 0;
   public nextChangeIndex = 0;
+  public readonly onStatus = createEmitter<ScanEvent>();
 
   constructor(config: ScanManagerConfig = defaultScanConfig) {
     this.config = { ...config };
   }
 
   public async init() {
+    // Sync with user preferences
+    try {
+      const prefs = preferenceManager.get();
+      this.config.externalGapLimit = prefs.gapLimitReceive;
+      this.config.internalGapLimit = prefs.gapLimitChange;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (e) {
+      // ignore if not initialized, use defaults
+    }
+
     await this.loadAddress();
     await this.loadHistory();
     await this.loadUtxo();
@@ -67,7 +79,12 @@ export class ScanManager {
       const highestScanned = selectByChain(this.highestScannedReceive, this.highestScannedChange, changeType);
       const windowToScan = Math.max(0, highestUsed) + gapLimit - highestScanned - 1;
       if (windowToScan <= 0) {
-        logger.log(`Forward scan up-to-date (used=${highestUsed}, scanned=${highestScanned}, gap=${gapLimit})`);
+        this.emitScanEvent({
+          type: 'scan',
+          changeType,
+          message: `Forward scan up-to-date (used=${highestUsed}, scanned=${highestScanned}, gap=${gapLimit})`,
+          data: { scanType: 'forward' },
+        });
         break;
       }
 
@@ -133,7 +150,14 @@ export class ScanManager {
       indicesToScan.length > MAX_LOG
         ? `${indicesToScan.slice(0, MAX_LOG).join(', ')} … (+${indicesToScan.length - MAX_LOG} more)`
         : indicesToScan.join(', ');
-    logger.log(`Backfill ct=${changeType} | scanning ${indicesToScan.length} indices: [${preview}]`);
+
+    this.emitScanEvent({
+      type: 'scan',
+      changeType,
+      message: `scanning ${indicesToScan.length} indices: [${preview}]`,
+      indices: indicesToScan,
+      data: { scanType: 'backfill' },
+    });
     await this.scan(indicesToScan, changeType);
   }
 
@@ -170,12 +194,22 @@ export class ScanManager {
     const historyCache = changeType === ChangeType.External ? this.historyCacheReceive : this.historyCacheChange;
     const utxoCache = changeType === ChangeType.External ? this.utxoCacheReceive : this.utxoCacheChange; // Assume added
 
+    // Tracking for events update
+    const historyTouched = new Set<number>();
+    const utxoTouched = new Set<number>();
+
     // Batch in groups for concurrency (adjust based on Electrum limits)
     for (let i = 0; i < indices.length; i += this.config.electrumBatchSize) {
       // Bootstrap for batch scanning
       const batchTimestamp = Date.now();
       const batch = indices.slice(i, i + this.config.electrumBatchSize);
-      logger.log(`Scanning ${changeType} addresses ${batch} `);
+      this.emitScanEvent({
+        type: 'scan',
+        changeType,
+        message: `Scanning ${changeType} addresses ${batch}`,
+        indices: batch,
+      });
+
       const scriptHashesPromises = batch.map(async index => {
         const entry = addressCache.get(index);
         if (!entry) return undefined;
@@ -189,7 +223,7 @@ export class ScanManager {
       // Scan Histories
       const histories = await electrumService.getHistoryBatch(scriptHashes);
       for (let batchIndex = 0; batchIndex < batch.length; batchIndex++) {
-        const hdIndex = batch[batchIndex]; // map back from batch pos → HD index
+        const hdIndex = batch[batchIndex]; // map back from batch pos -> HD index
         const entry = addressCache.get(hdIndex);
         if (!entry) continue;
 
@@ -197,7 +231,8 @@ export class ScanManager {
         const history = histories[batchIndex] ?? [];
         if (history.length > 0) {
           entry.everUsed = true;
-          this.upsertHistoryIfUsed(historyCache, hdIndex, batchTimestamp, history);
+          const changed = this.upsertHistoryIfUsed(historyCache, hdIndex, batchTimestamp, history);
+          if (changed) historyTouched.add(hdIndex);
           this.bumpHighestUsed(hdIndex, changeType);
         }
       }
@@ -212,16 +247,27 @@ export class ScanManager {
 
         const utxos = utxosByIndex[batchIndex] ?? [];
         if (utxos.length > 0) {
-          this.upsertUtxo(utxoCache, hdIndex, batchTimestamp, utxos);
+          const changed = this.upsertUtxo(utxoCache, hdIndex, batchTimestamp, utxos);
+          if (changed) utxoTouched.add(hdIndex);
           this.bumpHighestUsed(hdIndex, changeType);
-        } else {
-          if (utxoCache.has(hdIndex)) {
-            utxoCache.delete(hdIndex);
-          }
+        } else if (utxoCache.has(hdIndex)) {
+          utxoCache.delete(hdIndex);
+          utxoTouched.add(hdIndex);
         }
       }
       await this.saveUtxo();
       await this.saveAddress();
+    }
+
+    const affectedIndices = Array.from(new Set([...historyTouched, ...utxoTouched]));
+    if (affectedIndices.length > 0) {
+      this.emitScanEvent({
+        type: 'scan',
+        changeType,
+        utxoChanged: utxoTouched.size > 0,
+        historyChanged: historyTouched.size > 0,
+        indices: affectedIndices,
+      });
     }
   }
 
@@ -231,11 +277,27 @@ export class ScanManager {
     ts: number,
     history: { tx_hash: string; height: number }[],
   ) {
-    if (!history || history.length === 0) return;
+    if (!history || history.length === 0) return false;
+
+    const nextTxs = history.map(tx => [tx.tx_hash, tx.height] as [string, number]);
+    const prev = cache.get(hdIndex);
+
+    if (prev) {
+      const prevTxs = prev.txs;
+      if (
+        prevTxs.length === nextTxs.length &&
+        prevTxs.every(([id, h], i) => id === nextTxs[i][0] && h === nextTxs[i][1])
+      ) {
+        prev.lastChecked = ts;
+        return false;
+      }
+    }
+
     cache.set(hdIndex, {
       lastChecked: ts,
-      txs: history.map(tx => [tx.tx_hash, tx.height] as [string, number]),
+      txs: nextTxs,
     });
+    return true;
   }
 
   private upsertUtxo(
@@ -244,15 +306,33 @@ export class ScanManager {
     ts: number,
     utxos: { tx_hash: string; tx_pos: number; value: number; height: number }[],
   ) {
+    const nextUtxos = utxos.map(utxo => ({
+      txid: utxo.tx_hash,
+      vout: utxo.tx_pos,
+      value: utxo.value,
+      height: utxo.height,
+    }));
+    const prev = cache.get(hdIndex);
+
+    if (prev) {
+      const prevUtxos = prev.utxos ?? [];
+      if (
+        prevUtxos.length === nextUtxos.length &&
+        prevUtxos.every((u, i) => {
+          const n = nextUtxos[i];
+          return u.txid === n.txid && u.vout === n.vout && u.value === n.value && u.height === n.height;
+        })
+      ) {
+        prev.lastChecked = ts;
+        return false;
+      }
+    }
+
     cache.set(hdIndex, {
       lastChecked: ts,
-      utxos: utxos.map(utxo => ({
-        txid: utxo.tx_hash,
-        vout: utxo.tx_pos,
-        value: utxo.value,
-        height: utxo.height,
-      })),
+      utxos: nextUtxos,
     });
+    return true;
   }
 
   private bumpHighestScanned(endIndex: number, changeType: ChangeType) {
@@ -422,6 +502,16 @@ export class ScanManager {
     this.highestUsedChange = -1;
     this.nextReceiveIndex = 0;
     this.nextChangeIndex = 0;
+  }
+
+  private emitScanEvent(event: ScanEventInput) {
+    const { utxoChanged = false, historyChanged = false, ...rest } = event;
+
+    this.onStatus.emit({
+      ...rest,
+      utxoChanged,
+      historyChanged,
+    });
   }
 }
 
