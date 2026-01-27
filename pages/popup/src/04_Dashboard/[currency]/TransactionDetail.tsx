@@ -113,16 +113,6 @@ export const TransactionDetail: React.FC = () => {
             </a>
           }
         />
-        {type == 'SEND' && (
-          <LabelValue
-            label="To"
-            value={
-              <a href={`https://www.blockonomics.co/#/search?q=${receiver}`} className="underline" target="_blank">
-                {receiver}
-              </a>
-            }
-          />
-        )}
       </div>
     </div>
   );
