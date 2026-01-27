@@ -98,12 +98,18 @@ async function discoverPeers() {
       logger.log('Fetching new peers from current server...');
       const rawPeers = await discoverPeersFrom(currentServer);
 
-      // 1. Pick a random sample of 10 to test (don't test all 100+ at once!)
+      logger.log(`Received ${rawPeers.length} peers from server`);
+
+      // 1. Pick a random sample of 10 to test (don't test all at once!)
       const sample = rawPeers.sort(() => Math.random() - 0.5).slice(0, 10);
 
-      // 2. Vet the sample
+      logger.log(`Testing sample of ${sample.length} peers...`);
+
+      // 2. Vet the sample with increased timeout
       const vettedResults = await Promise.all(sample.map(p => simpleHealthCheck(p)));
       const healthyNewPeers = vettedResults.filter(p => p.healthy);
+
+      logger.log(`Vetted peers: Found ${healthyNewPeers.length} healthy out of ${sample.length} tested.`);
 
       // 3. Merge with existing cached peers
       const storageKey = `discoveredPeers_${network}`;
@@ -120,7 +126,7 @@ async function discoverPeers() {
         [`lastDiscovery_${network}`]: Date.now(),
       });
 
-      logger.log(`Vetted peers: Found ${healthyNewPeers.length} healthy out of ${sample.length} tested.`);
+      logger.log(`Total cached peers: ${uniquePeers.length}`);
     }
   } catch (error) {
     logger.error('Peer discovery/vetting failed:', error);

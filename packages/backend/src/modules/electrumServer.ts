@@ -126,7 +126,7 @@ export async function discoverPeersFrom(server: ServerConfig): Promise<ServerCon
     const timeout = setTimeout(() => {
       socket.close();
       resolve([]);
-    }, 4000);
+    }, 5000); // Slightly longer for this call
 
     socket.onopen = () => {
       socket.send(JSON.stringify({ id: 1, method: 'server.peers.subscribe', params: [] }));
@@ -139,26 +139,56 @@ export async function discoverPeersFrom(server: ServerConfig): Promise<ServerCon
           const peers: ServerConfig[] = response.result
             .map((p: ElectrumPeerResponse) => {
               const host = p[1];
-              const sslPort = p[2]?.find((f: string) => f.startsWith('s'))?.substring(1);
-              if (host && sslPort && !host.endsWith('.onion') && !/^\d+\.\d+/.test(host)) {
-                return { host, port: parseInt(sslPort), useTls: true, network: server.network };
+              const features = p[2] || [];
+
+              const sslFeature = features.find((f: string) => f.startsWith('s'));
+              if (!sslFeature) return null;
+
+              const sslPort = parseInt(sslFeature.substring(1));
+
+              // Strict browser-compatible filtering
+              if (
+                host &&
+                sslPort &&
+                !host.endsWith('.onion') && // No Tor
+                !/^\d+\.\d+\.\d+\.\d+$/.test(host) && // No raw IPs (domain names only)
+                !host.includes('localhost') &&
+                host.length < 100 && // Sanity check
+                isBrowserSafePort(sslPort) // Valid port
+              ) {
+                return {
+                  host,
+                  port: sslPort,
+                  useTls: true,
+                  network: server.network,
+                };
               }
               return null;
             })
-            .filter((p: ServerConfig): p is ServerConfig => p !== null);
+            .filter((p: ServerConfig | null): p is ServerConfig => p !== null);
 
           clearTimeout(timeout);
           socket.close();
+
+          logger.log(`Filtered to ${peers.length} browser-compatible peers (from ${response.result.length} total)`);
           resolve(peers);
         }
-      } catch {
+      } catch (error) {
+        logger.error('Error parsing peers:', error);
         socket.close();
         resolve([]);
       }
     };
+
     socket.onerror = () => {
+      clearTimeout(timeout);
       socket.close();
       resolve([]);
     };
   });
+}
+
+// Add this helper to electrumServer.ts
+function isBrowserSafePort(port: number): boolean {
+  return port === 443 || (port >= 50000 && port <= 50010) || (port >= 60000 && port <= 60010);
 }
