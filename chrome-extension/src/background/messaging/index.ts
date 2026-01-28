@@ -25,16 +25,28 @@ function isBadRouterRequest() {
 }
 
 export function registerMessageRouter() {
-  browser.runtime.onMessage.addListener((message: unknown, sender: MessageSender) => {
+  browser.runtime.onMessage.addListener((message: unknown, sender: MessageSender, sendResponse) => {
     if (!isRouterAction(message)) {
       return isBadRouterRequest();
     }
 
     switch (message.type) {
       case 'APP_ACTION':
-        return handleAction(message, sender);
+        handleAction(message, sender)
+          .then(sendResponse)
+          .catch(err => {
+            console.error('handleAction error:', err);
+            sendResponse({ status: 'error', error: { code: 'INTERNAL', message: err.message } });
+          });
+        return true;
       case 'PROVIDER_RPC':
-        return handleRpc(message, sender);
+        handleRpc(message, sender)
+          .then(sendResponse)
+          .catch(err => {
+            console.error('handleRpc error:', err);
+            sendResponse({ status: 'error', error: { code: 'INTERNAL', message: err.message } });
+          });
+        return true;
       default:
         return isBadRouterRequest();
     }
