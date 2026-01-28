@@ -52,7 +52,7 @@ export class FeeService {
   };
 
   private async fetchMempool(network: Network): Promise<FeeRates> {
-    const baseUrl = network === Network.Mainnet ? 'https://mempool.space/api' : 'https://mempool.space/testnet/api';
+    const baseUrl = network === Network.Mainnet ? 'https://mempool.space/api' : 'https://mempool.space/testnet4/api';
     const res = await fetchWithTimeout(`${baseUrl}/v1/fees/recommended`);
     return await res.json();
   }
