@@ -150,8 +150,8 @@ export class WalletManager {
 
   public async getFeeEstimates(toAddress: string) {
     try {
-      // We don't know the amount to spend yet, assuming 1 input with empty inputs for feeService.getFeeEstimates
-      return await feeService.getFeeEstimates([], toAddress, accountManager.getActiveAccount().scriptType);
+      const account = accountManager.getActiveAccount();
+      return await feeService.getFeeEstimates([], toAddress, account.network, account.scriptType);
     } catch (error) {
       console.log(error);
     }
