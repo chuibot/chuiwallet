@@ -9,7 +9,7 @@ import Header from '@src/components/Header';
 
 export const VerifySeed: React.FC = () => {
   const navigate = useNavigate();
-  const { setIsBackedUp, isBackedUp } = useWalletContext();
+  const { setIsBackedUp } = useWalletContext();
   const [seedWords, setSeedWords] = useState<string[]>(Array(12).fill(''));
   const [missingPositions, setMissingPositions] = useState<number[]>([]);
   const [userInputs, setUserInputs] = useState<{ [pos: number]: string }>({});
@@ -116,14 +116,6 @@ export const VerifySeed: React.FC = () => {
       <span className="mt-6 text-xs text-primary-red font-light text-center">{errorMsg}</span>
 
       <div className="flex-grow" />
-
-      {!isBackedUp && (
-        <button
-          onClick={() => navigate('/settings/advanced')}
-          className="mb-16 text-xs text-neutral-400 hover:text-neutral-300 text-center transition-colors">
-          📝 Seed is available in Advanced Settings section
-        </button>
-      )}
 
       <Button className="absolute w-full bottom-[19px]" disabled={!isValid} onClick={handleVerify}>
         Continue

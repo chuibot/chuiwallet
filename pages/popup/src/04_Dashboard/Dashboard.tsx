@@ -56,7 +56,7 @@ export const Dashboard: React.FC = () => {
 
       {!isBackedUp && (
         <button
-          onClick={() => navigate('/onboard/verify-seed')}
+          onClick={() => navigate('/settings/advanced/reveal-seed')}
           className="flex items-center justify-center gap-2 mt-4 hover:opacity-80 transition-opacity cursor-pointer mx-auto">
           <div className="flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold">
             !
