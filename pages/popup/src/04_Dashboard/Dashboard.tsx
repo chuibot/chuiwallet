@@ -102,6 +102,16 @@ export const Dashboard: React.FC = () => {
         </div>
       )}
 
+      {!balanceLoading && balance && balance.unconfirmed > 0 && (
+        <div className="mt-2 text-sm leading-none text-center text-neutral-400">
+          <span className="text-green-500 mr-2">Unconfirmed</span>+
+          {preferences?.fiatCurrency === 'USD'
+            ? formatNumber(balance.unconfirmedUsd)
+            : formatNumber(balance.unconfirmed / 1e8, 8)}{' '}
+          {preferences?.fiatCurrency === 'USD' ? 'USD' : 'BTC'}
+        </div>
+      )}
+
       <div className="flex gap-2.5 justify-between items-center mt-[44px] w-full text-lg font-medium leading-none text-center whitespace-nowrap max-w-[346px] text-foreground">
         {balanceLoading ? (
           <>

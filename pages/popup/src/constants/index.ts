@@ -11,6 +11,8 @@ export const ERROR_MESSAGES = {
   SEND_TRANSACTION_TOO_SMALL: 'Transaction amount is too small. Please increase the amount.',
   SEND_TRANSACTION_INSUFFICIENT_FUNDS: 'Insufficient funds to complete this transaction.',
   SEND_TRANSACTION_FEE_ERROR: 'Transaction fee error. Please try adjusting the fee.',
+  PASSWORD_NOT_FOUND: 'No password found. Please restart the setup process.',
+  UNEXPECTED_ERROR: 'An unexpected error occurred. Please try again.',
 };
 
 export const MIN_PASSWORD_LENGTH = 8;

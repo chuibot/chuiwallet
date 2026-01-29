@@ -1,10 +1,10 @@
 import type * as React from 'react';
-import type { TransactionActivity } from '@src/types';
+import type { TxEntry } from '@extension/backend/src/types/cache';
 import { TransactionActivityItem } from './TransactionActivityItem';
 import { useEffect, useRef, useState } from 'react';
 
 interface TransactionActivityListProps {
-  transactions: TransactionActivity[];
+  transactions: TxEntry[];
 }
 
 /**
@@ -12,9 +12,9 @@ interface TransactionActivityListProps {
  *  - pending: all transactions with status 'PENDING'
  *  - confirmed: transactions with status 'CONFIRMED' grouped by date (YYYY-MM-DD)
  */
-function groupTransactions(transactions: TransactionActivity[]) {
-  const pending: TransactionActivity[] = [];
-  const confirmed: Record<string, TransactionActivity[]> = {};
+function groupTransactions(transactions: TxEntry[]) {
+  const pending: TxEntry[] = [];
+  const confirmed: Record<string, TxEntry[]> = {};
 
   transactions.forEach(tx => {
     if (tx.status === 'PENDING') {

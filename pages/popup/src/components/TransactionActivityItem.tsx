@@ -1,12 +1,12 @@
 import type * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatNumber, timestampToTime, getStatusMeta } from '@src/utils';
-import type { TransactionActivityStatus, TransactionType } from '@extension/backend/src/modules/electrumService';
+import type { TxStatus, TxType } from '@extension/backend/src/types/cache';
 import { useWalletContext } from '@src/context/WalletContext';
 
 export interface TransactionActivityItemProps {
-  type: TransactionType;
-  status: TransactionActivityStatus;
+  type: TxType;
+  status: TxStatus;
   amountBtc: number;
   amountUsd: number;
   feeBtc: number;
@@ -20,9 +20,12 @@ export interface TransactionActivityItemProps {
 
 export const TransactionActivityItem: React.FC<TransactionActivityItemProps> = props => {
   const navigate = useNavigate();
-  const { selectedFiatCurrency } = useWalletContext();
+  const { preferences } = useWalletContext();
+  const selectedFiatCurrency = preferences.fiatCurrency;
 
   const isSent = props.type === 'SEND';
+  const totalBtc = isSent ? props.amountBtc + props.feeBtc : props.amountBtc;
+  const totalUsd = isSent ? props.amountUsd + props.feeUsd : props.amountUsd;
   const sign = isSent ? '-' : '+';
   const txnStatus = props.status === 'PENDING' ? 'pending' : isSent ? 'sent' : 'received';
   const { icon, label } = getStatusMeta(txnStatus);
@@ -62,22 +65,22 @@ export const TransactionActivityItem: React.FC<TransactionActivityItemProps> = p
           <>
             <span className="text-sm text-white text-nowrap">
               {sign}
-              {formatNumber(Math.abs(props.amountUsd))} USD
+              {formatNumber(Math.abs(totalUsd))} USD
             </span>
             <span className="text-sm text-foreground-79 text-nowrap">
               {sign}
-              {formatNumber(Math.abs(props.amountBtc), 8)} BTC
+              {formatNumber(Math.abs(totalBtc), 8)} BTC
             </span>
           </>
         ) : (
           <>
             <span className="text-sm text-white text-nowrap">
               {sign}
-              {formatNumber(Math.abs(props.amountBtc), 8)} BTC
+              {formatNumber(Math.abs(totalBtc), 8)} BTC
             </span>
             <span className="text-sm text-foreground-79 text-nowrap">
               {sign}
-              {formatNumber(Math.abs(props.amountUsd))} USD
+              {formatNumber(Math.abs(totalUsd))} USD
             </span>
           </>
         )}
