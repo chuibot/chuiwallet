@@ -64,10 +64,42 @@ export class WalletManager {
       await electrumService.connect();
       await accountManager.init(preferenceManager.get().activeAccountIndex);
       await scanManager.init();
+      historyService.reset();
       return true;
     }
 
     return false;
+  }
+
+  public async switchAccount(accountListIndex: number) {
+    const account = accountManager.accounts[accountListIndex];
+    if (!account) {
+      throw new Error('Account not found');
+    }
+
+    const sessionPassword = await getSessionPassword();
+    if (!sessionPassword) {
+      throw new Error('Password is required');
+    }
+
+    const prefs = preferenceManager.get();
+    const networkChanged = prefs.activeNetwork !== account.network;
+
+    if (networkChanged) {
+      electrumService.disconnect('switchNetwork');
+      await preferenceManager.update({ activeNetwork: account.network, activeAccountIndex: accountListIndex });
+      await wallet.restore(account.network, sessionPassword);
+      await electrumService.init(account.network);
+      await electrumService.connect();
+    } else {
+      await preferenceManager.update({ activeAccountIndex: accountListIndex });
+    }
+
+    await accountManager.init(accountListIndex);
+    scanManager.clear();
+    await scanManager.init();
+    historyService.reset();
+    return preferenceManager.get();
   }
 
   verifyPassword(password: string): boolean {
@@ -324,10 +356,26 @@ export class WalletManager {
    * Derive and set the next account as active
    */
   public async deriveNextAccount() {
-    const account = wallet.deriveAccount(this.getHighestAccountIndex() + 1);
+    await accountManager.init(preferenceManager.get().activeAccountIndex);
+    const activeNetwork = preferenceManager.get().activeNetwork;
+    const usedIndices = new Set(accountManager.accounts.filter(a => a.network === activeNetwork).map(a => a.index));
+    let nextIndex = 0;
+    while (usedIndices.has(nextIndex)) {
+      nextIndex++;
+    }
+    const account = wallet.deriveAccount(nextIndex);
     const activeAccountIndex = await accountManager.add(account);
     preferenceManager.get().activeAccountIndex = activeAccountIndex;
     await preferenceManager.update({ activeAccountIndex: activeAccountIndex });
+  }
+
+  public async createAccount() {
+    await this.deriveNextAccount();
+    await accountManager.init(preferenceManager.get().activeAccountIndex);
+    scanManager.clear();
+    await scanManager.init();
+    historyService.reset();
+    return preferenceManager.get();
   }
 
   /**

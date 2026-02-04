@@ -1,4 +1,4 @@
-import type { BalanceData, Preferences } from '@src/types';
+import type { BalanceData, Network, Preferences } from '@src/types';
 import type { Account } from '@extension/backend/src/types/wallet';
 import type { TxEntry } from '@extension/backend/src/types/cache';
 import type { ConnectionStatus } from '@extension/backend/src/types/electrum';
@@ -19,6 +19,9 @@ interface WalletContextType {
   setPreferences: (preferences: Preferences) => void;
   accounts: Account[];
   activeAccount: Account | undefined;
+  addAccount: () => Promise<void>;
+  switchAccount: (accountIndex: number) => Promise<void>;
+  switchNetwork: (network: Network) => Promise<void>;
   balance: BalanceData | undefined;
   refreshBalance: () => void;
   transactions: TxEntry[];
@@ -106,6 +109,37 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     })();
   };
 
+  const refreshAccounts = async () => {
+    const accounts = await sendMessage<Account[]>('accounts.get');
+    _setAccounts(accounts);
+    return accounts;
+  };
+
+  const switchAccount = async (accountIndex: number) => {
+    const nextPreferences: Preferences = await sendMessage('accounts.switch', { accountIndex });
+    setPreferences(nextPreferences);
+    await refreshAccounts();
+    refreshBalance();
+    refreshTransactions();
+  };
+
+  const addAccount = async () => {
+    const result = await sendMessage<{ preferences: Preferences; accounts: Account[] }>('accounts.create');
+    setPreferences(result.preferences);
+    _setAccounts(result.accounts);
+    refreshBalance();
+    refreshTransactions();
+  };
+
+  const switchNetwork = async (network: Network) => {
+    await sendMessage('wallet.switchNetwork', { network });
+    const nextPreferences: Preferences = await sendMessage('preferences.get');
+    setPreferences(nextPreferences);
+    await refreshAccounts();
+    refreshBalance();
+    refreshTransactions();
+  };
+
   const getReceivingAddress = (): Promise<string> => {
     return (async () => {
       return await sendMessage('wallet.getReceivingAddress');
@@ -138,6 +172,9 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         preferences,
         accounts,
         activeAccount,
+        addAccount,
+        switchAccount,
+        switchNetwork,
         balance,
         transactions,
         setOnboarded,

@@ -9,6 +9,7 @@ interface AccountItemProps {
   selected: boolean;
   isLoading: boolean | null;
   onClick?: () => void;
+  dataTestId?: string;
 }
 
 const AccountItem: React.FC<AccountItemProps> = ({
@@ -18,13 +19,15 @@ const AccountItem: React.FC<AccountItemProps> = ({
   selected,
   isLoading = false,
   onClick,
+  dataTestId,
 }) => {
   return (
     <button
       className={`flex gap-3 justify-center items-center px-2.5 py-3 w-full rounded-lg ${
         selected ? 'bg-background-2c' : ''
       } hover:bg-background-2c max-w-[346px]`}
-      onClick={onClick}>
+      onClick={onClick}
+      data-testid={dataTestId}>
       <div className="flex gap-3 items-center self-stretch my-auto min-w-[240px] w-[312px]">
         {isLoading ? (
           <Skeleton circle={true} className="!w-[48px] !h-[46px]" />

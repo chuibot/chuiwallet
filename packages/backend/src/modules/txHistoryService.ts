@@ -237,6 +237,11 @@ export class TxHistoryService {
       this.parentTxCache.clear();
     }
   }
+
+  public reset(): void {
+    this.txHistoryCache.clear();
+    this.parentTxCache.clear();
+  }
 }
 
 export const historyService = new TxHistoryService();

@@ -10,7 +10,7 @@ const ACCOUNTS_KEY = 'accounts';
  */
 export class AccountManager {
   public accounts: Account[] = [];
-  public activeAccountIndex: number = -1;
+  public activeAccountIndex: number = -1; // Index into this.accounts (list index), not HD account index
 
   /**
    * Initialize by loading accounts and set active account index.
@@ -60,7 +60,19 @@ export class AccountManager {
     const payload = await new Promise<{ [key: string]: Account[] | undefined }>(resolve => {
       chrome.storage.local.get(ACCOUNTS_KEY, resolve);
     });
-    this.accounts = payload[ACCOUNTS_KEY] ?? [];
+    const stored = payload[ACCOUNTS_KEY] ?? [];
+    const deduped: Account[] = [];
+    const seen = new Set<string>();
+    for (const account of stored) {
+      const key = `${account.network}:${account.index}:${account.scriptType}:${account.xpub}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(account);
+    }
+    this.accounts = deduped;
+    if (deduped.length !== stored.length) {
+      await this.save();
+    }
   }
 
   /**

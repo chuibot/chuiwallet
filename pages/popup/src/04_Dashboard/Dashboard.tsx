@@ -35,7 +35,7 @@ export const Dashboard: React.FC = () => {
         <button
           className="flex gap-2 justify-center items-center self-stretch px-2 my-auto rounded bg-zinc-800 cursor-pointer"
           onClick={() => navigate('/accounts')}>
-          <div className="self-stretch my-auto">{activeAccount?.name}</div>
+          <div className="self-stretch my-auto">{activeAccount?.name ?? 'Account'}</div>
           <img
             loading="lazy"
             src={chrome.runtime.getURL('popup/account_down_arrow.svg')}
