@@ -10,61 +10,44 @@ import Skeleton from 'react-loading-skeleton';
 
 export const Accounts: React.FC = () => {
   const navigate = useNavigate();
-  const {
-    addAccount,
-    cachedBalances,
-    refreshBalance,
-    selectedAccountIndex,
-    selectedFiatCurrency,
-    switchAccount,
-    totalAccounts,
-    wallet,
-  } = useWalletContext();
+  const { accounts, preferences, balance, addAccount, switchAccount } = useWalletContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isScrollable, setIsScrollable] = useState(false);
 
-  useEffect(() => {
-    if (wallet) {
-      for (let i = 0; i < totalAccounts; i++) {
-        refreshBalance(i);
-      }
-    }
-  }, [wallet, totalAccounts, refreshBalance]);
+  const activeNetwork = preferences?.activeNetwork;
+  const activeAccountIndex = preferences?.activeAccountIndex ?? -1;
 
-  const accounts = useMemo(() => {
-    if (!wallet) return [];
-    return Array.from({ length: totalAccounts }, (_, i) => {
-      const address = wallet.getAddress('bech32', i);
-      const balanceObj = cachedBalances[i];
-      const balanceText = balanceObj
-        ? selectedFiatCurrency === 'USD'
-          ? `${formatNumber(balanceObj.confirmedUsd)} USD`
-          : `${formatNumber(balanceObj.confirmed / 1e8, 8)} BTC`
-        : selectedFiatCurrency === 'USD'
-          ? '0 USD'
-          : '0 BTC';
-      return {
-        name: `Account ${i + 1}`,
-        address,
-        amount: balanceText,
-      };
-    });
-  }, [wallet, totalAccounts, cachedBalances, selectedFiatCurrency]);
+  const accountRows = useMemo(
+    () =>
+      accounts
+        .map((account, index) => ({ account, listIndex: index }))
+        .filter(({ account }) => account.network === activeNetwork),
+    [accounts, activeNetwork],
+  );
 
-  const isLoadingAccount = (index: number) => wallet && cachedBalances[index] == null;
+  const activeBalanceText = balance
+    ? preferences?.fiatCurrency === 'USD'
+      ? `${formatNumber(balance.confirmedUsd)} USD`
+      : `${formatNumber(balance.confirmed / 1e8, 8)} BTC`
+    : preferences?.fiatCurrency === 'USD'
+      ? '0 USD'
+      : '0 BTC';
+
+  const getAccountAmount = (index: number) => (index === activeAccountIndex ? activeBalanceText : '--');
+  const isLoadingAccount = (index: number) => index === activeAccountIndex && balance == null;
 
   useEffect(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
-  }, [accounts.length]);
+  }, [accountRows.length]);
 
   useEffect(() => {
     const container = containerRef.current;
     if (container) {
       setIsScrollable(container.scrollHeight > container.clientHeight);
     }
-  }, [accounts.length]);
+  }, [accountRows.length]);
 
   return (
     <div className="relative flex flex-col items-center text-white bg-dark h-full px-4 pt-12 pb-[19px]">
@@ -76,26 +59,29 @@ export const Accounts: React.FC = () => {
           [&::-webkit-scrollbar-track]:transparent
           [&::-webkit-scrollbar-thumb]:rounded-full
           [&::-webkit-scrollbar-thumb]:bg-neutral-700 ${isScrollable ? 'mr-[-8px] overflow-x-visible' : 'w-full'}`}>
-        {accounts.map((account, index) => (
+        {accountRows.map(({ account, listIndex }) => (
           <AccountItem
-            key={index}
+            key={listIndex}
             accountName={account.name}
-            address={account.address}
-            amount={account.amount}
-            isLoading={isLoadingAccount(index)}
-            selected={index === selectedAccountIndex}
+            address={account.xpub}
+            amount={getAccountAmount(listIndex)}
+            isLoading={isLoadingAccount(listIndex)}
+            selected={listIndex === activeAccountIndex}
+            dataTestId={`switch-account-item-${listIndex}`}
             onClick={() => {
-              switchAccount(index);
-              navigate('/dashboard');
+              void (async () => {
+                await switchAccount(listIndex);
+                navigate('/dashboard');
+              })();
             }}
           />
         ))}
       </div>
-      {accounts.length === 0 ? (
+      {accountRows.length === 0 ? (
         <Skeleton className="absolute !w-[343px] !bottom-[-12px] !h-[58px] !rounded-[1rem]" />
       ) : (
         <>
-          <ButtonOutline className="absolute w-full bottom-[19px]" onClick={addAccount}>
+          <ButtonOutline className="absolute w-full bottom-[19px]" onClick={() => void addAccount()}>
             Create account
           </ButtonOutline>
         </>

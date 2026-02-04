@@ -2,20 +2,17 @@ import type * as React from 'react';
 import type { Network } from '@src/types';
 import { useNavigate } from 'react-router-dom';
 import { useWalletContext } from '@src/context/WalletContext';
-import { sendMessage } from '@src/utils/bridge';
 import Header from '@src/components/Header';
 import NetworkSelector from '@src/components/NetworkSelector';
 
 export const AdvancedSettings: React.FC = () => {
   const navigate = useNavigate();
-  const { preferences, setPreferences } = useWalletContext();
+  const { preferences, switchNetwork } = useWalletContext();
   const displayNetwork = preferences?.activeNetwork === 'mainnet' ? 'Mainnet' : 'Testnet';
 
   const networkChanged = async (selected: string) => {
     const selectedNetwork = selected.toLowerCase() as Network;
-    await sendMessage('wallet.switchNetwork', { network: selectedNetwork });
-    preferences.activeNetwork = selectedNetwork;
-    setPreferences(preferences);
+    await switchNetwork(selectedNetwork);
   };
 
   return (

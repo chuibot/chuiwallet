@@ -16,7 +16,7 @@ export interface Preferences {
   gapLimitChange: number;
   locale: string;
   fiatCurrency: string;
-  activeAccountIndex: number;
+  activeAccountIndex: number; // Index into account list (accountManager.accounts), not HD account index
   activeNetwork: Network;
   isWalletBackedUp: boolean;
 }

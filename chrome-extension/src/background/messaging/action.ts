@@ -70,6 +70,23 @@ const handlers: Record<string, Handler> = {
   'accounts.get': async () => {
     return accountManager.accounts;
   },
+  'accounts.switch': async params => {
+    const { accountIndex } = params as { accountIndex: number };
+    const preferences = await walletManager.switchAccount(accountIndex);
+    scanManager.backfillScan();
+    scanManager.backfillScan(ChangeType.Internal);
+    scanManager.forwardScan();
+    scanManager.forwardScan(ChangeType.Internal);
+    return preferences;
+  },
+  'accounts.create': async () => {
+    const preferences = await walletManager.createAccount();
+    scanManager.backfillScan();
+    scanManager.backfillScan(ChangeType.Internal);
+    scanManager.forwardScan();
+    scanManager.forwardScan(ChangeType.Internal);
+    return { preferences, accounts: accountManager.accounts };
+  },
   'transactions.get': async () => {
     return await historyService.get();
   },
