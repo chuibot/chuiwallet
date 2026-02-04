@@ -5,9 +5,11 @@ import { WordColumn } from '../components/WordColumn';
 import { Button } from '@src/components/Button';
 import { sendMessage } from '@src/utils/bridge';
 import { getSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
+import { useWalletContext } from '@src/context/WalletContext';
 
 export const RestoreSeed: React.FC = () => {
   const navigate = useNavigate();
+  const { setIsBackedUp } = useWalletContext();
   const [seedWords, setSeedWords] = useState<string[]>(Array(12).fill(''));
   const [errorMsg, setErrorMsg] = React.useState('');
   const [isValid, setIsValid] = useState(false);
@@ -67,6 +69,8 @@ export const RestoreSeed: React.FC = () => {
       }
 
       await sendMessage('wallet.create', { mnemonic, password });
+
+      setIsBackedUp(true);
       navigate('/onboard/complete?restored=1');
     })();
   };

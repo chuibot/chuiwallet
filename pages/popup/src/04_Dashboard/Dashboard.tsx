@@ -9,7 +9,7 @@ import Skeleton from 'react-loading-skeleton';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { preferences, balance, activeAccount, connected, refreshBalance } = useWalletContext();
+  const { preferences, balance, activeAccount, connected, refreshBalance, isBackedUp } = useWalletContext();
 
   const [showChooseReceiveCurrencySlide, setShowChooseReceiveCurrencySlide] = React.useState(false);
   const [showChooseSendCurrencySlide, setShowChooseSendCurrencySlide] = React.useState(false);
@@ -53,6 +53,17 @@ export const Dashboard: React.FC = () => {
           />
         </button>
       </div>
+
+      {!isBackedUp && (
+        <button
+          onClick={() => navigate('/settings/advanced/reveal-seed')}
+          className="flex items-center justify-center gap-2 mt-4 hover:opacity-80 transition-opacity cursor-pointer mx-auto">
+          <div className="flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold">
+            !
+          </div>
+          <span className="text-sm font-medium text-red-500">Wallet not backed up</span>
+        </button>
+      )}
 
       <div className="flex flex-col mt-10 max-w-full leading-none text-center text-white">
         <div className="flex gap-px justify-center items-center w-full text-lg">

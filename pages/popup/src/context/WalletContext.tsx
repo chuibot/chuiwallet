@@ -122,6 +122,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const logout = async () => {
     return (async () => {
       await sendMessage('wallet.logout');
+      setIsBackedUp(false);
       setOnboarded(false);
       setUnlocked(true);
     })();
