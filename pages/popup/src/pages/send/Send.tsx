@@ -30,27 +30,6 @@ export const Send: React.FC = () => {
     }
   };
 
-  // const handleQRCodeClick = () => {
-  //   chrome.runtime.sendMessage({ action: 'startDragQR' }, response => {
-  //     if (!response || !response.started) {
-  //       setError('Failed to start QR selection.');
-  //     }
-  //   });
-  // };
-
-  // useEffect(() => {
-  //   const listener = (message: { action?: string; qrData?: string }) => {
-  //     if (message.action === 'qrCodeResult' && message.qrData) {
-  //       setDestinationAddress(message.qrData);
-  //       setError('');
-  //     }
-  //   };
-  //   chrome.runtime.onMessage.addListener(listener);
-  //   return () => {
-  //     chrome.runtime.onMessage.removeListener(listener);
-  //   };
-  // }, []);
-
   const handleNext = () => {
     if (!isValidBTCAddress(destinationAddress, preferences!.activeNetwork)) {
       setError('Please enter a valid BTC address');
@@ -83,7 +62,6 @@ export const Send: React.FC = () => {
           id="destinationAddress"
           value={destinationAddress}
           onChange={handleAddressChange}
-          // onQRClick={handleQRCodeClick}
           onKeyDown={e => {
             if (e.key === 'Enter') {
               handleNext();

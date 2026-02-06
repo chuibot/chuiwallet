@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { HashRouter } from 'react-router-dom';
 import '@src/index.css';
-import { App } from './00_App/App';
+import { App } from '@src/app/App';
 import { WalletProvider } from './context/WalletContext';
 import { ErrorProvider } from './context/ErrorContext';
 

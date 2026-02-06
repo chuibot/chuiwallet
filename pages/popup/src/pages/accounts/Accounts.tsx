@@ -1,7 +1,7 @@
 import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Header from '@src/components/Header';
-import AccountItem from '../components/AccountItem';
+import AccountItem from '@src/components/AccountItem';
 import { ButtonOutline } from '@src/components/ButtonOutline';
 import { useWalletContext } from '@src/context/WalletContext';
 import { useNavigate } from 'react-router-dom';

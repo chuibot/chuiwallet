@@ -1,18 +1,17 @@
 import type React from 'react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SeedColumn } from '../components/SeedColumn';
+import { SeedColumn } from '@src/components/SeedColumn';
 import { Button } from '@src/components/Button';
 import Header from '@src/components/Header';
 import { sendMessage } from '@src/utils/bridge';
-import { useWalletContext } from '../context/WalletContext';
+import { useWalletContext } from '@src/context/WalletContext';
 
 export const RevealSeed: React.FC = () => {
   const navigate = useNavigate();
   const { isBackedUp } = useWalletContext();
   const [leftColumnWords, setLeftColumnWords] = useState<string[]>([]);
   const [rightColumnWords, setRightColumnWords] = useState<string[]>([]);
-  // const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [seed, setSeed] = useState<string | null>(null);
 
@@ -32,7 +31,6 @@ export const RevealSeed: React.FC = () => {
       } catch (err) {
         console.error('Error recovering seed:', err);
       }
-      // setLoading(false);
     })();
   }, []);
 

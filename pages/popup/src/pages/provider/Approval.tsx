@@ -96,7 +96,6 @@ export const ProviderApproval: React.FC = () => {
           <div className="font-bold">{rpc.method}</div>
         </div>
 
-        {/* Abstract to control file */}
         {rpc.method === 'getXpub' && (
           <p className="text-sm text-white">
             This website is requesting access to your extended public key (xpub). This lets it derive all your receiving

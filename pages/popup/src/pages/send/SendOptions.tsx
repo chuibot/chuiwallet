@@ -26,14 +26,9 @@ export const SendOptions: React.FC = () => {
   const [btcAmount, setBtcAmount] = useState('');
   const [usdAmount, setUsdAmount] = useState('');
   const [exchangeRate, setExchangeRate] = useState<number | null>(null);
-  const [isCustomFee, setIsCustomFee] = useState<boolean>(false);
   const [selectedFeeIndex, setSelectedFeeIndex] = useState<number>(1);
   const [feeOptions, setFeeOptions] = useState<FeeOptionSetting[]>([]);
-  const [customFeeOption, setCustomFeeOption] = useState<FeeOptionSetting | null>(null);
-  const [customSats, setCustomSats] = useState('1');
   const [feeEstimatesLoading, setFeeEstimatesLoading] = useState<boolean>(false);
-  const [feeCustomEstimatesLoading, setCustomFeeEstimatesLoading] = useState<boolean>(false);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [error, setError] = useState('');
 
   const handleNext = () => {
@@ -42,7 +37,7 @@ export const SendOptions: React.FC = () => {
       return;
     }
 
-    const feeData = isCustomFee && customFeeOption ? customFeeOption : feeOptions[selectedFeeIndex];
+    const feeData = feeOptions[selectedFeeIndex];
 
     const maxBtc = states.balance - feeData.btcAmount;
     if (maxBtc < Number(btcAmount)) {
@@ -76,35 +71,6 @@ export const SendOptions: React.FC = () => {
       setFeeEstimatesLoading(false);
     }
   }, [states.destinationAddress]);
-
-  // Fetch custom Fee
-  // useEffect(() => {
-  //   async function fetchCustomFee() {
-  //     setCustomFeeEstimatesLoading(true);
-  //
-  //     // const walletAddress = undefined;
-  //     // if (walletAddress) {
-  //     //   chrome.runtime.sendMessage(
-  //     //     { action: 'getCustomFeeEstimates', from: walletAddress, to: states.destinationAddress, customSats },
-  //     //     response => {
-  //     //       if (response?.success) {
-  //     //         setCustomFeeOption(response.customEstimate);
-  //     //         setCustomFeeEstimatesLoading(false);
-  //     //       } else {
-  //     //         setError(response.error);
-  //     //         setCustomFeeEstimatesLoading(false);
-  //     //       }
-  //     //     },
-  //     //   );
-  //     // } else {
-  //     //   setCustomFeeEstimatesLoading(false);
-  //     // }
-  //   }
-  //
-  //   if (isCustomFee) {
-  //     // fetchCustomFee();
-  //   }
-  // }, [customSats, isCustomFee, states.destinationAddress]);
 
   useEffect(() => {
     async function fetchRate() {
@@ -147,7 +113,7 @@ export const SendOptions: React.FC = () => {
 
   const handleSetMaxAmount = () => {
     if (!states.balance) return;
-    const feeData = isCustomFee && customFeeOption ? customFeeOption : feeOptions[selectedFeeIndex];
+    const feeData = feeOptions[selectedFeeIndex];
     const maxBtc = states.balance - feeData.btcAmount;
 
     if (maxBtc < 0) {
@@ -161,18 +127,6 @@ export const SendOptions: React.FC = () => {
       }
     }
   };
-
-  // const handleSetCustomFee = () => {
-  //   setIsCustomFee(!isCustomFee);
-  //   if (!isCustomFee) {
-  //     setCustomSats('1');
-  //   }
-  // };
-  //
-  // const handleSatsChanged = (e: React.ChangeEvent<HTMLInputElement>) => {
-  //   const value = e.target.value;
-  //   setCustomSats(value);
-  // };
 
   return (
     <div className="relative flex flex-col items-center text-white bg-dark h-full px-4 pt-12 pb-[19px]">
@@ -234,36 +188,6 @@ export const SendOptions: React.FC = () => {
             )}
           </div>
         </div>
-
-        {/*<div className="flex flex-col w-[229px] items-end text-lg font-bold">*/}
-        {/*  <button*/}
-        {/*    className="flex items-center self-end my-2 text-sm font-medium text-center text-primary-yellow"*/}
-        {/*    onClick={handleSetCustomFee}*/}
-        {/*    disabled={feeCustomEstimatesLoading}>*/}
-        {/*    <span className="self-stretch my-auto">Set Custom Fee</span>*/}
-        {/*    {isCustomFee && (*/}
-        {/*      <img*/}
-        {/*        loading="lazy"*/}
-        {/*        src={chrome.runtime.getURL('popup/close_icon.svg')}*/}
-        {/*        className="object-contain shrink-0 self-stretch my-auto aspect-square w-[18px] p-1"*/}
-        {/*        alt=""*/}
-        {/*      />*/}
-        {/*    )}*/}
-        {/*  </button>*/}
-        {/*  {isCustomFee && (*/}
-        {/*    <>*/}
-        {/*      <AmountInputField*/}
-        {/*        label=""*/}
-        {/*        placeholder="3 sat/vB"*/}
-        {/*        id="customFee"*/}
-        {/*        hasIcon={false}*/}
-        {/*        value={customSats}*/}
-        {/*        onChange={handleSatsChanged}*/}
-        {/*        disabled={feeCustomEstimatesLoading}*/}
-        {/*      />*/}
-        {/*    </>*/}
-        {/*  )}*/}
-        {/*</div>*/}
       </div>
 
       <div className="absolute w-full bottom-0 flex flex-col justify-start items-center">

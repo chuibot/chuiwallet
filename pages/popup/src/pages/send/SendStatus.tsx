@@ -43,7 +43,6 @@ export const SendStatus: React.FC = () => {
 
   const handleTransactionLinkClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
-    // TODO: add logic to go to other page if testnet is the selected network
     const url = 'https://www.blockonomics.co/#/search?q=' + states.transactionHash;
     // Set 'active: false' to not close the browser extension on click
     chrome.tabs.create({ url, active: true });
