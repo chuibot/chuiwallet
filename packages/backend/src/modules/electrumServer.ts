@@ -1,3 +1,4 @@
+import { ELECTRUM_METHODS } from '../config/constants';
 import type { ExtendedServerConfig, ServerConfig } from '../types/electrum';
 import { DefaultPort, Network } from '../types/electrum';
 
@@ -33,9 +34,18 @@ export async function selectBestServer(network: Network): Promise<ExtendedServer
     throw new Error('No healthy servers found');
   }
 
+  // Prefer servers that are synced (within 1 block of max height)
+  const maxBlockHeight = Math.max(...healthyServers.map(s => s.blockHeight || 0));
+
+  // Only filter by sync if we actually got block heights
+  const syncedServers =
+    maxBlockHeight > 0 ? healthyServers.filter(s => s.blockHeight && maxBlockHeight - s.blockHeight <= 1) : [];
+
+  const serversToRank = syncedServers.length > 0 ? syncedServers : healthyServers;
+
   // Sort by latency.
-  healthyServers.sort((a, b) => a.latency! - b.latency!);
-  return healthyServers[0];
+  serversToRank.sort((a, b) => a.latency! - b.latency!);
+  return serversToRank[0];
 }
 
 export async function scanServers(servers: ExtendedServerConfig[]): Promise<ExtendedServerConfig[]> {
@@ -61,15 +71,30 @@ export async function measureServerLatency(server: ExtendedServerConfig): Promis
 
     socket.onopen = () => {
       // Optionally send a lightweight RPC call like server.version here.
-      socket.send(JSON.stringify({ id: 1, method: 'server.version', params: [] }));
+      socket.send(JSON.stringify({ id: 1, method: ELECTRUM_METHODS.SERVER_VERSION, params: [] }));
+      socket.send(JSON.stringify({ id: 2, method: ELECTRUM_METHODS.HEADERS_SUBSCRIBE, params: [] }));
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    // Wait for block height response before measuring latency
     socket.onmessage = (event: MessageEvent) => {
-      clearTimeout(timeout);
-      const end = performance.now();
-      socket.close();
-      resolve(end - start);
+      try {
+        const response = JSON.parse(event.data);
+        // Store block height on the server object
+        if (response.id === 2 && response.result) {
+          server.blockHeight = response.result.height || response.result.block_height;
+        }
+        // Wait for block height response (id: 2) before closing
+        if (response.id === 2) {
+          clearTimeout(timeout);
+          const end = performance.now();
+          socket.close();
+          resolve(end - start);
+        }
+      } catch {
+        clearTimeout(timeout);
+        socket.close();
+        resolve(Number.MAX_SAFE_INTEGER);
+      }
     };
 
     socket.onerror = () => {
