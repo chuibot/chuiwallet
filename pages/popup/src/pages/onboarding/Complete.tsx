@@ -1,5 +1,5 @@
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Button } from '../components/Button';
+import { Button } from '@src/components/Button';
 import { useWalletContext } from '@src/context/WalletContext';
 
 export function Complete() {
@@ -52,7 +52,6 @@ export function Complete() {
       </div>
 
       <div className="absolute w-full px-5 bottom-[19px] flex flex-col gap-3">
-        {/* Only show Reveal button if the wallet was created, not restored */}
         {!isRestored && (
           <button
             onClick={() => navigate('/settings/advanced/reveal-seed')}

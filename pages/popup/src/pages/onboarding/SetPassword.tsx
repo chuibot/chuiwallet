@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { InputField } from '../components/InputField';
-import { TermsCheckbox } from '../components/TermsCheckbox';
+import { InputField } from '@src/components/InputField';
+import { TermsCheckbox } from '@src/components/TermsCheckbox';
 import { Button } from '@src/components/Button';
 import { getPasswordStrength } from '@src/utils';
 import { setSessionPassword } from '@extension/backend/dist/utils/sessionStorageHelper';

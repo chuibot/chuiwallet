@@ -1,5 +1,5 @@
 import Header from '@src/components/Header';
-import FiatCurrencySelector from '../components/FiatCurrencySelector';
+import FiatCurrencySelector from '@src/components/FiatCurrencySelector';
 import { useNavigate } from 'react-router-dom';
 import { useWalletContext } from '@src/context/WalletContext';
 

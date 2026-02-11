@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { WordColumn } from '../components/WordColumn';
+import { WordColumn } from '@src/components/WordColumn';
 import { Button } from '@src/components/Button';
-import { useWalletContext } from '../context/WalletContext';
+import { useWalletContext } from '@src/context/WalletContext';
 import { pickRandomPositions } from '@src/utils';
 import { sendMessage } from '@src/utils/bridge';
 import Header from '@src/components/Header';
@@ -64,9 +64,6 @@ export const VerifySeed: React.FC = () => {
       return;
     }
 
-    //Todo: Create wallet
-    // const mnemonic = seedWords.join(' ').trim();
-    // createWallet(mnemonic, password, 'mainnet', 'bech32');
     await sendMessage('wallet.setBackupStatus', { isBackedUp: true });
     setIsBackedUp(true);
     navigate('/dashboard');

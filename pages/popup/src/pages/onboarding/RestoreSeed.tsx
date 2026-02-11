@@ -1,7 +1,7 @@
 import bip39 from 'bip39';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { WordColumn } from '../components/WordColumn';
+import { WordColumn } from '@src/components/WordColumn';
 import { Button } from '@src/components/Button';
 import { sendMessage } from '@src/utils/bridge';
 import { getSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
