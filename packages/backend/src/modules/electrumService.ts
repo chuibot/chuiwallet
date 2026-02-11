@@ -1,19 +1,22 @@
+import * as bitcoin from 'bitcoinjs-lib';
+import { Network } from '../types/electrum';
+import { selectBestServer } from './electrumServer';
+import { ElectrumRpcClient } from './electrumRpcClient';
 import type {
   ConnectionStatus,
   ConnectionUpdate,
   ElectrumHistory,
   ElectrumTransaction,
   ElectrumUtxo,
+  ExtendedServerConfig,
 } from '../types/electrum';
 import { logger } from '../utils/logger';
-import { Network } from '../types/electrum';
-import { ElectrumRpcClient } from './electrumRpcClient';
-import { selectBestServer } from './electrumServer';
 import { createEmitter } from '../utils/emitter';
 
 export class ElectrumService {
   private network: Network = Network.Mainnet;
   private rpcClient: ElectrumRpcClient | undefined;
+  private currentServer: ExtendedServerConfig | undefined;
   public status: ConnectionStatus = 'disconnected';
   public readonly onStatus = createEmitter<ConnectionUpdate>();
 
@@ -28,6 +31,9 @@ export class ElectrumService {
   }
 
   public async connect() {
+    const server = await selectBestServer(this.network);
+    this.currentServer = server;
+    logger.log(server);
     if (this.rpcClient) {
       logger.log('Connecting Electrum server');
       await this.rpcClient.connect();
@@ -43,6 +49,10 @@ export class ElectrumService {
   private setStatus(status: ConnectionStatus, detail?: string, reason?: string) {
     this.status = status;
     this.onStatus.emit({ status, detail, reason, ts: Date.now() });
+  }
+
+  public getCurrentServer() {
+    return this.currentServer;
   }
 
   public async getRawTransaction(txid: string, verbose = false) {

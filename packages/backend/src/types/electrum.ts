@@ -18,6 +18,7 @@ export type ServerConfig = {
 export interface ExtendedServerConfig extends ServerConfig {
   latency?: number;
   healthy?: boolean;
+  blockHeight?: number;
 }
 
 export interface ElectrumVin {
@@ -83,3 +84,5 @@ export interface ConnectionUpdate {
   reason?: string;
   ts: number;
 }
+
+export type ElectrumPeerResponse = [string, string, string[]];
