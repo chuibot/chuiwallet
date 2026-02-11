@@ -5,14 +5,7 @@ import { Button } from '@src/components/Button';
 import XpubQRCode from '@src/components/XpubQRCode';
 import { sendMessage } from '@src/utils/bridge';
 
-// interface XpubResponse {
-//   jsonrpc: string;
-//   id: string;
-//   result: { xpub: string };
-// }
-
 export const Xpub: React.FC = () => {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [xpub, setXpub] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
@@ -22,24 +15,6 @@ export const Xpub: React.FC = () => {
     setLoading(true);
     setError('');
     try {
-      // // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      // let provider = (window as any).ChuiWalletProvider;
-      // // If not available, fall back to previous provider.
-      // if (!provider || !provider.request) {
-      //   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      //   provider = (window as any).btc;
-      // }
-      // if (provider && provider.request) {
-      //   const response: XpubResponse = await provider.request('getXpub');
-      //   if (response && response.result && response.result.xpub) {
-      //     setXpub(response.result.xpub);
-      //   } else {
-      //     throw new Error('No xPub returned from wallet');
-      //   }
-      // } else {
-      //   const xpubResult = await getXpub();
-      //   setXpub(xpubResult);
-      // }
       const xpub: string = await sendMessage('wallet.getXpub');
       setXpub(xpub);
     } catch (e: any) {

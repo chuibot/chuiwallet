@@ -1,6 +1,6 @@
 import type React from 'react';
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom'; // Added useNavigate
+import { useParams } from 'react-router-dom';
 import AddressQRCode from '@src/components/AddressQRCode';
 import { Button } from '@src/components/Button';
 import Header from '@src/components/Header';

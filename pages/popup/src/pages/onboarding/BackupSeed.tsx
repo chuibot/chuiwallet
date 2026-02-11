@@ -1,7 +1,7 @@
 import type React from 'react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SeedColumn } from '../components/SeedColumn';
+import { SeedColumn } from '@src/components/SeedColumn';
 import { Button } from '@src/components/Button';
 import { sendMessage } from '@src/utils/bridge';
 import { getSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
