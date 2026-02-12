@@ -2,6 +2,7 @@ export { ChainType } from './IChainAdapter';
 export type {
   IChainAdapter,
   ChainBalance,
+  TokenBalance,
   ChainTransaction,
   ChainFeeEstimate,
   ChainSendOptions,

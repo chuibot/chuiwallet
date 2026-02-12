@@ -87,8 +87,8 @@ export class BitcoinAdapter implements IChainAdapter {
       hash: tx.transactionHash,
       from: tx.sender,
       to: tx.receiver,
-      amount: Math.round(tx.amountBtc * 1e8), // BTC → satoshis
-      fee: Math.round(tx.feeBtc * 1e8),
+      amount: Math.round(tx.amountBtc * 1e8), // BTC → sats (Math.round guards against float imprecision)
+      fee: Math.round(tx.feeBtc * 1e8), // BTC → sats
       timestamp: tx.timestamp,
       confirmations: tx.confirmations,
       status: tx.status === 'CONFIRMED' ? ('confirmed' as const) : ('pending' as const),
@@ -101,7 +101,7 @@ export class BitcoinAdapter implements IChainAdapter {
     return this.walletManager.sendPayment(to, amount, feeRate);
   }
 
-  async estimateFee(to: string, _amount: number): Promise<ChainFeeEstimate[]> {
+  async estimateFee(to: string, _amount: number, _options?: ChainSendOptions): Promise<ChainFeeEstimate[]> {
     const estimates = await this.walletManager.getFeeEstimates(to);
     if (!estimates) return [];
 

@@ -36,13 +36,23 @@ export class EthereumAdapter implements IChainAdapter {
   private activeAddressIndex = 0;
   private network: Network = Network.Mainnet;
 
-  /** Infura project ID — will be moved to env/config in future */
-  private infuraProjectId = 'ce5ff7944bb343c2a0518772a7196058'; // Public test ID or placeholder using known public nodes
+  /** Optional Infura/Alchemy project ID injected via constructor */
+  private rpcApiKey: string | undefined;
 
-  private readonly RPC_URLS: Record<string, string> = {
-    mainnet: 'https://mainnet.infura.io/v3/',
-    testnet: 'https://sepolia.infura.io/v3/',
+  /** Public RPC fallbacks — no API key required */
+  private static readonly PUBLIC_RPC: Record<Network, string> = {
+    [Network.Mainnet]: 'https://cloudflare-eth.com',
+    [Network.Testnet]: 'https://rpc.sepolia.org',
   };
+
+  private static readonly INFURA_RPC: Record<Network, string> = {
+    [Network.Mainnet]: 'https://mainnet.infura.io/v3/',
+    [Network.Testnet]: 'https://sepolia.infura.io/v3/',
+  };
+
+  constructor(config?: { rpcApiKey?: string }) {
+    this.rpcApiKey = config?.rpcApiKey;
+  }
 
   initWithMnemonic(mnemonic: string, addressIndex: number = 0): void {
     this.activeAddressIndex = addressIndex;
@@ -52,13 +62,10 @@ export class EthereumAdapter implements IChainAdapter {
 
   async init(network: Network): Promise<void> {
     this.network = network;
-    const baseUrl = this.RPC_URLS[network] || this.RPC_URLS['mainnet'];
-    // Fallback to public RPC if no Infura ID, to avoid crash details
-    const rpcUrl = this.infuraProjectId
-      ? baseUrl + this.infuraProjectId
-      : network === Network.Mainnet
-        ? 'https://eth.llama.fi'
-        : 'https://rpc.sepolia.org';
+
+    const rpcUrl = this.rpcApiKey
+      ? EthereumAdapter.INFURA_RPC[network] + this.rpcApiKey
+      : EthereumAdapter.PUBLIC_RPC[network];
 
     this.provider = new ethers.JsonRpcProvider(rpcUrl);
   }
@@ -70,13 +77,28 @@ export class EthereumAdapter implements IChainAdapter {
   }
 
   async disconnect(): Promise<void> {
+    // Idempotent — safe to call multiple times.
+    // Does NOT null hdNode here; that's done by clearKeys() on lock/logout.
     this.provider = null;
   }
 
-  deriveAddress(_accountIndex: number, addressIndex: number): string {
+  /**
+   * Clear sensitive key material from memory.
+   * Call on wallet.lock / wallet.logout.
+   */
+  clearKeys(): void {
+    this.hdNode = null;
+    this.activeAddressIndex = 0;
+  }
+
+  deriveAddress(accountIndex: number, addressIndex: number): string {
     if (!this.hdNode) {
       throw new Error('EthereumAdapter not initialized with mnemonic');
     }
+    // hdNode is rooted at m/44'/60'/0'/0, so deriveChild gives us m/44'/60'/0'/0/{index}
+    // For multi-account: we'd need to derive from the mnemonic directly with accountIndex
+    // in the path: m/44'/60'/{accountIndex}'/0/{addressIndex}
+    // For now, using single-account derivation (accountIndex 0) with addressIndex
     return this.hdNode.deriveChild(addressIndex).address;
   }
 
@@ -88,17 +110,20 @@ export class EthereumAdapter implements IChainAdapter {
     if (!this.provider) throw new Error('Provider not initialized');
     const address = this.getReceivingAddress();
 
-    // 1. ETH Balance
-    const ethBalance = await this.provider.getBalance(address);
+    // 1. ETH Balance — convert from wei (bigint) to ETH (float) to avoid
+    //    BigInt→Number overflow (wei can exceed Number.MAX_SAFE_INTEGER at ~0.009 ETH)
+    const ethBalanceWei = await this.provider.getBalance(address);
+    const ethBalanceFloat = parseFloat(ethers.formatEther(ethBalanceWei));
 
     // 2. USDT Balance (if contract exists for this network)
     const usdtAddr = USDT_CONTRACTS[this.network];
-    let usdtBalance = BigInt(0);
+    let usdtBalanceFloat = 0;
 
     if (usdtAddr) {
       try {
         const contract = new ethers.Contract(usdtAddr, ERC20_ABI, this.provider);
-        usdtBalance = await contract.balanceOf(address);
+        const usdtBalanceRaw: bigint = await contract.balanceOf(address);
+        usdtBalanceFloat = parseFloat(ethers.formatUnits(usdtBalanceRaw, 6));
       } catch (e) {
         console.warn('Failed to fetch USDT balance', e);
       }
@@ -106,24 +131,18 @@ export class EthereumAdapter implements IChainAdapter {
 
     // TODO: convert to USD values using external oracle
     return {
-      symbol: 'ETH',
-      native: {
-        confirmed: Number(ethBalance), // Wei
-        unconfirmed: 0,
-      },
+      // Values in display units (ETH, not wei) to preserve precision
+      confirmed: ethBalanceFloat,
+      unconfirmed: 0,
+      confirmedFiat: 0, // Pending oracle integration
+      unconfirmedFiat: 0,
       tokens: {
         USDT: {
           symbol: 'USDT',
-          balance: Number(usdtBalance), // 6 decimals usually
+          balance: usdtBalanceFloat, // Display units (e.g. 100.50 USDT)
           decimals: 6,
         },
       },
-      usdValue: 0, // Pending oracle integration
-      // Mandatory fields from interface (mapping to Native ETH for now)
-      confirmed: Number(ethBalance),
-      unconfirmed: 0,
-      confirmedFiat: 0,
-      unconfirmedFiat: 0,
     };
   }
 
@@ -134,21 +153,22 @@ export class EthereumAdapter implements IChainAdapter {
     return [];
   }
 
-  async estimateFee(to: string, amount: number): Promise<ChainFeeEstimate[]> {
+  async estimateFee(to: string, amount: number, options?: ChainSendOptions): Promise<ChainFeeEstimate[]> {
     if (!this.provider) throw new Error('Provider not initialized');
     const feeData = await this.provider.getFeeData();
 
-    // Simple estimate: Gas price * 21000 (standard transfer)
-    // For ERC-20 it would be ~65000
     const gasPrice = feeData.gasPrice ?? BigInt(0);
-    const baseGas = BigInt(21000); // Standard ETH transfer
+    // ERC-20 transfer() costs ~65k gas; native ETH transfer costs 21k
+    const gasLimit = options?.tokenAddress ? BigInt(65000) : BigInt(21000);
 
-    const fee = Number(gasPrice * baseGas);
+    const feeWei = gasPrice * gasLimit;
+    // Convert to ETH display units to match balance convention
+    const feeEth = parseFloat(ethers.formatEther(feeWei));
 
     return [
       {
         name: 'Standard',
-        fee, // In Wei
+        fee: feeEth,
         minerTip: 0,
         timeEstimate: 1, // ~15s blocks
       },

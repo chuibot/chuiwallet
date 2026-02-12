@@ -18,21 +18,14 @@ export interface TokenBalance {
 }
 
 export interface ChainBalance {
-  /** Amount in native smallest unit (satoshis for BTC, wei for ETH) */
+  /** Amount in display units (satoshis for BTC, ETH for Ethereum) */
   confirmed: number;
   unconfirmed: number;
   /** Fiat-converted values */
   confirmedFiat: number;
   unconfirmedFiat: number;
-  /** For chains with tokens (e.g. ETH) */
+  /** For chains with tokens (e.g. ETH has USDT) — balances in display units */
   tokens?: Record<string, TokenBalance>;
-  /** For aggregated view */
-  symbol?: string;
-  native?: {
-    confirmed: number;
-    unconfirmed: number;
-  };
-  usdValue?: number;
 }
 
 /**
@@ -136,5 +129,5 @@ export interface IChainAdapter {
   sendPayment(to: string, amount: number, options?: ChainSendOptions): Promise<string>;
 
   /** Estimate fees for a transaction */
-  estimateFee(to: string, amount: number): Promise<ChainFeeEstimate[]>;
+  estimateFee(to: string, amount: number, options?: ChainSendOptions): Promise<ChainFeeEstimate[]>;
 }
