@@ -64,8 +64,8 @@ export const BackupSeed: React.FC = () => {
           <div className="mt-1 text-lg leading-none text-foreground">Write it down and keep it safe.</div>
         </div>
         <div className="flex gap-4 self-center mt-6 text-base leading-9 whitespace-nowrap min-h-[292px] text-foreground">
-          <SeedColumn words={leftColumnWords} />
-          <SeedColumn words={rightColumnWords} />
+          <SeedColumn words={leftColumnWords} startIndex={1} />
+          <SeedColumn words={rightColumnWords} startIndex={7} />
         </div>
       </div>
 
