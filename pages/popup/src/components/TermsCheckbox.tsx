@@ -2,10 +2,11 @@ import * as React from 'react';
 
 export interface TermsCheckboxProps {
   onAcceptChange: (accepted: boolean) => void;
+  defaultChecked?: boolean;
 }
 
-export const TermsCheckbox: React.FC<TermsCheckboxProps> = ({ onAcceptChange }) => {
-  const [checked, setChecked] = React.useState(false);
+export const TermsCheckbox: React.FC<TermsCheckboxProps> = ({ onAcceptChange, defaultChecked = false }) => {
+  const [checked, setChecked] = React.useState(defaultChecked);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.checked;

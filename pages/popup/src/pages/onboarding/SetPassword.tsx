@@ -4,7 +4,13 @@ import { InputField } from '@src/components/InputField';
 import { TermsCheckbox } from '@src/components/TermsCheckbox';
 import { Button } from '@src/components/Button';
 import { getPasswordStrength } from '@src/utils';
-import { setSessionPassword } from '@extension/backend/dist/utils/sessionStorageHelper';
+import {
+  deleteOnboardingDraft,
+  getOnboardingDraft,
+  getSessionPassword,
+  setOnboardingDraft,
+  setSessionPassword,
+} from '@extension/backend/src/utils/sessionStorageHelper';
 import { ERROR_MESSAGES, MIN_PASSWORD_LENGTH } from '@src/constants';
 
 export const SetPassword: React.FC = () => {
@@ -14,7 +20,35 @@ export const SetPassword: React.FC = () => {
   const [termsAccepted, setTermsAccepted] = React.useState(false);
   const [errorMsg, setErrorMsg] = React.useState('');
   const [noMatchMsg, setNoMatchMsg] = React.useState('');
+  const [draftLoaded, setDraftLoaded] = React.useState(false);
   const passwordStrength = getPasswordStrength(password);
+
+  // Restore form state from session draft or skip if password already submitted
+  React.useEffect(() => {
+    (async () => {
+      const existingPassword = await getSessionPassword();
+      if (existingPassword) {
+        navigate('/onboard/choose-method', { replace: true });
+        return;
+      }
+
+      const draft = await getOnboardingDraft();
+      if (draft) {
+        setPassword(draft.password);
+        setConfirmPassword(draft.confirmPassword);
+        setTermsAccepted(draft.termsAccepted);
+      }
+      setDraftLoaded(true);
+    })();
+  }, [navigate]);
+
+  // Persist form state to session storage on changes (after initial load)
+  React.useEffect(() => {
+    if (!draftLoaded) return;
+    setOnboardingDraft({ password, confirmPassword, termsAccepted });
+  }, [password, confirmPassword, termsAccepted, draftLoaded]);
+
+  if (!draftLoaded) return null;
 
   let strengthColorClass = 'text-primary-red';
   if (passwordStrength === 'medium') {
@@ -52,6 +86,7 @@ export const SetPassword: React.FC = () => {
       return;
     }
     await setSessionPassword(password);
+    await deleteOnboardingDraft();
     navigate('/onboard/choose-method');
   };
 
@@ -107,7 +142,7 @@ export const SetPassword: React.FC = () => {
               special characters.
             </span>
 
-            <TermsCheckbox onAcceptChange={setTermsAccepted} />
+            <TermsCheckbox onAcceptChange={setTermsAccepted} defaultChecked={termsAccepted} />
 
             {errorMsg && <span className="mt-1 text-xs text-primary-red font-light">{errorMsg}</span>}
           </div>
