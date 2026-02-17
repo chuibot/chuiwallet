@@ -2,6 +2,7 @@ import type React from 'react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ButtonOutline } from '@src/components/ButtonOutline';
+import Header from '@src/components/Header';
 import { sendMessage } from '@src/utils/bridge';
 import { getSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
 import { ERROR_MESSAGES } from '@src/constants';
@@ -29,15 +30,18 @@ export const ChooseMethod: React.FC = () => {
   };
 
   return (
-    <div className="flex overflow-hidden flex-col justify-center items-center px-5 bg-dark h-full w-full gap-4">
-      {error && (
-        <div className="w-full max-w-sm px-4 py-3 bg-red-500/10 border border-red-500 rounded-lg">
-          <p className="text-sm text-red-500">{error}</p>
-        </div>
-      )}
+    <div className="flex overflow-hidden flex-col items-center px-5 bg-dark h-full w-full gap-4">
+      <Header title="" hideClose onBack={() => navigate('/onboard/set-password', { state: { editPassword: true } })} />
+      <div className="flex flex-col flex-1 justify-center items-center w-full gap-4">
+        {error && (
+          <div className="w-full max-w-sm px-4 py-3 bg-red-500/10 border border-red-500 rounded-lg">
+            <p className="text-sm text-red-500">{error}</p>
+          </div>
+        )}
 
-      <ButtonOutline onClick={handleCreateNewWallet}>Create new wallet</ButtonOutline>
-      <ButtonOutline onClick={() => navigate('/onboard/restore-seed')}>I already have a seed phrase</ButtonOutline>
+        <ButtonOutline onClick={handleCreateNewWallet}>Create new wallet</ButtonOutline>
+        <ButtonOutline onClick={() => navigate('/onboard/restore-seed')}>I already have a seed phrase</ButtonOutline>
+      </div>
     </div>
   );
 };

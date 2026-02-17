@@ -4,13 +4,18 @@ import { useNavigate } from 'react-router-dom';
 interface HeaderProps {
   title: React.ReactNode;
   hideClose?: boolean;
+  onBack?: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ title, hideClose = false }) => {
+const Header: React.FC<HeaderProps> = ({ title, hideClose = false, onBack }) => {
   const navigate = useNavigate();
 
   const handleBack = () => {
-    navigate(-1);
+    if (onBack) {
+      onBack();
+    } else {
+      navigate(-1);
+    }
   };
 
   const handleClose = () => {

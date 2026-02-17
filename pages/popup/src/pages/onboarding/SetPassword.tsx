@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { InputField } from '@src/components/InputField';
 import { TermsCheckbox } from '@src/components/TermsCheckbox';
 import { Button } from '@src/components/Button';
@@ -15,7 +15,10 @@ import { ERROR_MESSAGES, MIN_PASSWORD_LENGTH } from '@src/constants';
 
 export const SetPassword: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const isEditingPassword = (location.state as { editPassword?: boolean })?.editPassword === true;
   const [password, setPassword] = React.useState('');
+
   const [confirmPassword, setConfirmPassword] = React.useState('');
   const [termsAccepted, setTermsAccepted] = React.useState(false);
   const [errorMsg, setErrorMsg] = React.useState('');
@@ -26,10 +29,12 @@ export const SetPassword: React.FC = () => {
   // Restore form state from session draft or skip if password already submitted
   React.useEffect(() => {
     (async () => {
-      const existingPassword = await getSessionPassword();
-      if (existingPassword) {
-        navigate('/onboard/choose-method', { replace: true });
-        return;
+      if (!isEditingPassword) {
+        const existingPassword = await getSessionPassword();
+        if (existingPassword) {
+          navigate('/onboard/choose-method', { replace: true });
+          return;
+        }
       }
 
       const draft = await getOnboardingDraft();
@@ -40,7 +45,7 @@ export const SetPassword: React.FC = () => {
       }
       setDraftLoaded(true);
     })();
-  }, [navigate]);
+  }, [navigate, isEditingPassword]);
 
   // Persist form state to session storage on changes (after initial load)
   React.useEffect(() => {
