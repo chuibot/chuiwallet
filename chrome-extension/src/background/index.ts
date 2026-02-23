@@ -9,8 +9,12 @@ import { accountManager } from '@extension/backend/src/accountManager';
 import { electrumService } from '@extension/backend/src/modules/electrumService';
 import { logger } from '@extension/backend/src/utils/logger';
 import { scanManager } from '@extension/backend/src/scanManager';
+import { historyService } from '@extension/backend/src/modules/txHistoryService';
 import { registerMessageRouter } from '@src/background/messaging';
 import { emitBalance, emitConnection, registerMessagePort } from '@src/background/messaging/port';
+import { chainRegistry } from '@extension/backend/src/adapters/ChainRegistry';
+import { BitcoinAdapter } from '@extension/backend/src/adapters/BitcoinAdapter';
+import { EthereumAdapter } from '@extension/backend/src/adapters/EthereumAdapter';
 
 bitcoin.initEccLib(secp256k1);
 
@@ -20,6 +24,14 @@ async function init() {
   await preferenceManager.init();
   await walletManager.init();
   await electrumService.init(preferenceManager.get().activeNetwork);
+
+  // Register chain adapters
+  const btcAdapter = new BitcoinAdapter(walletManager, electrumService, scanManager, historyService);
+  chainRegistry.register(btcAdapter);
+
+  const ethAdapter = new EthereumAdapter({ rpcApiKey: preferenceManager.get().ethRpcApiKey });
+  chainRegistry.register(ethAdapter);
+
   electrumService.onStatus.on(update => {
     emitConnection(update.status, update.detail);
     if (update.status === 'disconnected' && !electrumReconnecting && update.reason !== 'switchNetwork') {

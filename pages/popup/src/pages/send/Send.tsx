@@ -2,7 +2,7 @@ import { AddressInputField } from '@src/components/AddressInputField';
 import { Button } from '@src/components/Button';
 import Header from '@src/components/Header';
 import { currencyMapping, type Currencies } from '@src/types';
-import { isValidBTCAddress } from '@src/utils';
+import { isValidAddress } from '@src/utils';
 import type * as React from 'react';
 import { useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -25,14 +25,14 @@ export const Send: React.FC = () => {
   const handleAddressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setDestinationAddress(value);
-    if (isValidBTCAddress(value, preferences.activeNetwork)) {
+    if (isValidAddress(value, currency!, preferences.activeNetwork)) {
       setError('');
     }
   };
 
   const handleNext = () => {
-    if (!isValidBTCAddress(destinationAddress, preferences!.activeNetwork)) {
-      setError('Please enter a valid BTC address');
+    if (!isValidAddress(destinationAddress, currency!, preferences!.activeNetwork)) {
+      setError(`Please enter a valid ${currency!.toUpperCase()} address`);
       return;
     }
     navigate('options', {

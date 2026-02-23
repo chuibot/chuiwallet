@@ -2,6 +2,8 @@ import type { BalanceData, Network, Preferences } from '@src/types';
 import type { Account } from '@extension/backend/src/types/wallet';
 import type { TxEntry } from '@extension/backend/src/types/cache';
 import type { ConnectionStatus } from '@extension/backend/src/types/electrum';
+import type { ChainBalance } from '@extension/backend/src/adapters/IChainAdapter';
+import { ChainType } from '@extension/backend/src/adapters/IChainAdapter';
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { sendMessage } from '@src/utils/bridge';
 import { useChuiEvents } from '@src/hooks/useChuiEvents';
@@ -27,6 +29,11 @@ interface WalletContextType {
   transactions: TxEntry[];
   refreshTransactions: () => void;
   getReceivingAddress: () => Promise<string>;
+  /** Multi-chain balances keyed by ChainType */
+  chainBalances: Partial<Record<ChainType, ChainBalance>>;
+  refreshChainBalances: () => void;
+  /** Get receiving address for a specific chain */
+  getChainReceivingAddress: (chain: ChainType) => Promise<string>;
   init: () => Promise<void>;
   logout: () => Promise<void>;
   lock: () => Promise<void>;
@@ -43,6 +50,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [accounts, _setAccounts] = useState<Account[]>([]);
   const [balance, _setBalance] = useState<BalanceData>();
   const [transactions, _setTransactions] = useState<TxEntry[]>([]);
+  const [chainBalances, _setChainBalances] = useState<Partial<Record<ChainType, ChainBalance>>>({});
   const activeAccount = useMemo<Account | undefined>(() => {
     const i = preferences?.activeAccountIndex ?? 0;
     return accounts[i];
@@ -120,6 +128,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setPreferences(nextPreferences);
     await refreshAccounts();
     refreshBalance();
+    refreshChainBalances();
     refreshTransactions();
   };
 
@@ -128,6 +137,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setPreferences(result.preferences);
     _setAccounts(result.accounts);
     refreshBalance();
+    refreshChainBalances();
     refreshTransactions();
   };
 
@@ -137,6 +147,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setPreferences(nextPreferences);
     await refreshAccounts();
     refreshBalance();
+    refreshChainBalances();
     refreshTransactions();
   };
 
@@ -144,6 +155,21 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return (async () => {
       return await sendMessage('wallet.getReceivingAddress');
     })();
+  };
+
+  const refreshChainBalances = () => {
+    (async () => {
+      try {
+        const balances = await sendMessage<Record<string, ChainBalance>>('chain.getAllBalances');
+        _setChainBalances(balances as Partial<Record<ChainType, ChainBalance>>);
+      } catch (e) {
+        console.error('Failed to fetch chain balances', e);
+      }
+    })();
+  };
+
+  const getChainReceivingAddress = async (chain: ChainType): Promise<string> => {
+    return sendMessage<string>('chain.getReceivingAddress', { chain });
   };
 
   const lock = async () => {
@@ -184,6 +210,9 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         refreshBalance,
         refreshTransactions,
         getReceivingAddress,
+        chainBalances,
+        refreshChainBalances,
+        getChainReceivingAddress,
         init,
         logout,
         lock,

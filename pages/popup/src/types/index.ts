@@ -1,9 +1,10 @@
-export type Currencies = 'btc' | 'bch' | 'usdt';
+export type Currencies = 'btc' | 'bch' | 'usdt' | 'eth';
 
 export const currencyMapping: Record<Currencies, string> = {
   btc: 'Bitcoin',
   bch: 'Bitcoin Cash',
   usdt: 'USDT',
+  eth: 'Ethereum',
 };
 
 export enum Network {
@@ -19,6 +20,7 @@ export interface Preferences {
   activeAccountIndex: number; // Index into account list (accountManager.accounts), not HD account index
   activeNetwork: Network;
   isWalletBackedUp: boolean;
+  ethRpcApiKey?: string;
 }
 
 export interface BalanceData {

@@ -3,14 +3,25 @@ import { useNavigate } from 'react-router-dom';
 import { CryptoBalance } from '@src/components/CryptoBalance';
 import { useWalletContext } from '@src/context/WalletContext';
 import { capitalize, formatNumber } from '@src/utils';
+import { ChainType } from '@extension/backend/src/adapters/IChainAdapter';
 import Skeleton from 'react-loading-skeleton';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { preferences, balance, activeAccount, connected, refreshBalance, isBackedUp } = useWalletContext();
+  const {
+    preferences,
+    balance,
+    activeAccount,
+    connected,
+    refreshBalance,
+    refreshChainBalances,
+    chainBalances,
+    isBackedUp,
+  } = useWalletContext();
 
   React.useEffect(() => {
     refreshBalance();
+    refreshChainBalances();
   }, []);
 
   let balanceLoading = false;
@@ -139,6 +150,38 @@ export const Dashboard: React.FC = () => {
               },
             })
           }
+        />
+        <CryptoBalance
+          cryptoName="Ethereum"
+          cryptoAmount={
+            chainBalances[ChainType.Ethereum]
+              ? `${formatNumber(chainBalances[ChainType.Ethereum]!.confirmed, 6)} ETH`
+              : '0 ETH'
+          }
+          usdAmount={
+            chainBalances[ChainType.Ethereum]
+              ? `${formatNumber(chainBalances[ChainType.Ethereum]!.confirmedFiat)} USD`
+              : '0 USD'
+          }
+          icon="popup/eth_coin.svg"
+          isLoading={false}
+          onClick={() => navigate('/dashboard/eth/activity')}
+        />
+        <CryptoBalance
+          cryptoName="USDT"
+          cryptoAmount={
+            chainBalances[ChainType.Ethereum]?.tokens?.USDT
+              ? `${formatNumber(chainBalances[ChainType.Ethereum]!.tokens!.USDT.balance, 2)} USDT`
+              : '0 USDT'
+          }
+          usdAmount={
+            chainBalances[ChainType.Ethereum]?.tokens?.USDT
+              ? `≈ ${formatNumber(chainBalances[ChainType.Ethereum]!.tokens!.USDT.balance, 2)} USD`
+              : '0 USD'
+          }
+          icon="popup/usdt_coin.svg"
+          isLoading={false}
+          onClick={() => navigate('/dashboard/usdt/activity')}
         />
       </div>
 

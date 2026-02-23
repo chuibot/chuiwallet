@@ -6,18 +6,28 @@ import { Button } from '@src/components/Button';
 import Header from '@src/components/Header';
 import { useWalletContext } from '@src/context/WalletContext';
 import type { Currencies } from '@src/types';
+import { ChainType } from '@extension/backend/src/adapters/IChainAdapter';
 
 export const Receive: React.FC = () => {
-  const { getReceivingAddress } = useWalletContext();
+  const { getReceivingAddress, getChainReceivingAddress } = useWalletContext();
   const { currency } = useParams<{ currency: Currencies }>();
   const [address, setAddress] = useState<string>('Address not found');
   const [copyText, setCopyText] = useState<string>('Copy address');
 
   useEffect(() => {
     (async () => {
-      setAddress(await getReceivingAddress());
+      try {
+        if (currency === 'usdt' || currency === 'eth') {
+          setAddress(await getChainReceivingAddress(ChainType.Ethereum));
+        } else {
+          setAddress(await getReceivingAddress());
+        }
+      } catch (e) {
+        console.error('Failed to get receiving address:', e);
+        setAddress('Address not found');
+      }
     })();
-  }, [getReceivingAddress]);
+  }, [getReceivingAddress, getChainReceivingAddress, currency]);
 
   const handleCopyAddress = async () => {
     try {

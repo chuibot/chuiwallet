@@ -124,6 +124,31 @@ export function isValidBTCAddress(addr: string, expected: Network): boolean {
   }
 }
 
+/**
+ * Ethereum address format validation (0x + 40 hex chars).
+ * Note: Does not verify EIP-55 mixed-case checksums. Full checksum validation
+ * would require the ethers library which is not available in the popup bundle.
+ */
+export function isValidETHAddress(addr: string): boolean {
+  return /^0x[0-9a-fA-F]{40}$/.test(addr);
+}
+
+/**
+ * Chain-aware address validation dispatcher.
+ * Routes to the correct validator based on the currency parameter.
+ */
+export function isValidAddress(addr: string, currency: string, network: Network): boolean {
+  switch (currency) {
+    case 'btc':
+      return isValidBTCAddress(addr, network);
+    case 'usdt':
+    case 'eth':
+      return isValidETHAddress(addr);
+    default:
+      return false;
+  }
+}
+
 export async function getBtcToUsdRate(): Promise<number> {
   const response = await fetch('https://www.blockonomics.co/api/price?currency=USD');
   if (!response.ok) {
