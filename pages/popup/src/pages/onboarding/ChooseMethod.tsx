@@ -31,7 +31,7 @@ export const ChooseMethod: React.FC = () => {
 
   return (
     <div className="flex overflow-hidden flex-col items-center px-5 bg-dark h-full w-full gap-4">
-      <Header title="" hideClose onBack={() => navigate('/onboard/set-password', { state: { editPassword: true } })} />
+      <Header title="" hideClose />
       <div className="flex flex-col flex-1 justify-center items-center w-full gap-4">
         {error && (
           <div className="w-full max-w-sm px-4 py-3 bg-red-500/10 border border-red-500 rounded-lg">
