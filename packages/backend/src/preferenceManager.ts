@@ -9,6 +9,7 @@ export interface Preferences {
   activeAccountIndex: number; // Index into accountManager.accounts (list index), not HD account index
   activeNetwork: Network;
   isWalletBackedUp: boolean;
+  ethRpcApiKey?: string;
 }
 
 export const defaultPreferences: Preferences = {
@@ -19,6 +20,7 @@ export const defaultPreferences: Preferences = {
   activeAccountIndex: -1,
   activeNetwork: Network.Mainnet,
   isWalletBackedUp: false,
+  ethRpcApiKey: '',
 };
 
 const STORAGE_KEY = 'preferences';

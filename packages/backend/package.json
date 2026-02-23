@@ -19,6 +19,7 @@
     "config": "^3.3.12",
     "crypto-js": "^4.2.0",
     "ecpair": "3.0.0-rc.0",
+    "ethers": "6",
     "winston": "^3.17.0"
   },
   "devDependencies": {
