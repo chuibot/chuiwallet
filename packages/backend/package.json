@@ -17,13 +17,11 @@
     "bitcoinjs-lib": "^6.1.7",
     "buffer": "^6.0.3",
     "config": "^3.3.12",
-    "crypto-js": "^4.2.0",
     "ecpair": "3.0.0-rc.0",
     "winston": "^3.17.0"
   },
   "devDependencies": {
     "@types/config": "^3.3.5",
-    "@types/crypto-js": "^4.2.2",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.13.5",
     "@types/webextension-polyfill": "^0.12.3",
