@@ -15,6 +15,8 @@ export interface TokenBalance {
   symbol: string;
   balance: number;
   decimals: number;
+  fiatRate?: number;
+  balanceFiat?: number;
 }
 
 export interface ChainBalance {
@@ -46,6 +48,11 @@ export interface ChainTransaction {
   confirmations: number;
   status: 'confirmed' | 'pending' | 'failed';
   chain: ChainType;
+}
+
+export interface ChainTransactionHistoryOptions {
+  /** Optional token symbol for token transfer history on multi-asset chains */
+  tokenSymbol?: string;
 }
 
 /**
@@ -84,6 +91,8 @@ export interface ChainSendOptions {
   maxPriorityFeePerGasWei?: string;
   /** For legacy EVM transactions: gas price in Wei */
   gasPriceWei?: string;
+  /** For ERC-20 transfers resolved by the adapter */
+  tokenSymbol?: string;
   /** For ERC-20 transfers */
   tokenAddress?: string;
 }
@@ -135,7 +144,9 @@ export interface IChainAdapter {
   // ── Transactions ──────────────────────────────────────────────────
 
   /** Fetch transaction history */
-  getTransactionHistory(): Promise<ChainTransaction[]>;
+  getTransactionHistory(options?: ChainTransactionHistoryOptions): Promise<ChainTransaction[]>;
+  /** Optional cached transaction history, when the adapter supports it */
+  getCachedTransactionHistory?(options?: ChainTransactionHistoryOptions): Promise<ChainTransaction[]>;
 
   /** Send a payment, returns the transaction hash */
   sendPayment(to: string, amount: string, options?: ChainSendOptions): Promise<string>;

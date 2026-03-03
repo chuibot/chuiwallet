@@ -9,9 +9,9 @@ import Header from '@src/components/Header';
 import { useWalletContext } from '@src/context/WalletContext';
 import { sendMessage } from '@src/utils/bridge';
 import {
-  getAssetDisplayPrecision,
   getContextBalanceForCurrency,
   getCurrencyMeta,
+  getSendAmountPrecision,
   isSupportedSendCurrency,
 } from '@src/utils/currencyMeta';
 import { currencyMapping, type BalanceData, type Currencies } from '@src/types';
@@ -52,7 +52,8 @@ export const SendOptions: React.FC = () => {
   const { balance, chainBalances } = useWalletContext();
   const states = (location.state as SendOptionsState | null) ?? null;
   const meta = getCurrencyMeta(currency);
-  const assetDigits = getAssetDisplayPrecision(currency);
+  const assetDigits = getSendAmountPrecision(currency);
+  const usesSeparateFeeAsset = Boolean(meta.networkFeeSymbol);
 
   const [assetAmount, setAssetAmount] = useState('');
   const [usdAmount, setUsdAmount] = useState('');
@@ -63,6 +64,9 @@ export const SendOptions: React.FC = () => {
   const [balanceLoading, setBalanceLoading] = useState<boolean>(typeof states?.balance !== 'number');
   const [availableBalance, setAvailableBalance] = useState<number | null>(
     typeof states?.balance === 'number' ? states.balance : null,
+  );
+  const [availableGasBalance, setAvailableGasBalance] = useState<number | null>(
+    meta.chain === ChainType.Ethereum ? (chainBalances?.[ChainType.Ethereum]?.confirmed ?? null) : null,
   );
   const [lastEditedField, setLastEditedField] = useState<'asset' | 'usd'>('asset');
   const [error, setError] = useState('');
@@ -89,14 +93,27 @@ export const SendOptions: React.FC = () => {
     const contextBalance = getContextBalanceForCurrency(currency, balance, chainBalances);
     if (contextBalance !== null) {
       setAvailableBalance(contextBalance);
+      if (meta.chain === ChainType.Ethereum) {
+        setAvailableGasBalance(chainBalances?.[ChainType.Ethereum]?.confirmed ?? null);
+      }
+      setBalanceLoading(false);
+      return;
+    }
+
+    if (
+      typeof states?.balance === 'number' &&
+      (meta.chain !== ChainType.Ethereum || chainBalances?.[ChainType.Ethereum] !== undefined)
+    ) {
+      setAvailableBalance(states.balance);
+      if (meta.chain === ChainType.Ethereum) {
+        setAvailableGasBalance(chainBalances?.[ChainType.Ethereum]?.confirmed ?? null);
+      }
       setBalanceLoading(false);
       return;
     }
 
     if (typeof states?.balance === 'number') {
       setAvailableBalance(states.balance);
-      setBalanceLoading(false);
-      return;
     }
 
     let cancelled = false;
@@ -114,7 +131,12 @@ export const SendOptions: React.FC = () => {
 
         const nextBalance = await sendMessage<ChainBalance>('chain.getBalance', { chain: ChainType.Ethereum });
         if (!cancelled) {
-          setAvailableBalance(nextBalance.confirmed);
+          if (meta.tokenSymbol) {
+            setAvailableBalance(nextBalance.tokens?.[meta.tokenSymbol]?.balance ?? 0);
+          } else {
+            setAvailableBalance(nextBalance.confirmed);
+          }
+          setAvailableGasBalance(nextBalance.confirmed);
         }
       } catch (fetchError) {
         console.error('Failed to load send balance', fetchError);
@@ -131,7 +153,7 @@ export const SendOptions: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [balance, chainBalances, currency, states?.balance]);
+  }, [balance, chainBalances, currency, meta.chain, meta.tokenSymbol, states?.balance]);
 
   useEffect(() => {
     if (!currency || !isSupportedSendCurrency(currency)) return;
@@ -144,6 +166,22 @@ export const SendOptions: React.FC = () => {
           const rate = await getBtcToUsdRate();
           if (!cancelled) {
             setFiatRate(rate);
+          }
+          return;
+        }
+
+        if (meta.tokenSymbol) {
+          const existingTokenRate = chainBalances?.[ChainType.Ethereum]?.tokens?.[meta.tokenSymbol]?.fiatRate;
+          if (existingTokenRate !== undefined && existingTokenRate > 0) {
+            if (!cancelled) {
+              setFiatRate(existingTokenRate);
+            }
+            return;
+          }
+
+          const ethBalance = await sendMessage<ChainBalance>('chain.getBalance', { chain: ChainType.Ethereum });
+          if (!cancelled) {
+            setFiatRate(ethBalance.tokens?.[meta.tokenSymbol]?.fiatRate ?? null);
           }
           return;
         }
@@ -171,7 +209,7 @@ export const SendOptions: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [chainBalances, currency]);
+  }, [chainBalances, currency, meta.tokenSymbol]);
 
   useEffect(() => {
     if (!currency || !isSupportedSendCurrency(currency) || !states?.destinationAddress) return;
@@ -184,6 +222,7 @@ export const SendOptions: React.FC = () => {
         const estimates = await sendMessage<ChainFeeEstimate[]>('chain.estimateFee', {
           chain: meta.chain,
           to: states.destinationAddress,
+          ...(meta.tokenSymbol ? { options: { tokenSymbol: meta.tokenSymbol } } : {}),
         });
 
         if (!cancelled) {
@@ -194,7 +233,12 @@ export const SendOptions: React.FC = () => {
         console.error('Failed to load fee estimates', feeError);
         if (!cancelled) {
           setFeeOptions([]);
-          setError('Failed to load network fees');
+          const feeErrorMessage = String((feeError as Error)?.message || '');
+          setError(
+            feeErrorMessage.toLowerCase().includes('unavailable on this network')
+              ? feeErrorMessage
+              : 'Failed to load network fees',
+          );
         }
       } finally {
         if (!cancelled) {
@@ -206,7 +250,7 @@ export const SendOptions: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [currency, meta.chain, states?.destinationAddress]);
+  }, [currency, meta.chain, meta.tokenSymbol, states?.destinationAddress]);
 
   useEffect(() => {
     if (fiatRate === null) {
@@ -265,10 +309,27 @@ export const SendOptions: React.FC = () => {
       return;
     }
 
-    const maxSpendable = availableBalance - selectedFee.fee;
-    if (maxSpendable < parsedAssetAmount) {
-      setError('Insufficient funds');
-      return;
+    if (usesSeparateFeeAsset) {
+      if (availableBalance < parsedAssetAmount) {
+        setError(`Insufficient ${meta.symbol} balance`);
+        return;
+      }
+
+      if (availableGasBalance === null) {
+        setError(`${meta.networkFeeSymbol} balance is still loading`);
+        return;
+      }
+
+      if (availableGasBalance < selectedFee.fee) {
+        setError(`Insufficient ${meta.networkFeeSymbol} for network fee`);
+        return;
+      }
+    } else {
+      const maxSpendable = availableBalance - selectedFee.fee;
+      if (maxSpendable < parsedAssetAmount) {
+        setError('Insufficient funds');
+        return;
+      }
     }
 
     navigate(`/send/${currency}/preview`, {
@@ -281,7 +342,12 @@ export const SendOptions: React.FC = () => {
         feeName: selectedFee.name,
         rateValue: selectedFee.rateValue,
         rateUnit: selectedFee.rateUnit,
-        sendOptions: selectedFee.sendOptions,
+        sendOptions: meta.tokenSymbol
+          ? {
+              ...selectedFee.sendOptions,
+              tokenSymbol: meta.tokenSymbol,
+            }
+          : selectedFee.sendOptions,
       },
     });
   };
@@ -313,8 +379,14 @@ export const SendOptions: React.FC = () => {
       return;
     }
 
-    const maxAmount = Math.max(availableBalance - selectedFee.fee, 0);
-    setError(maxAmount <= 0 ? 'Insufficient balance' : '');
+    const maxAmount = usesSeparateFeeAsset
+      ? Math.max(availableBalance, 0)
+      : Math.max(availableBalance - selectedFee.fee, 0);
+    if (usesSeparateFeeAsset && availableGasBalance !== null && availableGasBalance < selectedFee.fee) {
+      setError(`Insufficient ${meta.networkFeeSymbol} for network fee`);
+    } else {
+      setError(maxAmount <= 0 ? 'Insufficient balance' : '');
+    }
     setLastEditedField('asset');
     setAssetAmount(formatInputAmount(maxAmount, assetDigits));
   };
@@ -360,6 +432,11 @@ export const SendOptions: React.FC = () => {
           disabled={feeEstimatesLoading || balanceLoading || !selectedFee}>
           <span className="self-stretch my-auto">Send Max</span>
         </button>
+        {usesSeparateFeeAsset && (
+          <div className="mt-2 text-xs font-normal text-foreground-79 self-start">
+            Network fee will be paid in {meta.networkFeeSymbol}
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col mt-4 w-full items-end">

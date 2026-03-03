@@ -10,7 +10,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { sendMessage } from '@src/utils/bridge';
 import { ERROR_MESSAGES } from '@src/constants';
 import { InputField } from '@src/components/InputField';
-import { getAssetDisplayPrecision, getCurrencyMeta, isSupportedSendCurrency } from '@src/utils/currencyMeta';
+import { getCurrencyMeta, getSendAmountPrecision, isSupportedSendCurrency } from '@src/utils/currencyMeta';
 import { formatFeeAmount, formatFeeRate, formatFiatValue } from '@src/utils/sendFormatting';
 
 interface SendPreviewStates {
@@ -31,7 +31,7 @@ export function SendPreview() {
   const { currency } = useParams<{ currency: Currencies }>();
   const states = (location.state as SendPreviewStates | null) ?? null;
   const meta = getCurrencyMeta(currency);
-  const assetDigits = getAssetDisplayPrecision(currency);
+  const assetDigits = getSendAmountPrecision(currency);
   const formattedFeeRate = formatFeeRate(states?.rateValue, states?.rateUnit);
   const showsRateOnlyFee = states?.rateUnit === 'gwei';
 
@@ -155,7 +155,9 @@ export function SendPreview() {
           </div>
         </div>
         <div className="flex flex-col mt-6 w-full leading-none text-foreground-79 shrink-0">
-          <div className="font-medium text-white">Fee</div>
+          <div className="font-medium text-white">
+            Fee{meta.networkFeeSymbol ? ` (${meta.networkFeeSymbol} network fee)` : ''}
+          </div>
           <div className="mt-2">
             {showsRateOnlyFee
               ? (formattedFeeRate ?? 'Fee unavailable')

@@ -6,9 +6,12 @@ interface ChainHistoryScope {
   chain: ChainType;
   network: Network;
   address: string;
+  assetKey?: string;
 }
 
 export class ChainTransactionHistoryCache {
+  private static readonly STORAGE_KEY_PREFIX = 'chain_tx_history:';
+
   private caches = new Map<string, Map<string, ChainTransaction>>();
 
   async get(scope: ChainHistoryScope): Promise<ChainTransaction[]> {
@@ -29,6 +32,19 @@ export class ChainTransactionHistoryCache {
 
     await this.save(scope, cache);
     return this.sortTransactions(Array.from(cache.values()));
+  }
+
+  async clear(): Promise<void> {
+    this.caches.clear();
+
+    const storedEntries = await browser.storage.local.get(null);
+    const cacheKeys = Object.keys(storedEntries).filter(key =>
+      key.startsWith(ChainTransactionHistoryCache.STORAGE_KEY_PREFIX),
+    );
+
+    if (cacheKeys.length > 0) {
+      await browser.storage.local.remove(cacheKeys);
+    }
   }
 
   private async load(scope: ChainHistoryScope): Promise<Map<string, ChainTransaction>> {
@@ -62,7 +78,8 @@ export class ChainTransactionHistoryCache {
   }
 
   private getStorageKey(scope: ChainHistoryScope): string {
-    return `chain_tx_history:${scope.chain}:${scope.network}:${scope.address.toLowerCase()}`;
+    const assetSegment = scope.assetKey ? `:${scope.assetKey.toLowerCase()}` : '';
+    return `${ChainTransactionHistoryCache.STORAGE_KEY_PREFIX}${scope.chain}:${scope.network}:${scope.address.toLowerCase()}${assetSegment}`;
   }
 
   private sortTransactions(transactions: ChainTransaction[]): ChainTransaction[] {

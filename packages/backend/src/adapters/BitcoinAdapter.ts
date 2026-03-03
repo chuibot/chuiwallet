@@ -10,6 +10,7 @@ import {
   type IChainAdapter,
   type ChainBalance,
   type ChainTransaction,
+  type ChainTransactionHistoryOptions,
   type ChainFeeEstimate,
   type ChainSendOptions,
 } from './IChainAdapter';
@@ -83,7 +84,8 @@ export class BitcoinAdapter implements IChainAdapter {
 
   // ── Transactions ──────────────────────────────────────────────────
 
-  async getTransactionHistory(): Promise<ChainTransaction[]> {
+  async getTransactionHistory(_options?: ChainTransactionHistoryOptions): Promise<ChainTransaction[]> {
+    void _options;
     const history = await this.txHistoryService.get();
     return history.map(tx => ({
       hash: tx.transactionHash,

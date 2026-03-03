@@ -7,6 +7,12 @@ interface TransactionActivityListProps {
   transactions: TxEntry[];
   /** Currency unit label passed to each item, defaults to 'BTC' */
   unit?: string;
+  /** Decimal precision for the asset amount display */
+  amountDecimals?: number;
+  /** Network fee unit label when it differs from the asset unit */
+  feeUnit?: string;
+  /** Whether the network fee should be included in each activity total */
+  includeFeeInTotals?: boolean;
 }
 
 /**
@@ -51,7 +57,13 @@ function formatDateLabel(date: Date): string {
   return `${day}/${month}/${year}`;
 }
 
-export const TransactionActivityList: React.FC<TransactionActivityListProps> = ({ transactions, unit }) => {
+export const TransactionActivityList: React.FC<TransactionActivityListProps> = ({
+  transactions,
+  unit,
+  amountDecimals,
+  feeUnit,
+  includeFeeInTotals,
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isScrollable, setIsScrollable] = useState(false);
   const { pending, confirmed } = groupTransactions(transactions);
@@ -106,6 +118,9 @@ export const TransactionActivityList: React.FC<TransactionActivityListProps> = (
                   sender={tx.sender}
                   receiver={tx.receiver}
                   unit={unit}
+                  amountDecimals={amountDecimals}
+                  feeUnit={feeUnit}
+                  includeFeeInTotals={includeFeeInTotals}
                 />
               ))}
           </div>
@@ -136,6 +151,9 @@ export const TransactionActivityList: React.FC<TransactionActivityListProps> = (
                     sender={transaction.sender}
                     receiver={transaction.receiver}
                     unit={unit}
+                    amountDecimals={amountDecimals}
+                    feeUnit={feeUnit}
+                    includeFeeInTotals={includeFeeInTotals}
                   />
                 ))}
             </div>

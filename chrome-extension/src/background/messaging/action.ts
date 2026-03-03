@@ -10,8 +10,14 @@ import { walletManager } from '@extension/backend/src/walletManager';
 import { accountManager } from '@extension/backend/src/accountManager';
 import { scanManager } from '@extension/backend/src/scanManager';
 import { historyService } from '@extension/backend/src/modules/txHistoryService';
+import { chainTransactionHistoryCache } from '@extension/backend/src/modules/chainTransactionHistoryCache';
 import { chainRegistry } from '@extension/backend/src/adapters/ChainRegistry';
-import { ChainType, type ChainSendOptions, type IChainAdapter } from '@extension/backend/src/adapters/IChainAdapter';
+import {
+  ChainType,
+  type ChainSendOptions,
+  type ChainTransactionHistoryOptions,
+  type IChainAdapter,
+} from '@extension/backend/src/adapters/IChainAdapter';
 import { ChangeType } from '@extension/backend/src/types/cache';
 import { logger } from '@extension/backend/src/utils/logger';
 
@@ -111,13 +117,16 @@ function clearEthereumKeys(): void {
   if (ethAdapter) ethAdapter.clearKeys();
 }
 
-function supportsCachedTransactionHistory(
-  adapter: IChainAdapter,
-): adapter is IChainAdapter & { getCachedTransactionHistory: () => Promise<unknown> } {
+function supportsCachedTransactionHistory(adapter: IChainAdapter): adapter is IChainAdapter & {
+  getCachedTransactionHistory: (options?: ChainTransactionHistoryOptions) => Promise<unknown>;
+} {
   return (
     'getCachedTransactionHistory' in adapter &&
-    typeof (adapter as IChainAdapter & { getCachedTransactionHistory?: unknown }).getCachedTransactionHistory ===
-      'function'
+    typeof (
+      adapter as IChainAdapter & {
+        getCachedTransactionHistory?: unknown;
+      }
+    ).getCachedTransactionHistory === 'function'
   );
 }
 
@@ -276,9 +285,13 @@ const handlers: Record<string, Handler> = {
     clearEthereumKeys();
   },
   'wallet.logout': async () => {
-    await walletManager.logout();
-    // Clear ETH key material from memory
-    clearEthereumKeys();
+    try {
+      await walletManager.logout();
+      await chainTransactionHistoryCache.clear();
+    } finally {
+      // Clear ETH key material from memory
+      clearEthereumKeys();
+    }
   },
   'provider.getApproval': async params => {
     const payload = expectObjectParams('provider.getApproval', params);
@@ -330,20 +343,33 @@ const handlers: Record<string, Handler> = {
   'chain.getTransactionHistory': async params => {
     const payload = expectObjectParams('chain.getTransactionHistory', params);
     const chain = expectEnumParam('chain.getTransactionHistory', payload, 'chain', Object.values(ChainType));
+    const rawOptions = payload.options;
+    const options =
+      rawOptions === undefined
+        ? undefined
+        : (expectObjectParams('chain.getTransactionHistory.options', rawOptions) as ChainTransactionHistoryOptions);
     const adapter = chainRegistry.get(chain);
     if (!adapter) throw new Error(`Unsupported chain: ${chain}`);
-    return adapter.getTransactionHistory();
+    return adapter.getTransactionHistory(options);
   },
 
   'chain.getCachedTransactionHistory': async params => {
     const payload = expectObjectParams('chain.getCachedTransactionHistory', params);
     const chain = expectEnumParam('chain.getCachedTransactionHistory', payload, 'chain', Object.values(ChainType));
+    const rawOptions = payload.options;
+    const options =
+      rawOptions === undefined
+        ? undefined
+        : (expectObjectParams(
+            'chain.getCachedTransactionHistory.options',
+            rawOptions,
+          ) as ChainTransactionHistoryOptions);
     const adapter = chainRegistry.get(chain);
     if (!adapter) throw new Error(`Unsupported chain: ${chain}`);
     if (supportsCachedTransactionHistory(adapter)) {
-      return adapter.getCachedTransactionHistory();
+      return adapter.getCachedTransactionHistory(options);
     }
-    return adapter.getTransactionHistory();
+    return adapter.getTransactionHistory(options);
   },
 
   'chain.estimateFee': async params => {

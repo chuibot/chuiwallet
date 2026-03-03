@@ -4,7 +4,11 @@ import { CryptoButton } from '@src/components/CryptoButton';
 import { useWalletContext } from '@src/context/WalletContext';
 import { useEffect, useState, useMemo } from 'react';
 import { formatNumber } from '@src/utils';
-import { getCurrencyMeta } from '@src/utils/currencyMeta';
+import {
+  getCurrencyMeta,
+  getTransactionHistoryOptionsForCurrency,
+  isSupportedSendCurrency,
+} from '@src/utils/currencyMeta';
 import { ChainType, type ChainTransaction } from '@extension/backend/src/adapters/IChainAdapter';
 import type { TxEntry } from '@extension/backend/src/types/cache';
 import TransactionActivityList from '@src/components/TransactionActivityList';
@@ -17,19 +21,39 @@ interface ActivityStates {
   balanceUsd?: number;
 }
 
+function mapChainTransactionStatus(status: ChainTransaction['status']): TxEntry['status'] {
+  if (status === 'confirmed') {
+    return 'CONFIRMED';
+  }
+
+  if (status === 'failed') {
+    return 'FAILED';
+  }
+
+  return 'PENDING';
+}
+
 /**
  * Convert ChainTransaction (from Blockscout/Etherscan) to TxEntry (used by TransactionActivityList).
  * This lets ETH/USDT activity reuse the exact same UI as BTC.
  */
-function chainTxToTxEntry(tx: ChainTransaction, userAddress: string, ethPriceUsd: number): TxEntry {
+function chainTxToTxEntry(
+  tx: ChainTransaction,
+  userAddress: string,
+  assetFiatRate: number,
+  feeFiatRate: number,
+): TxEntry {
   const isSend = tx.from.toLowerCase() === userAddress.toLowerCase();
+  const hasAssetFiatRate = Number.isFinite(assetFiatRate) && assetFiatRate > 0;
+  const hasFeeFiatRate = Number.isFinite(feeFiatRate) && feeFiatRate > 0;
+
   return {
     type: isSend ? 'SEND' : 'RECEIVE',
-    status: tx.status === 'confirmed' ? 'CONFIRMED' : 'PENDING',
+    status: mapChainTransactionStatus(tx.status),
     amountBtc: tx.amount,
-    amountUsd: tx.amount * ethPriceUsd,
+    amountUsd: hasAssetFiatRate ? tx.amount * assetFiatRate : undefined,
     feeBtc: tx.fee,
-    feeUsd: tx.fee * ethPriceUsd,
+    feeUsd: hasFeeFiatRate ? tx.fee * feeFiatRate : undefined,
     timestamp: tx.timestamp * 1000, // TxEntry expects ms, ChainTransaction has seconds
     confirmations: tx.confirmations,
     transactionHash: tx.hash,
@@ -46,11 +70,14 @@ export const Activity: React.FC = () => {
 
   const meta = getCurrencyMeta(currency);
   const activityStates = (location.state as ActivityStates) ?? {};
+  const canSend = isSupportedSendCurrency(currency);
 
   // Chain transaction state for ETH/USDT
   const [chainTxs, setChainTxs] = useState<ChainTransaction[]>([]);
   const [chainTxsLoading, setChainTxsLoading] = useState(false);
   const [userEthAddress, setUserEthAddress] = useState('');
+  const chainHistoryOptions = useMemo(() => getTransactionHistoryOptionsForCurrency(currency), [currency]);
+  const tokenFiatRate = meta.tokenSymbol ? (chainBalances[meta.chain]?.tokens?.[meta.tokenSymbol]?.fiatRate ?? 0) : 0;
 
   // Derive display balance from state (BTC) or chainBalances (ETH/USDT)
   let displayBalance = 0;
@@ -63,11 +90,11 @@ export const Activity: React.FC = () => {
     const ethBalance = chainBalances[ChainType.Ethereum];
     displayBalance = ethBalance?.confirmed ?? 0;
     displayBalanceUsd = ethBalance?.confirmedFiat ?? 0;
-  } else if (currency === 'usdt') {
+  } else if (meta.tokenSymbol) {
     const ethBalance = chainBalances[ChainType.Ethereum];
-    const usdtToken = ethBalance?.tokens?.USDT;
-    displayBalance = usdtToken?.balance ?? 0;
-    displayBalanceUsd = usdtToken?.balance ?? 0;
+    const tokenBalance = ethBalance?.tokens?.[meta.tokenSymbol];
+    displayBalance = tokenBalance?.balance ?? 0;
+    displayBalanceUsd = tokenBalance?.balanceFiat ?? 0;
   }
 
   useEffect(() => {
@@ -103,6 +130,7 @@ export const Activity: React.FC = () => {
       try {
         const cachedTransactions = await sendMessage<ChainTransaction[]>('chain.getCachedTransactionHistory', {
           chain: meta.chain,
+          ...(chainHistoryOptions ? { options: chainHistoryOptions } : {}),
         });
 
         if (cancelled) {
@@ -123,6 +151,7 @@ export const Activity: React.FC = () => {
       try {
         const latestTransactions = await sendMessage<ChainTransaction[]>('chain.getTransactionHistory', {
           chain: meta.chain,
+          ...(chainHistoryOptions ? { options: chainHistoryOptions } : {}),
         });
 
         if (!cancelled) {
@@ -143,9 +172,9 @@ export const Activity: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [currency, meta.chain]);
+  }, [chainHistoryOptions, currency, meta.chain]);
 
-  // Derive ETH price from chain balances for USD conversion in tx history
+  // Derive ETH price from chain balances for network-fee conversion in tx history
   const ethPriceUsd = useMemo(() => {
     const ethBal = chainBalances[ChainType.Ethereum];
     if (ethBal?.nativeFiatRate && ethBal.nativeFiatRate > 0) {
@@ -158,10 +187,19 @@ export const Activity: React.FC = () => {
     return 0;
   }, [chainBalances]);
 
+  const assetFiatRate = useMemo(() => {
+    if (meta.tokenSymbol) {
+      const tokenBalance = chainBalances[meta.chain]?.tokens?.[meta.tokenSymbol];
+      return tokenBalance?.fiatRate ?? 0;
+    }
+
+    return ethPriceUsd;
+  }, [chainBalances, ethPriceUsd, meta.chain, meta.tokenSymbol]);
+
   // Convert ChainTransaction[] to TxEntry[] for reuse with TransactionActivityList
   const chainTxEntries: TxEntry[] = useMemo(
-    () => chainTxs.map(tx => chainTxToTxEntry(tx, userEthAddress, ethPriceUsd)),
-    [chainTxs, userEthAddress, ethPriceUsd],
+    () => chainTxs.map(tx => chainTxToTxEntry(tx, userEthAddress, assetFiatRate, ethPriceUsd)),
+    [assetFiatRate, chainTxs, userEthAddress, ethPriceUsd],
   );
 
   const loading = currency === 'btc' ? transactions == null : chainTxsLoading;
@@ -192,7 +230,7 @@ export const Activity: React.FC = () => {
               ? preferences?.fiatCurrency === 'USD'
                 ? formatNumber(displayBalanceUsd)
                 : formatNumber(displayBalance / 1e8, 8)
-              : formatNumber(displayBalance, currency === 'usdt' ? 2 : 6)}
+              : formatNumber(displayBalance, meta.displayPrecision)}
           </span>
           <span className="text-xl">{currency === 'btc' ? preferences?.fiatCurrency : meta.symbol}</span>
         </div>
@@ -203,7 +241,11 @@ export const Activity: React.FC = () => {
           ? preferences?.fiatCurrency === 'USD'
             ? `${formatNumber(displayBalance / 1e8, 8)} BTC`
             : `${formatNumber(displayBalanceUsd)} USD`
-          : `≈ ${formatNumber(displayBalanceUsd)} USD`}
+          : meta.tokenSymbol
+            ? tokenFiatRate > 0
+              ? `≈ ${formatNumber(displayBalanceUsd)} USD`
+              : 'USD unavailable'
+            : `≈ ${formatNumber(displayBalanceUsd)} USD`}
       </div>
 
       <div className="flex gap-2.5 justify-between items-center mt-[44px] w-full text-lg font-medium leading-none text-center whitespace-nowrap max-w-[346px] text-foreground">
@@ -211,12 +253,16 @@ export const Activity: React.FC = () => {
         <CryptoButton
           icon="popup/send_icon.svg"
           label="Send"
-          onClick={() =>
-            navigate(`/send/${currency}`, {
-              state: {
-                balance: currency === 'btc' ? displayBalance / 1e8 : displayBalance,
-              },
-            })
+          disabled={!canSend}
+          onClick={
+            canSend
+              ? () =>
+                  navigate(`/send/${currency}`, {
+                    state: {
+                      balance: currency === 'btc' ? displayBalance / 1e8 : displayBalance,
+                    },
+                  })
+              : undefined
           }
         />
       </div>
@@ -241,7 +287,13 @@ export const Activity: React.FC = () => {
           ) : currency === 'btc' ? (
             <TransactionActivityList transactions={transactions} />
           ) : (
-            <TransactionActivityList transactions={chainTxEntries} unit={meta.symbol} />
+            <TransactionActivityList
+              transactions={chainTxEntries}
+              unit={meta.symbol}
+              amountDecimals={meta.displayPrecision}
+              feeUnit={meta.networkFeeSymbol}
+              includeFeeInTotals={!meta.networkFeeSymbol}
+            />
           )}
         </div>
       </div>

@@ -1,23 +1,42 @@
 import { ethers } from 'ethers';
 import { Network } from '../types/electrum';
 import { chainTransactionHistoryCache } from '../modules/chainTransactionHistoryCache';
+import { assetPriceService } from '../modules/assetPriceService';
 import {
   ChainType,
   type IChainAdapter,
   type ChainBalance,
   type ChainTransaction,
+  type ChainTransactionHistoryOptions,
   type ChainFeeEstimate,
   type ChainSendOptions,
 } from './IChainAdapter';
 
+type Erc20TokenDefinition = Readonly<{
+  symbol: string;
+  decimals?: number;
+  coingeckoId?: string;
+  contracts: Partial<Record<Network, string>>;
+}>;
+
 /**
- * USDT contract addresses on Ethereum networks.
- * @see https://etherscan.io/token/0xdac17f958d2ee523a2206206994597c13d831ec7
+ * Supported ERC-20 token contracts on Ethereum networks.
+ * Add new tokens here and the adapter can reuse the same balance/history path.
  */
-const USDT_CONTRACTS: Record<string, string> = {
-  mainnet: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-  // Sepolia doesn't have an official USDT; we'll use a test ERC-20 later or empty
-  testnet: '',
+const ERC20_TOKEN_DEFINITIONS: Record<string, Erc20TokenDefinition> = {
+  /**
+   * Tether USD (ERC-20)
+   * @see https://etherscan.io/token/0xdac17f958d2ee523a2206206994597c13d831ec7
+   */
+  USDT: {
+    symbol: 'USDT',
+    decimals: 6,
+    coingeckoId: 'tether',
+    contracts: {
+      [Network.Mainnet]: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+      [Network.Testnet]: '',
+    },
+  },
 };
 
 const ERC20_ABI = [
@@ -39,11 +58,6 @@ export class EthereumAdapter implements IChainAdapter {
 
   /** Optional Infura/Alchemy project ID injected via constructor */
   private rpcApiKey: string | undefined;
-
-  /** Cached ETH price in USD */
-  private cachedEthPrice = 0;
-  private ethPriceFetchedAt = 0;
-  private static readonly PRICE_CACHE_MS = 60_000; // 60s cache
 
   /** Public RPC fallbacks — no API key required */
   private static readonly PUBLIC_RPC: Record<Network, string> = {
@@ -97,31 +111,6 @@ export class EthereumAdapter implements IChainAdapter {
     this.activeAddressIndex = 0;
   }
 
-  /**
-   * Fetch ETH price in USD from CoinGecko (free, no API key).
-   * Cached for 60 seconds to avoid hitting rate limits.
-   */
-  private async getEthPriceUsd(): Promise<number> {
-    const now = Date.now();
-    if (this.cachedEthPrice > 0 && now - this.ethPriceFetchedAt < EthereumAdapter.PRICE_CACHE_MS) {
-      return this.cachedEthPrice;
-    }
-    try {
-      const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
-      if (!res.ok) throw new Error(`CoinGecko HTTP ${res.status}`);
-      const data = (await res.json()) as { ethereum?: { usd?: number } };
-      const price = data?.ethereum?.usd ?? 0;
-      if (price > 0) {
-        this.cachedEthPrice = price;
-        this.ethPriceFetchedAt = now;
-      }
-      return price;
-    } catch (e) {
-      console.warn('Failed to fetch ETH price', e);
-      return this.cachedEthPrice; // return stale price on failure
-    }
-  }
-
   deriveAddress(accountIndex: number, addressIndex: number): string {
     if (!this.hdNode) {
       throw new Error('EthereumAdapter not initialized with mnemonic');
@@ -141,25 +130,17 @@ export class EthereumAdapter implements IChainAdapter {
     if (!this.provider) throw new Error('Provider not initialized');
     const address = this.getReceivingAddress();
 
-    // Fetch ETH balance and price in parallel
-    const [ethBalanceWei, ethPriceUsd] = await Promise.all([this.provider.getBalance(address), this.getEthPriceUsd()]);
+    const priceIds = this.getTrackedPriceIds();
+    const [ethBalanceWei, priceByAssetId] = await Promise.all([
+      this.provider.getBalance(address),
+      assetPriceService.getUsdPrices(priceIds),
+    ]);
+    const ethPriceUsd = priceByAssetId.ethereum ?? 0;
 
     const ethBalanceFloat = parseFloat(ethers.formatEther(ethBalanceWei));
     const ethBalanceUsd = ethBalanceFloat * ethPriceUsd;
 
-    // USDT Balance (if contract exists for this network)
-    const usdtAddr = USDT_CONTRACTS[this.network];
-    let usdtBalanceFloat = 0;
-
-    if (usdtAddr) {
-      try {
-        const contract = new ethers.Contract(usdtAddr, ERC20_ABI, this.provider);
-        const usdtBalanceRaw: bigint = await contract.balanceOf(address);
-        usdtBalanceFloat = parseFloat(ethers.formatUnits(usdtBalanceRaw, 6));
-      } catch (e) {
-        console.warn('Failed to fetch USDT balance', e);
-      }
-    }
+    const tokenBalances = await this.getErc20Balances(address, priceByAssetId);
 
     return {
       confirmed: ethBalanceFloat,
@@ -167,13 +148,7 @@ export class EthereumAdapter implements IChainAdapter {
       confirmedFiat: ethBalanceUsd,
       unconfirmedFiat: 0,
       nativeFiatRate: ethPriceUsd > 0 ? ethPriceUsd : undefined,
-      tokens: {
-        USDT: {
-          symbol: 'USDT',
-          balance: usdtBalanceFloat,
-          decimals: 6,
-        },
-      },
+      tokens: tokenBalances,
     };
   }
 
@@ -183,26 +158,36 @@ export class EthereumAdapter implements IChainAdapter {
     [Network.Testnet]: 'https://eth-sepolia.blockscout.com/api',
   };
 
-  async getTransactionHistory(): Promise<ChainTransaction[]> {
-    const historyScope = this.getHistoryScope();
+  async getTransactionHistory(options?: ChainTransactionHistoryOptions): Promise<ChainTransaction[]> {
+    const historyScope = this.getHistoryScope(options);
     const cachedTransactions = await chainTransactionHistoryCache.get(historyScope);
 
+    const tokenAddress = this.resolveTokenContractAddress(options?.tokenSymbol);
+    if (options?.tokenSymbol && !tokenAddress) {
+      return cachedTransactions;
+    }
+
     try {
-      const latestTransactions = await this.fetchTransactionHistoryFromIndexer(historyScope.address);
+      const latestTransactions = await this.fetchTransactionHistoryFromIndexer(historyScope.address, tokenAddress);
       return await chainTransactionHistoryCache.merge(historyScope, latestTransactions);
     } catch {
       return cachedTransactions;
     }
   }
 
-  async getCachedTransactionHistory(): Promise<ChainTransaction[]> {
-    return chainTransactionHistoryCache.get(this.getHistoryScope());
+  async getCachedTransactionHistory(options?: ChainTransactionHistoryOptions): Promise<ChainTransaction[]> {
+    return chainTransactionHistoryCache.get(this.getHistoryScope(options));
   }
 
-  private async fetchTransactionHistoryFromIndexer(address: string): Promise<ChainTransaction[]> {
+  private async fetchTransactionHistoryFromIndexer(
+    address: string,
+    tokenAddress?: string,
+  ): Promise<ChainTransaction[]> {
     const baseUrl = EthereumAdapter.BLOCK_EXPLORER_API[this.network];
     try {
-      const url = `${baseUrl}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=50&sort=desc`;
+      const action = tokenAddress ? 'tokentx' : 'txlist';
+      const contractQuery = tokenAddress ? `&contractaddress=${tokenAddress}` : '';
+      const url = `${baseUrl}?module=account&action=${action}&address=${address}${contractQuery}&startblock=0&endblock=99999999&page=1&offset=50&sort=desc`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Blockscout HTTP ${res.status}`);
 
@@ -213,11 +198,13 @@ export class EthereumAdapter implements IChainAdapter {
           from: string;
           to: string;
           value: string;
+          tokenDecimal?: string;
           gasUsed: string;
           gasPrice: string;
           timeStamp: string;
           confirmations: string;
           isError: string;
+          txreceipt_status?: string;
         }>;
       };
 
@@ -225,22 +212,29 @@ export class EthereumAdapter implements IChainAdapter {
         return [];
       }
 
-      return data.result.map(tx => ({
-        hash: tx.hash,
-        from: tx.from,
-        to: tx.to,
-        amount: parseFloat(ethers.formatEther(tx.value)),
-        fee: parseFloat(ethers.formatEther((BigInt(tx.gasUsed) * BigInt(tx.gasPrice)).toString())),
-        timestamp: parseInt(tx.timeStamp, 10),
-        confirmations: parseInt(tx.confirmations, 10),
-        status:
-          tx.isError === '1'
-            ? ('failed' as const)
-            : parseInt(tx.confirmations, 10) > 0
-              ? ('confirmed' as const)
-              : ('pending' as const),
-        chain: ChainType.Ethereum,
-      }));
+      return data.result.map(tx => {
+        const tokenDecimals = Number.parseInt(tx.tokenDecimal ?? '', 10);
+        const resolvedTokenDecimals = Number.isFinite(tokenDecimals) ? tokenDecimals : 18;
+
+        return {
+          hash: tx.hash,
+          from: tx.from,
+          to: tx.to,
+          amount: tokenAddress
+            ? parseFloat(ethers.formatUnits(tx.value, resolvedTokenDecimals))
+            : parseFloat(ethers.formatEther(tx.value)),
+          fee: parseFloat(ethers.formatEther((BigInt(tx.gasUsed) * BigInt(tx.gasPrice)).toString())),
+          timestamp: parseInt(tx.timeStamp, 10),
+          confirmations: parseInt(tx.confirmations, 10),
+          status:
+            tx.isError === '1' || tx.txreceipt_status === '0'
+              ? ('failed' as const)
+              : parseInt(tx.confirmations, 10) > 0
+                ? ('confirmed' as const)
+                : ('pending' as const),
+          chain: ChainType.Ethereum,
+        };
+      });
     } catch (e) {
       console.warn('Failed to fetch ETH transaction history from indexer', e);
       throw e;
@@ -249,17 +243,22 @@ export class EthereumAdapter implements IChainAdapter {
 
   async estimateFee(_to: string, _amount?: string, options?: ChainSendOptions): Promise<ChainFeeEstimate[]> {
     if (!this.provider) throw new Error('Provider not initialized');
+    const requestedTokenAddress = this.resolveRequestedTokenAddress(options);
+    if ((options?.tokenSymbol || options?.tokenAddress) && !requestedTokenAddress) {
+      throw new Error(`${options?.tokenSymbol ?? 'Token'} is unavailable on this network`);
+    }
+
     const [feeData, latestBlock, ethPriceUsd, recentFeeMarket, rpcPriorityFee] = await Promise.all([
       this.provider.getFeeData(),
       this.provider.getBlock('latest'),
-      this.getEthPriceUsd(),
+      assetPriceService.getUsdPrice('ethereum'),
       this.getRecentFeeMarket(),
       this.getRpcPriorityFee(),
     ]);
 
     const gasLimit = options?.gasLimit
       ? this.parsePositiveBigInt(options.gasLimit, 'gas limit')
-      : options?.tokenAddress
+      : requestedTokenAddress
         ? BigInt(65000)
         : BigInt(21000);
 
@@ -312,7 +311,8 @@ export class EthereumAdapter implements IChainAdapter {
             gasLimit: gasLimit.toString(),
             maxFeePerGasWei: maxFeePerGas.toString(),
             maxPriorityFeePerGasWei: priorityTip.toString(),
-            ...(options?.tokenAddress ? { tokenAddress: options.tokenAddress } : {}),
+            ...(options?.tokenSymbol ? { tokenSymbol: options.tokenSymbol } : {}),
+            ...(requestedTokenAddress ? { tokenAddress: requestedTokenAddress } : {}),
           },
           minerTip: 0,
           timeEstimate: 1,
@@ -340,7 +340,8 @@ export class EthereumAdapter implements IChainAdapter {
         sendOptions: {
           gasLimit: gasLimit.toString(),
           gasPriceWei: gasPrice.toString(),
-          ...(options?.tokenAddress ? { tokenAddress: options.tokenAddress } : {}),
+          ...(options?.tokenSymbol ? { tokenSymbol: options.tokenSymbol } : {}),
+          ...(requestedTokenAddress ? { tokenAddress: requestedTokenAddress } : {}),
         },
         minerTip: 0,
         timeEstimate: 1,
@@ -360,7 +361,10 @@ export class EthereumAdapter implements IChainAdapter {
     const overrides = this.buildTransactionOverrides(options);
 
     // Check if sending ETH or Token
-    const tokenAddress = options?.tokenAddress;
+    const tokenAddress = this.resolveRequestedTokenAddress(options);
+    if ((options?.tokenSymbol || options?.tokenAddress) && !tokenAddress) {
+      throw new Error(`${options?.tokenSymbol ?? 'Token'} is unavailable on this network`);
+    }
 
     let tx;
     if (tokenAddress) {
@@ -546,11 +550,124 @@ export class EthereumAdapter implements IChainAdapter {
     return trimmedAmount;
   }
 
-  private getHistoryScope(): { chain: ChainType; network: Network; address: string } {
+  private getHistoryScope(options?: ChainTransactionHistoryOptions): {
+    chain: ChainType;
+    network: Network;
+    address: string;
+    assetKey?: string;
+  } {
     return {
       chain: this.chainType,
       network: this.network,
       address: this.getReceivingAddress(),
+      assetKey: options?.tokenSymbol?.toLowerCase(),
     };
+  }
+
+  private resolveTokenContractAddress(tokenSymbol?: string): string | undefined {
+    const tokenDefinition = this.getErc20TokenDefinition(tokenSymbol);
+    return tokenDefinition?.contracts[this.network] || undefined;
+  }
+
+  private resolveRequestedTokenAddress(options?: ChainSendOptions): string | undefined {
+    if (!options) {
+      return undefined;
+    }
+
+    if (options.tokenAddress) {
+      return options.tokenAddress;
+    }
+
+    return this.resolveTokenContractAddress(options.tokenSymbol);
+  }
+
+  private async getErc20Balances(
+    address: string,
+    priceByAssetId: Record<string, number>,
+  ): Promise<NonNullable<ChainBalance['tokens']>> {
+    if (!this.provider) {
+      return {};
+    }
+
+    const tokenDefinitions = this.getSupportedErc20Tokens();
+    const tokenEntries = await Promise.all(
+      tokenDefinitions.map(async tokenDefinition => {
+        const contractAddress = tokenDefinition.contracts[this.network];
+        const fallbackDecimals = tokenDefinition.decimals ?? 18;
+
+        if (!contractAddress) {
+          const fiatRate = tokenDefinition.coingeckoId ? priceByAssetId[tokenDefinition.coingeckoId] : undefined;
+          return [
+            tokenDefinition.symbol,
+            {
+              symbol: tokenDefinition.symbol,
+              balance: 0,
+              decimals: fallbackDecimals,
+              fiatRate,
+              balanceFiat: fiatRate ? 0 : undefined,
+            },
+          ] as const;
+        }
+
+        try {
+          const contract = new ethers.Contract(contractAddress, ERC20_ABI, this.provider);
+          const [rawBalance, onChainDecimals] = await Promise.all([
+            contract.balanceOf(address) as Promise<bigint>,
+            tokenDefinition.decimals === undefined
+              ? (contract.decimals() as Promise<number>)
+              : Promise.resolve(tokenDefinition.decimals),
+          ]);
+
+          const resolvedDecimals = Number(onChainDecimals);
+          const balance = parseFloat(ethers.formatUnits(rawBalance, resolvedDecimals));
+          const fiatRate = tokenDefinition.coingeckoId ? priceByAssetId[tokenDefinition.coingeckoId] : undefined;
+          return [
+            tokenDefinition.symbol,
+            {
+              symbol: tokenDefinition.symbol,
+              balance,
+              decimals: resolvedDecimals,
+              fiatRate,
+              balanceFiat: fiatRate ? balance * fiatRate : undefined,
+            },
+          ] as const;
+        } catch (e) {
+          console.warn(`Failed to fetch ${tokenDefinition.symbol} balance`, e);
+          const fiatRate = tokenDefinition.coingeckoId ? priceByAssetId[tokenDefinition.coingeckoId] : undefined;
+          return [
+            tokenDefinition.symbol,
+            {
+              symbol: tokenDefinition.symbol,
+              balance: 0,
+              decimals: fallbackDecimals,
+              fiatRate,
+              balanceFiat: fiatRate ? 0 : undefined,
+            },
+          ] as const;
+        }
+      }),
+    );
+
+    return Object.fromEntries(tokenEntries);
+  }
+
+  private getSupportedErc20Tokens(): Erc20TokenDefinition[] {
+    return Object.values(ERC20_TOKEN_DEFINITIONS);
+  }
+
+  private getTrackedPriceIds(): string[] {
+    const tokenPriceIds = this.getSupportedErc20Tokens()
+      .map(tokenDefinition => tokenDefinition.coingeckoId)
+      .filter((assetId): assetId is string => typeof assetId === 'string' && assetId.length > 0);
+
+    return ['ethereum', ...tokenPriceIds];
+  }
+
+  private getErc20TokenDefinition(tokenSymbol?: string): Erc20TokenDefinition | undefined {
+    if (!tokenSymbol) {
+      return undefined;
+    }
+
+    return ERC20_TOKEN_DEFINITIONS[tokenSymbol.toUpperCase()];
   }
 }

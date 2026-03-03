@@ -3,7 +3,7 @@ import { Button } from '@src/components/Button';
 import Header from '@src/components/Header';
 import { useWalletContext } from '@src/context/WalletContext';
 import { sendMessage } from '@src/utils/bridge';
-import { getContextBalanceForCurrency, isSupportedSendCurrency } from '@src/utils/currencyMeta';
+import { getContextBalanceForCurrency, getCurrencyMeta, isSupportedSendCurrency } from '@src/utils/currencyMeta';
 import { currencyMapping, type BalanceData, type Currencies } from '@src/types';
 import { isValidAddress } from '@src/utils';
 import { ChainType, type ChainBalance } from '@extension/backend/src/adapters/IChainAdapter';
@@ -21,6 +21,7 @@ export const Send: React.FC = () => {
   const location = useLocation();
   const { currency } = useParams<{ currency: Currencies }>();
   const states = (location.state as SendState | null) ?? null;
+  const meta = getCurrencyMeta(currency);
   const [resolvedBalance, setResolvedBalance] = useState<number | null>(
     typeof states?.balance === 'number' ? states.balance : null,
   );
@@ -62,7 +63,11 @@ export const Send: React.FC = () => {
 
         const nextBalance = await sendMessage<ChainBalance>('chain.getBalance', { chain: ChainType.Ethereum });
         if (!cancelled) {
-          setResolvedBalance(nextBalance.confirmed);
+          if (meta.tokenSymbol) {
+            setResolvedBalance(nextBalance.tokens?.[meta.tokenSymbol]?.balance ?? 0);
+          } else {
+            setResolvedBalance(nextBalance.confirmed);
+          }
         }
       } catch (fetchError) {
         console.error('Failed to resolve send balance', fetchError);
@@ -79,7 +84,7 @@ export const Send: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [balance, chainBalances, currency, navigate]);
+  }, [balance, chainBalances, currency, meta.tokenSymbol, navigate]);
 
   const handleAddressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;

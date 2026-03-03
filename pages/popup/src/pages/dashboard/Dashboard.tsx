@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { CryptoBalance } from '@src/components/CryptoBalance';
 import { useWalletContext } from '@src/context/WalletContext';
 import { capitalize, formatNumber } from '@src/utils';
+import { getCurrencyMeta } from '@src/utils/currencyMeta';
 import { ChainType } from '@extension/backend/src/adapters/IChainAdapter';
 import Skeleton from 'react-loading-skeleton';
 
@@ -24,23 +25,32 @@ export const Dashboard: React.FC = () => {
     refreshChainBalances();
   }, []);
 
+  const usdtMeta = getCurrencyMeta('usdt');
+  const usdtTokenBalance = usdtMeta.tokenSymbol
+    ? chainBalances[ChainType.Ethereum]?.tokens?.[usdtMeta.tokenSymbol]
+    : undefined;
+
   const totals = React.useMemo(() => {
     const btcConfirmed = balance?.confirmed ?? 0;
     const btcConfirmedUsd = balance?.confirmedUsd ?? 0;
     const btcAmount = btcConfirmed / 1e8;
     const ethBalance = chainBalances[ChainType.Ethereum];
     const ethConfirmedUsd = ethBalance?.confirmedFiat ?? 0;
-    const usdtConfirmedUsd = ethBalance?.tokens?.USDT?.balance ?? 0;
+    const usdtConfirmedUsd = usdtTokenBalance?.balanceFiat ?? 0;
     const totalUsd = btcConfirmedUsd + ethConfirmedUsd + usdtConfirmedUsd;
     const btcUsdRate = btcAmount > 0 && btcConfirmedUsd > 0 ? btcConfirmedUsd / btcAmount : 0;
     const totalBtcEquivalent = btcUsdRate > 0 ? totalUsd / btcUsdRate : btcAmount;
+    const hasUnpricedTokenBalance = Boolean(
+      usdtTokenBalance && usdtTokenBalance.balance > 0 && usdtTokenBalance.balanceFiat === undefined,
+    );
 
     return {
       totalUsd,
       totalBtcEquivalent,
       hasBtcEquivalent: btcUsdRate > 0 || totalUsd === 0,
+      hasUnpricedTokenBalance,
     };
-  }, [balance, chainBalances]);
+  }, [balance, chainBalances, usdtTokenBalance]);
 
   let balanceLoading = false;
   balanceLoading = balanceLoading == null ? false : balanceLoading;
@@ -108,13 +118,20 @@ export const Dashboard: React.FC = () => {
       {balanceLoading ? (
         <Skeleton className="mt-2 !w-[100px] !h-[16px] !rounded-sm" />
       ) : (
-        <div className="mt-2 text-sm leading-none text-center text-white cursor-pointer">
-          {preferences?.fiatCurrency === 'USD'
-            ? totals.hasBtcEquivalent
-              ? `${formatNumber(totals.totalBtcEquivalent, 8)} BTC`
-              : 'BTC equivalent unavailable'
-            : `${formatNumber(totals.totalUsd)} USD`}
-        </div>
+        <>
+          <div className="mt-2 text-sm leading-none text-center text-white cursor-pointer">
+            {preferences?.fiatCurrency === 'USD'
+              ? totals.hasBtcEquivalent
+                ? `${formatNumber(totals.totalBtcEquivalent, 8)} BTC`
+                : 'BTC equivalent unavailable'
+              : `${formatNumber(totals.totalUsd)} USD`}
+          </div>
+          {totals.hasUnpricedTokenBalance && (
+            <div className="mt-2 text-xs leading-none text-center text-foreground">
+              Token balances without live USD pricing are excluded from totals
+            </div>
+          )}
+        </>
       )}
 
       {!balanceLoading && balance && balance.unconfirmed > 0 && (
@@ -187,13 +204,15 @@ export const Dashboard: React.FC = () => {
         <CryptoBalance
           cryptoName="USDT"
           cryptoAmount={
-            chainBalances[ChainType.Ethereum]?.tokens?.USDT
-              ? `${formatNumber(chainBalances[ChainType.Ethereum]!.tokens!.USDT.balance, 2)} USDT`
+            usdtTokenBalance
+              ? `${formatNumber(usdtTokenBalance.balance, usdtMeta.displayPrecision)} ${usdtMeta.symbol}`
               : '0 USDT'
           }
           usdAmount={
-            chainBalances[ChainType.Ethereum]?.tokens?.USDT
-              ? `≈ ${formatNumber(chainBalances[ChainType.Ethereum]!.tokens!.USDT.balance, 2)} USD`
+            usdtTokenBalance
+              ? usdtTokenBalance.balanceFiat !== undefined
+                ? `${formatNumber(usdtTokenBalance.balanceFiat)} USD`
+                : 'USD unavailable'
               : '0 USD'
           }
           icon="popup/usdt_coin.svg"

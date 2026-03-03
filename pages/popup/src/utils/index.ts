@@ -92,6 +92,13 @@ export function formatTimestamp(timestamp: number) {
  * Return an icon path and label text based on status
  */
 export function getStatusMeta(status: string) {
+  if (status === 'failed') {
+    return {
+      icon: 'popup/pending_icon.svg',
+      label: 'Failed',
+    };
+  }
+
   return {
     icon: `popup/${status}_icon.svg`,
     label: capitalizeFirstLetter(status),
