@@ -2,13 +2,15 @@ import type * as React from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { CryptoButton } from '@src/components/CryptoButton';
 import { useWalletContext } from '@src/context/WalletContext';
-import { useEffect } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { formatNumber } from '@src/utils';
-import { ChainType } from '@extension/backend/src/adapters/IChainAdapter';
+import { ChainType, type ChainTransaction } from '@extension/backend/src/adapters/IChainAdapter';
 import { currencyMapping, type Currencies } from '@src/types';
+import type { TxEntry } from '@extension/backend/src/types/cache';
 import TransactionActivityList from '@src/components/TransactionActivityList';
 import Header from '@src/components/Header';
 import Skeleton from 'react-loading-skeleton';
+import { sendMessage } from '@src/utils/bridge';
 
 // Maps the :currency URL param to display metadata
 const CURRENCY_META: Record<string, { icon: string; name: string; unit: string; chain: ChainType }> = {
@@ -22,6 +24,27 @@ interface ActivityStates {
   balanceUsd?: number;
 }
 
+/**
+ * Convert ChainTransaction (from Blockscout/Etherscan) to TxEntry (used by TransactionActivityList).
+ * This lets ETH/USDT activity reuse the exact same UI as BTC.
+ */
+function chainTxToTxEntry(tx: ChainTransaction, userAddress: string, ethPriceUsd: number): TxEntry {
+  const isSend = tx.from.toLowerCase() === userAddress.toLowerCase();
+  return {
+    type: isSend ? 'SEND' : 'RECEIVE',
+    status: tx.status === 'confirmed' ? 'CONFIRMED' : 'PENDING',
+    amountBtc: tx.amount,
+    amountUsd: tx.amount * ethPriceUsd,
+    feeBtc: tx.fee,
+    feeUsd: tx.fee * ethPriceUsd,
+    timestamp: tx.timestamp * 1000, // TxEntry expects ms, ChainTransaction has seconds
+    confirmations: tx.confirmations,
+    transactionHash: tx.hash,
+    sender: tx.from,
+    receiver: tx.to,
+  };
+}
+
 export const Activity: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -31,12 +54,16 @@ export const Activity: React.FC = () => {
   const meta = CURRENCY_META[currency ?? 'btc'] ?? CURRENCY_META.btc;
   const activityStates = (location.state as ActivityStates) ?? {};
 
+  // Chain transaction state for ETH/USDT
+  const [chainTxs, setChainTxs] = useState<ChainTransaction[]>([]);
+  const [chainTxsLoading, setChainTxsLoading] = useState(false);
+  const [userEthAddress, setUserEthAddress] = useState('');
+
   // Derive display balance from state (BTC) or chainBalances (ETH/USDT)
   let displayBalance = 0;
   let displayBalanceUsd = 0;
 
   if (currency === 'btc') {
-    // BTC: balance comes from location.state (satoshis) or context
     displayBalance = activityStates.balance ?? balance?.confirmed ?? 0;
     displayBalanceUsd = activityStates.balanceUsd ?? balance?.confirmedUsd ?? 0;
   } else if (currency === 'eth') {
@@ -47,14 +74,49 @@ export const Activity: React.FC = () => {
     const ethBalance = chainBalances[ChainType.Ethereum];
     const usdtToken = ethBalance?.tokens?.USDT;
     displayBalance = usdtToken?.balance ?? 0;
-    displayBalanceUsd = usdtToken?.balance ?? 0; // USDT ≈ 1:1 USD
+    displayBalanceUsd = usdtToken?.balance ?? 0;
   }
 
   useEffect(() => {
     refreshTransactions();
   }, [preferences?.activeAccountIndex]);
 
-  const loading = currency === 'btc' ? transactions == null : false;
+  // Fetch chain transaction history and user address for ETH/USDT
+  useEffect(() => {
+    if (currency && currency !== 'btc') {
+      setChainTxsLoading(true);
+
+      // Fetch the user's ETH address for send/receive direction
+      sendMessage<string>('chain.getReceivingAddress', { chain: ChainType.Ethereum })
+        .then(addr => setUserEthAddress(addr ?? ''))
+        .catch(() => {});
+
+      sendMessage<ChainTransaction[]>('chain.getTransactionHistory', { chain: meta.chain })
+        .then(txs => setChainTxs(txs ?? []))
+        .catch(err => {
+          console.error('Failed to fetch chain transactions', err);
+          setChainTxs([]);
+        })
+        .finally(() => setChainTxsLoading(false));
+    }
+  }, [currency]);
+
+  // Derive ETH price from chain balances for USD conversion in tx history
+  const ethPriceUsd = useMemo(() => {
+    const ethBal = chainBalances[ChainType.Ethereum];
+    if (ethBal && ethBal.confirmed > 0 && ethBal.confirmedFiat > 0) {
+      return ethBal.confirmedFiat / ethBal.confirmed;
+    }
+    return 0;
+  }, [chainBalances]);
+
+  // Convert ChainTransaction[] to TxEntry[] for reuse with TransactionActivityList
+  const chainTxEntries: TxEntry[] = useMemo(
+    () => chainTxs.map(tx => chainTxToTxEntry(tx, userEthAddress, ethPriceUsd)),
+    [chainTxs, userEthAddress, ethPriceUsd],
+  );
+
+  const loading = currency === 'btc' ? transactions == null : chainTxsLoading;
 
   return (
     <div className="flex flex-col items-center text-white bg-dark h-full px-4 pt-12 pb-[19px]">
@@ -118,21 +180,20 @@ export const Activity: React.FC = () => {
             {currency === 'btc' && (
               <span className="text-white text-sm">{formatNumber(transactions?.length || 0)} total</span>
             )}
+            {currency !== 'btc' && chainTxEntries.length > 0 && (
+              <span className="text-white text-sm">{chainTxEntries.length} total</span>
+            )}
           </div>
-          {currency === 'btc' ? (
-            loading ? (
-              <>
-                <Skeleton className="mt-6 !h-[66px]" />
-                <Skeleton className="!h-[66px]" />
-                <Skeleton className="!h-[66px]" />
-              </>
-            ) : (
-              <TransactionActivityList transactions={transactions} />
-            )
+          {loading ? (
+            <>
+              <Skeleton className="mt-6 !h-[66px]" />
+              <Skeleton className="!h-[66px]" />
+              <Skeleton className="!h-[66px]" />
+            </>
+          ) : currency === 'btc' ? (
+            <TransactionActivityList transactions={transactions} />
           ) : (
-            <div className="flex flex-col items-center justify-center py-8 text-neutral-400 text-sm">
-              <span>No activity yet</span>
-            </div>
+            <TransactionActivityList transactions={chainTxEntries} unit={meta.unit} />
           )}
         </div>
       </div>

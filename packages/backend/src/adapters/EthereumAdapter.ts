@@ -39,10 +39,15 @@ export class EthereumAdapter implements IChainAdapter {
   /** Optional Infura/Alchemy project ID injected via constructor */
   private rpcApiKey: string | undefined;
 
+  /** Cached ETH price in USD */
+  private cachedEthPrice = 0;
+  private ethPriceFetchedAt = 0;
+  private static readonly PRICE_CACHE_MS = 60_000; // 60s cache
+
   /** Public RPC fallbacks — no API key required */
   private static readonly PUBLIC_RPC: Record<Network, string> = {
     [Network.Mainnet]: 'https://cloudflare-eth.com',
-    [Network.Testnet]: 'https://rpc.sepolia.org',
+    [Network.Testnet]: 'https://ethereum-sepolia-rpc.publicnode.com',
   };
 
   private static readonly INFURA_RPC: Record<Network, string> = {
@@ -91,6 +96,31 @@ export class EthereumAdapter implements IChainAdapter {
     this.activeAddressIndex = 0;
   }
 
+  /**
+   * Fetch ETH price in USD from CoinGecko (free, no API key).
+   * Cached for 60 seconds to avoid hitting rate limits.
+   */
+  private async getEthPriceUsd(): Promise<number> {
+    const now = Date.now();
+    if (this.cachedEthPrice > 0 && now - this.ethPriceFetchedAt < EthereumAdapter.PRICE_CACHE_MS) {
+      return this.cachedEthPrice;
+    }
+    try {
+      const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
+      if (!res.ok) throw new Error(`CoinGecko HTTP ${res.status}`);
+      const data = (await res.json()) as { ethereum?: { usd?: number } };
+      const price = data?.ethereum?.usd ?? 0;
+      if (price > 0) {
+        this.cachedEthPrice = price;
+        this.ethPriceFetchedAt = now;
+      }
+      return price;
+    } catch (e) {
+      console.warn('Failed to fetch ETH price', e);
+      return this.cachedEthPrice; // return stale price on failure
+    }
+  }
+
   deriveAddress(accountIndex: number, addressIndex: number): string {
     if (!this.hdNode) {
       throw new Error('EthereumAdapter not initialized with mnemonic');
@@ -110,12 +140,13 @@ export class EthereumAdapter implements IChainAdapter {
     if (!this.provider) throw new Error('Provider not initialized');
     const address = this.getReceivingAddress();
 
-    // 1. ETH Balance — convert from wei (bigint) to ETH (float) to avoid
-    //    BigInt→Number overflow (wei can exceed Number.MAX_SAFE_INTEGER at ~0.009 ETH)
-    const ethBalanceWei = await this.provider.getBalance(address);
-    const ethBalanceFloat = parseFloat(ethers.formatEther(ethBalanceWei));
+    // Fetch ETH balance and price in parallel
+    const [ethBalanceWei, ethPriceUsd] = await Promise.all([this.provider.getBalance(address), this.getEthPriceUsd()]);
 
-    // 2. USDT Balance (if contract exists for this network)
+    const ethBalanceFloat = parseFloat(ethers.formatEther(ethBalanceWei));
+    const ethBalanceUsd = ethBalanceFloat * ethPriceUsd;
+
+    // USDT Balance (if contract exists for this network)
     const usdtAddr = USDT_CONTRACTS[this.network];
     let usdtBalanceFloat = 0;
 
@@ -129,28 +160,75 @@ export class EthereumAdapter implements IChainAdapter {
       }
     }
 
-    // TODO: convert to USD values using external oracle
     return {
-      // Values in display units (ETH, not wei) to preserve precision
       confirmed: ethBalanceFloat,
       unconfirmed: 0,
-      confirmedFiat: 0, // Pending oracle integration
+      confirmedFiat: ethBalanceUsd,
       unconfirmedFiat: 0,
       tokens: {
         USDT: {
           symbol: 'USDT',
-          balance: usdtBalanceFloat, // Display units (e.g. 100.50 USDT)
+          balance: usdtBalanceFloat,
           decimals: 6,
         },
       },
     };
   }
 
+  /** Blockscout API URLs per network (free, no API key required, Etherscan-compatible format) */
+  private static readonly BLOCK_EXPLORER_API: Record<Network, string> = {
+    [Network.Mainnet]: 'https://eth.blockscout.com/api',
+    [Network.Testnet]: 'https://eth-sepolia.blockscout.com/api',
+  };
+
   async getTransactionHistory(): Promise<ChainTransaction[]> {
-    // Standard JSON-RPC cannot fetch history by address.
-    // Requires Etherscan or Infura generic indexer.
-    // Returning empty array for now as per plan.
-    return [];
+    const address = this.getReceivingAddress();
+    const baseUrl = EthereumAdapter.BLOCK_EXPLORER_API[this.network];
+
+    try {
+      const url = `${baseUrl}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=50&sort=desc`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Blockscout HTTP ${res.status}`);
+
+      const data = (await res.json()) as {
+        status: string;
+        result: Array<{
+          hash: string;
+          from: string;
+          to: string;
+          value: string;
+          gasUsed: string;
+          gasPrice: string;
+          timeStamp: string;
+          confirmations: string;
+          isError: string;
+        }>;
+      };
+
+      if (data.status !== '1' || !Array.isArray(data.result)) {
+        return [];
+      }
+
+      return data.result.map(tx => ({
+        hash: tx.hash,
+        from: tx.from,
+        to: tx.to,
+        amount: parseFloat(ethers.formatEther(tx.value)),
+        fee: parseFloat(ethers.formatEther((BigInt(tx.gasUsed) * BigInt(tx.gasPrice)).toString())),
+        timestamp: parseInt(tx.timeStamp, 10),
+        confirmations: parseInt(tx.confirmations, 10),
+        status:
+          tx.isError === '1'
+            ? ('failed' as const)
+            : parseInt(tx.confirmations, 10) > 0
+              ? ('confirmed' as const)
+              : ('pending' as const),
+        chain: ChainType.Ethereum,
+      }));
+    } catch (e) {
+      console.warn('Failed to fetch ETH transaction history', e);
+      return [];
+    }
   }
 
   async estimateFee(to: string, amount: number, options?: ChainSendOptions): Promise<ChainFeeEstimate[]> {

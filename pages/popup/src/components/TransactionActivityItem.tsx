@@ -16,12 +16,16 @@ export interface TransactionActivityItemProps {
   transactionHash: string;
   sender: string;
   receiver: string;
+  /** Currency unit label, defaults to 'BTC' */
+  unit?: string;
 }
 
 export const TransactionActivityItem: React.FC<TransactionActivityItemProps> = props => {
   const navigate = useNavigate();
   const { preferences } = useWalletContext();
   const selectedFiatCurrency = preferences.fiatCurrency;
+  const unit = props.unit ?? 'BTC';
+  const amountDecimals = unit === 'BTC' ? 8 : 6;
 
   const isSent = props.type === 'SEND';
   const totalBtc = isSent ? props.amountBtc + props.feeBtc : props.amountBtc;
@@ -69,14 +73,14 @@ export const TransactionActivityItem: React.FC<TransactionActivityItemProps> = p
             </span>
             <span className="text-sm text-foreground-79 text-nowrap">
               {sign}
-              {formatNumber(Math.abs(totalBtc), 8)} BTC
+              {formatNumber(Math.abs(totalBtc), amountDecimals)} {unit}
             </span>
           </>
         ) : (
           <>
             <span className="text-sm text-white text-nowrap">
               {sign}
-              {formatNumber(Math.abs(totalBtc), 8)} BTC
+              {formatNumber(Math.abs(totalBtc), amountDecimals)} {unit}
             </span>
             <span className="text-sm text-foreground-79 text-nowrap">
               {sign}

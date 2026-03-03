@@ -3,6 +3,7 @@ import { ChangeType } from '@extension/backend/src/types/cache';
 import browser from 'webextension-polyfill';
 import * as bitcoin from 'bitcoinjs-lib';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
+import { getSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
 import { preferenceManager } from '@extension/backend/src/preferenceManager';
 import { walletManager } from '@extension/backend/src/walletManager';
 import { accountManager } from '@extension/backend/src/accountManager';
@@ -31,6 +32,20 @@ async function init() {
 
   const ethAdapter = new EthereumAdapter({ rpcApiKey: preferenceManager.get().ethRpcApiKey });
   chainRegistry.register(ethAdapter);
+
+  // Initialize ETH provider immediately so RPC calls work
+  const activeNetwork = preferenceManager.get().activeNetwork;
+  await ethAdapter.init(activeNetwork);
+
+  // If wallet is already unlocked (e.g. after service worker restart), hydrate
+  // the ETH adapter with the mnemonic so getReceivingAddress() works immediately
+  const sessionPw = await getSessionPassword();
+  if (sessionPw) {
+    const mnemonic = walletManager.getMnemonic(sessionPw);
+    if (mnemonic) {
+      ethAdapter.initWithMnemonic(mnemonic, walletManager.getActiveAccountListIndex());
+    }
+  }
 
   electrumService.onStatus.on(update => {
     emitConnection(update.status, update.detail);

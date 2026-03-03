@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from 'react';
 
 interface TransactionActivityListProps {
   transactions: TxEntry[];
+  /** Currency unit label passed to each item, defaults to 'BTC' */
+  unit?: string;
 }
 
 /**
@@ -49,7 +51,7 @@ function formatDateLabel(date: Date): string {
   return `${day}/${month}/${year}`;
 }
 
-export const TransactionActivityList: React.FC<TransactionActivityListProps> = ({ transactions }) => {
+export const TransactionActivityList: React.FC<TransactionActivityListProps> = ({ transactions, unit }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isScrollable, setIsScrollable] = useState(false);
   const { pending, confirmed } = groupTransactions(transactions);
@@ -103,6 +105,7 @@ export const TransactionActivityList: React.FC<TransactionActivityListProps> = (
                   transactionHash={tx.transactionHash}
                   sender={tx.sender}
                   receiver={tx.receiver}
+                  unit={unit}
                 />
               ))}
           </div>

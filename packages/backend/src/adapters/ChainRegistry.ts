@@ -54,7 +54,7 @@ export class ChainRegistry {
     const adapters = this.getAll();
     const results = await Promise.allSettled(
       adapters.map(async adapter => ({
-        symbol: adapter.symbol,
+        chainType: adapter.chainType,
         balance: await adapter.getBalance(),
       })),
     );
@@ -62,7 +62,7 @@ export class ChainRegistry {
     const balances: Record<string, Awaited<ReturnType<IChainAdapter['getBalance']>>> = {};
     for (const result of results) {
       if (result.status === 'fulfilled') {
-        balances[result.value.symbol] = result.value.balance;
+        balances[result.value.chainType] = result.value.balance;
       }
       // Rejected adapters are silently skipped — partial balances returned
     }
