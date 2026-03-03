@@ -71,11 +71,13 @@ export class BitcoinAdapter implements IChainAdapter {
 
   async getBalance(): Promise<ChainBalance> {
     const balance: Balance = await this.walletManager.getBalance();
+    const confirmedBtc = balance.confirmed / 1e8;
     return {
       confirmed: balance.confirmed,
       unconfirmed: balance.unconfirmed,
       confirmedFiat: balance.confirmedUsd,
       unconfirmedFiat: balance.unconfirmedUsd,
+      nativeFiatRate: confirmedBtc > 0 ? balance.confirmedUsd / confirmedBtc : undefined,
     };
   }
 
@@ -96,20 +98,68 @@ export class BitcoinAdapter implements IChainAdapter {
     }));
   }
 
-  async sendPayment(to: string, amount: number, options?: ChainSendOptions): Promise<string> {
+  async sendPayment(to: string, amount: string, options?: ChainSendOptions): Promise<string> {
     const feeRate = options?.feeRate ?? 1;
-    return this.walletManager.sendPayment(to, amount, feeRate);
+    return this.walletManager.sendPayment(to, this.parseBtcAmountToSats(amount), feeRate);
   }
 
-  async estimateFee(to: string, _amount: number, _options?: ChainSendOptions): Promise<ChainFeeEstimate[]> {
+  async estimateFee(to: string, _amount?: string, _options?: ChainSendOptions): Promise<ChainFeeEstimate[]> {
+    void _amount;
+    void _options;
     const estimates = await this.walletManager.getFeeEstimates(to);
     if (!estimates) return [];
 
     return estimates.map(est => ({
+      name: est.speed[0].toUpperCase() + est.speed.slice(1),
       speed: est.speed,
-      fee: est.sats,
+      fee: est.btcAmount,
       estimatedTime: `${est.speed}`,
       fiatAmount: est.usdAmount,
+      rateValue: est.sats,
+      rateUnit: 'sat/vB',
+      sendOptions: {
+        feeRate: est.sats,
+      },
     }));
+  }
+
+  private parseBtcAmountToSats(amount: string): number {
+    const normalized = this.normalizeBtcAmount(amount);
+
+    if (!/^\d+(\.\d+)?$/.test(normalized)) {
+      throw new Error('Invalid BTC amount');
+    }
+
+    const [wholePart, fractionalPart = ''] = normalized.split('.');
+    if (fractionalPart.length > 8) {
+      throw new Error('BTC amount supports up to 8 decimal places');
+    }
+
+    const wholeSats = BigInt(wholePart) * BigInt(100000000);
+    const fractionalSats = BigInt((fractionalPart + '00000000').slice(0, 8));
+    const sats = wholeSats + fractionalSats;
+
+    if (sats <= BigInt(0)) {
+      throw new Error('Amount must be greater than 0');
+    }
+
+    if (sats > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error('BTC amount is too large');
+    }
+
+    return Number(sats);
+  }
+
+  private normalizeBtcAmount(amount: string): string {
+    const trimmedAmount = amount.trim();
+    if (trimmedAmount.startsWith('.')) {
+      return `0${trimmedAmount}`;
+    }
+
+    if (trimmedAmount.endsWith('.')) {
+      return trimmedAmount.slice(0, -1);
+    }
+
+    return trimmedAmount;
   }
 }

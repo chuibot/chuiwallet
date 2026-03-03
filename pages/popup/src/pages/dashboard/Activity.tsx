@@ -4,20 +4,13 @@ import { CryptoButton } from '@src/components/CryptoButton';
 import { useWalletContext } from '@src/context/WalletContext';
 import { useEffect, useState, useMemo } from 'react';
 import { formatNumber } from '@src/utils';
+import { getCurrencyMeta } from '@src/utils/currencyMeta';
 import { ChainType, type ChainTransaction } from '@extension/backend/src/adapters/IChainAdapter';
-import { currencyMapping, type Currencies } from '@src/types';
 import type { TxEntry } from '@extension/backend/src/types/cache';
 import TransactionActivityList from '@src/components/TransactionActivityList';
 import Header from '@src/components/Header';
 import Skeleton from 'react-loading-skeleton';
 import { sendMessage } from '@src/utils/bridge';
-
-// Maps the :currency URL param to display metadata
-const CURRENCY_META: Record<string, { icon: string; name: string; unit: string; chain: ChainType }> = {
-  btc: { icon: 'popup/btc_coin.svg', name: 'Bitcoin', unit: 'BTC', chain: ChainType.Bitcoin },
-  eth: { icon: 'popup/eth_coin.svg', name: 'Ethereum', unit: 'ETH', chain: ChainType.Ethereum },
-  usdt: { icon: 'popup/usdt_coin.svg', name: 'USDT', unit: 'USDT', chain: ChainType.Ethereum },
-};
 
 interface ActivityStates {
   balance?: number;
@@ -51,7 +44,7 @@ export const Activity: React.FC = () => {
   const { currency } = useParams<{ currency: string }>();
   const { transactions, refreshTransactions, preferences, balance, chainBalances } = useWalletContext();
 
-  const meta = CURRENCY_META[currency ?? 'btc'] ?? CURRENCY_META.btc;
+  const meta = getCurrencyMeta(currency);
   const activityStates = (location.state as ActivityStates) ?? {};
 
   // Chain transaction state for ETH/USDT
@@ -83,27 +76,82 @@ export const Activity: React.FC = () => {
 
   // Fetch chain transaction history and user address for ETH/USDT
   useEffect(() => {
-    if (currency && currency !== 'btc') {
-      setChainTxsLoading(true);
-
-      // Fetch the user's ETH address for send/receive direction
-      sendMessage<string>('chain.getReceivingAddress', { chain: ChainType.Ethereum })
-        .then(addr => setUserEthAddress(addr ?? ''))
-        .catch(() => {});
-
-      sendMessage<ChainTransaction[]>('chain.getTransactionHistory', { chain: meta.chain })
-        .then(txs => setChainTxs(txs ?? []))
-        .catch(err => {
-          console.error('Failed to fetch chain transactions', err);
-          setChainTxs([]);
-        })
-        .finally(() => setChainTxsLoading(false));
+    if (!currency || currency === 'btc') {
+      return;
     }
-  }, [currency]);
+
+    let cancelled = false;
+
+    setChainTxs([]);
+    setChainTxsLoading(true);
+
+    sendMessage<string>('chain.getReceivingAddress', { chain: ChainType.Ethereum })
+      .then(addr => {
+        if (!cancelled) {
+          setUserEthAddress(addr ?? '');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUserEthAddress('');
+        }
+      });
+
+    (async () => {
+      let hasCachedTransactions = false;
+
+      try {
+        const cachedTransactions = await sendMessage<ChainTransaction[]>('chain.getCachedTransactionHistory', {
+          chain: meta.chain,
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        const nextCachedTransactions = cachedTransactions ?? [];
+        setChainTxs(nextCachedTransactions);
+        hasCachedTransactions = nextCachedTransactions.length > 0;
+
+        if (hasCachedTransactions) {
+          setChainTxsLoading(false);
+        }
+      } catch (cachedError) {
+        console.error('Failed to load cached chain transactions', cachedError);
+      }
+
+      try {
+        const latestTransactions = await sendMessage<ChainTransaction[]>('chain.getTransactionHistory', {
+          chain: meta.chain,
+        });
+
+        if (!cancelled) {
+          setChainTxs(latestTransactions ?? []);
+        }
+      } catch (latestError) {
+        console.error('Failed to refresh chain transactions', latestError);
+        if (!cancelled && !hasCachedTransactions) {
+          setChainTxs([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setChainTxsLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currency, meta.chain]);
 
   // Derive ETH price from chain balances for USD conversion in tx history
   const ethPriceUsd = useMemo(() => {
     const ethBal = chainBalances[ChainType.Ethereum];
+    if (ethBal?.nativeFiatRate && ethBal.nativeFiatRate > 0) {
+      return ethBal.nativeFiatRate;
+    }
+
     if (ethBal && ethBal.confirmed > 0 && ethBal.confirmedFiat > 0) {
       return ethBal.confirmedFiat / ethBal.confirmed;
     }
@@ -146,7 +194,7 @@ export const Activity: React.FC = () => {
                 : formatNumber(displayBalance / 1e8, 8)
               : formatNumber(displayBalance, currency === 'usdt' ? 2 : 6)}
           </span>
-          <span className="text-xl">{currency === 'btc' ? preferences?.fiatCurrency : meta.unit}</span>
+          <span className="text-xl">{currency === 'btc' ? preferences?.fiatCurrency : meta.symbol}</span>
         </div>
       </div>
 
@@ -193,7 +241,7 @@ export const Activity: React.FC = () => {
           ) : currency === 'btc' ? (
             <TransactionActivityList transactions={transactions} />
           ) : (
-            <TransactionActivityList transactions={chainTxEntries} unit={meta.unit} />
+            <TransactionActivityList transactions={chainTxEntries} unit={meta.symbol} />
           )}
         </div>
       </div>

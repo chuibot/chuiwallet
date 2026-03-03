@@ -24,6 +24,24 @@ export const Dashboard: React.FC = () => {
     refreshChainBalances();
   }, []);
 
+  const totals = React.useMemo(() => {
+    const btcConfirmed = balance?.confirmed ?? 0;
+    const btcConfirmedUsd = balance?.confirmedUsd ?? 0;
+    const btcAmount = btcConfirmed / 1e8;
+    const ethBalance = chainBalances[ChainType.Ethereum];
+    const ethConfirmedUsd = ethBalance?.confirmedFiat ?? 0;
+    const usdtConfirmedUsd = ethBalance?.tokens?.USDT?.balance ?? 0;
+    const totalUsd = btcConfirmedUsd + ethConfirmedUsd + usdtConfirmedUsd;
+    const btcUsdRate = btcAmount > 0 && btcConfirmedUsd > 0 ? btcConfirmedUsd / btcAmount : 0;
+    const totalBtcEquivalent = btcUsdRate > 0 ? totalUsd / btcUsdRate : btcAmount;
+
+    return {
+      totalUsd,
+      totalBtcEquivalent,
+      hasBtcEquivalent: btcUsdRate > 0 || totalUsd === 0,
+    };
+  }, [balance, chainBalances]);
+
   let balanceLoading = false;
   balanceLoading = balanceLoading == null ? false : balanceLoading;
 
@@ -75,13 +93,13 @@ export const Dashboard: React.FC = () => {
           ) : (
             <>
               <span>
-                {balance
+                {balance || chainBalances[ChainType.Ethereum]
                   ? preferences?.fiatCurrency === 'USD'
-                    ? formatNumber(balance.confirmedUsd)
-                    : formatNumber(balance.confirmed / 1e8, 8)
+                    ? formatNumber(totals.totalUsd)
+                    : formatNumber(totals.totalBtcEquivalent, 8)
                   : '0'}
               </span>
-              <span className="text-xl">{preferences?.fiatCurrency}</span>
+              <span className="text-xl">{preferences?.fiatCurrency === 'USD' ? 'USD' : 'BTC'}</span>
             </>
           )}
         </div>
@@ -91,12 +109,11 @@ export const Dashboard: React.FC = () => {
         <Skeleton className="mt-2 !w-[100px] !h-[16px] !rounded-sm" />
       ) : (
         <div className="mt-2 text-sm leading-none text-center text-white cursor-pointer">
-          {balance
-            ? preferences?.fiatCurrency === 'USD'
-              ? formatNumber(balance.confirmed / 1e8, 8)
-              : formatNumber(balance.confirmedUsd)
-            : '0'}{' '}
-          {preferences?.fiatCurrency === 'USD' ? 'BTC' : 'USD'}
+          {preferences?.fiatCurrency === 'USD'
+            ? totals.hasBtcEquivalent
+              ? `${formatNumber(totals.totalBtcEquivalent, 8)} BTC`
+              : 'BTC equivalent unavailable'
+            : `${formatNumber(totals.totalUsd)} USD`}
         </div>
       )}
 

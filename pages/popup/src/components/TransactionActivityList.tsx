@@ -135,6 +135,7 @@ export const TransactionActivityList: React.FC<TransactionActivityListProps> = (
                     transactionHash={transaction.transactionHash}
                     sender={transaction.sender}
                     receiver={transaction.receiver}
+                    unit={unit}
                   />
                 ))}
             </div>

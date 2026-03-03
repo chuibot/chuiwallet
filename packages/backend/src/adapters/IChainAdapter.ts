@@ -24,6 +24,8 @@ export interface ChainBalance {
   /** Fiat-converted values */
   confirmedFiat: number;
   unconfirmedFiat: number;
+  /** Native asset fiat rate (e.g. ETH/USD) when available */
+  nativeFiatRate?: number;
   /** For chains with tokens (e.g. ETH has USDT) — balances in display units */
   tokens?: Record<string, TokenBalance>;
 }
@@ -53,13 +55,18 @@ export interface ChainFeeEstimate {
   /** Display name (e.g. "Standard", "Fast") - maps to 'speed' or 'name' */
   name?: string;
   speed?: string;
-  /** Fee in native smallest unit */
+  /** Fee in display units */
   fee: number;
   /** Estimated confirmation time description */
   estimatedTime?: string;
   timeEstimate?: number; // numeric estimate in minutes/blocks
   /** Fee in fiat */
   fiatAmount?: number;
+  /** Chain-specific fee rate metadata (e.g. sat/vB, gwei) */
+  rateValue?: number;
+  rateUnit?: string;
+  /** Adapter-specific options that should be used for sending */
+  sendOptions?: ChainSendOptions;
   minerTip?: number;
 }
 
@@ -68,10 +75,15 @@ export interface ChainFeeEstimate {
  */
 export interface ChainSendOptions {
   fee?: number;
-  /** For ERC-20: gas limit */
-  gasLimit?: number;
+  /** For EVM transactions: gas limit */
+  gasLimit?: string;
   /** For BTC: fee rate in sat/vB */
   feeRate?: number;
+  /** For EVM transactions: EIP-1559 fee fields (in Wei) */
+  maxFeePerGasWei?: string;
+  maxPriorityFeePerGasWei?: string;
+  /** For legacy EVM transactions: gas price in Wei */
+  gasPriceWei?: string;
   /** For ERC-20 transfers */
   tokenAddress?: string;
 }
@@ -126,8 +138,8 @@ export interface IChainAdapter {
   getTransactionHistory(): Promise<ChainTransaction[]>;
 
   /** Send a payment, returns the transaction hash */
-  sendPayment(to: string, amount: number, options?: ChainSendOptions): Promise<string>;
+  sendPayment(to: string, amount: string, options?: ChainSendOptions): Promise<string>;
 
   /** Estimate fees for a transaction */
-  estimateFee(to: string, amount: number, options?: ChainSendOptions): Promise<ChainFeeEstimate[]>;
+  estimateFee(to: string, amount?: string, options?: ChainSendOptions): Promise<ChainFeeEstimate[]>;
 }

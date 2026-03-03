@@ -11,7 +11,7 @@ import { accountManager } from '@extension/backend/src/accountManager';
 import { scanManager } from '@extension/backend/src/scanManager';
 import { historyService } from '@extension/backend/src/modules/txHistoryService';
 import { chainRegistry } from '@extension/backend/src/adapters/ChainRegistry';
-import { ChainType } from '@extension/backend/src/adapters/IChainAdapter';
+import { ChainType, type ChainSendOptions, type IChainAdapter } from '@extension/backend/src/adapters/IChainAdapter';
 import { ChangeType } from '@extension/backend/src/types/cache';
 import { logger } from '@extension/backend/src/utils/logger';
 
@@ -109,6 +109,16 @@ function getEthereumAdapter(): EthereumAdapter | undefined {
 function clearEthereumKeys(): void {
   const ethAdapter = getEthereumAdapter();
   if (ethAdapter) ethAdapter.clearKeys();
+}
+
+function supportsCachedTransactionHistory(
+  adapter: IChainAdapter,
+): adapter is IChainAdapter & { getCachedTransactionHistory: () => Promise<unknown> } {
+  return (
+    'getCachedTransactionHistory' in adapter &&
+    typeof (adapter as IChainAdapter & { getCachedTransactionHistory?: unknown }).getCachedTransactionHistory ===
+      'function'
+  );
 }
 
 function triggerAccountScans(): void {
@@ -325,14 +335,31 @@ const handlers: Record<string, Handler> = {
     return adapter.getTransactionHistory();
   },
 
+  'chain.getCachedTransactionHistory': async params => {
+    const payload = expectObjectParams('chain.getCachedTransactionHistory', params);
+    const chain = expectEnumParam('chain.getCachedTransactionHistory', payload, 'chain', Object.values(ChainType));
+    const adapter = chainRegistry.get(chain);
+    if (!adapter) throw new Error(`Unsupported chain: ${chain}`);
+    if (supportsCachedTransactionHistory(adapter)) {
+      return adapter.getCachedTransactionHistory();
+    }
+    return adapter.getTransactionHistory();
+  },
+
   'chain.estimateFee': async params => {
     const payload = expectObjectParams('chain.estimateFee', params);
     const chain = expectEnumParam('chain.estimateFee', payload, 'chain', Object.values(ChainType));
     const to = expectStringParam('chain.estimateFee', payload, 'to');
-    const amount = expectNumberParam('chain.estimateFee', payload, 'amount', { min: 0 });
+    const rawAmount = payload.amount;
+    const amount = rawAmount === undefined ? undefined : expectStringParam('chain.estimateFee', payload, 'amount');
+    const rawOptions = payload.options;
+    const options =
+      rawOptions === undefined
+        ? undefined
+        : (expectObjectParams('chain.estimateFee.options', rawOptions) as ChainSendOptions);
     const adapter = chainRegistry.get(chain);
     if (!adapter) throw new Error(`Unsupported chain: ${chain}`);
-    return adapter.estimateFee(to, amount);
+    return adapter.estimateFee(to, amount, options);
   },
 
   'chain.sendPayment': async params => {
@@ -340,12 +367,12 @@ const handlers: Record<string, Handler> = {
     const payload = expectObjectParams('chain.sendPayment', params);
     const chain = expectEnumParam('chain.sendPayment', payload, 'chain', Object.values(ChainType));
     const to = expectStringParam('chain.sendPayment', payload, 'to');
-    const amount = expectNumberParam('chain.sendPayment', payload, 'amount', { min: 0 });
+    const amount = expectStringParam('chain.sendPayment', payload, 'amount');
     const rawOptions = payload.options;
     const options =
       rawOptions === undefined
         ? undefined
-        : (expectObjectParams('chain.sendPayment.options', rawOptions) as Record<string, unknown>);
+        : (expectObjectParams('chain.sendPayment.options', rawOptions) as ChainSendOptions);
 
     const adapter = chainRegistry.get(chain);
     if (!adapter) throw new Error(`Unsupported chain: ${chain}`);

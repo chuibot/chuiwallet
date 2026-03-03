@@ -1,10 +1,11 @@
 import type * as React from 'react';
-import type { TransactionActivityStatus, TransactionType } from '@src/types';
+import type { Currencies, TransactionActivityStatus, TransactionType } from '@src/types';
 import Header from '@src/components/Header';
 import LabelValue from '@src/components/LabelValue';
 import { useWalletContext } from '@src/context/WalletContext';
 import { formatNumber, formatTimestamp } from '@src/utils';
-import { useLocation } from 'react-router-dom';
+import { buildTransactionExplorerUrl, getAssetDisplayPrecision, getCurrencyMeta } from '@src/utils/currencyMeta';
+import { useLocation, useParams } from 'react-router-dom';
 
 export interface TransactionDetailStates {
   type: TransactionType;
@@ -23,21 +24,14 @@ export interface TransactionDetailStates {
 export const TransactionDetail: React.FC = () => {
   const { preferences } = useWalletContext();
   const location = useLocation();
+  const { currency } = useParams<{ currency: Currencies }>();
+  const meta = getCurrencyMeta(currency);
+  const assetDigits = getAssetDisplayPrecision(currency);
 
   const transactionDetailStates = location.state as TransactionDetailStates;
-  const {
-    type,
-    status,
-    amountBtc,
-    amountUsd,
-    feeBtc,
-    feeUsd,
-    timestamp,
-    confirmations,
-    transactionHash,
-    sender,
-    receiver,
-  } = transactionDetailStates;
+  const { type, status, amountBtc, amountUsd, feeBtc, feeUsd, timestamp, confirmations, transactionHash } =
+    transactionDetailStates;
+  const explorerUrl = buildTransactionExplorerUrl(currency, preferences.activeNetwork, transactionHash);
 
   return (
     <div className="flex flex-col items-center text-white bg-dark h-full px-4 pt-12 pb-[19px]">
@@ -57,7 +51,7 @@ export const TransactionDetail: React.FC = () => {
           </div>
         ) : (
           <div className="text-[35px] leading-[53.2px] font-bold text-center text-white uppercase text-nowrap">
-            {formatNumber(Math.abs(amountBtc), 8)} <span className="text-xl">BTC</span>
+            {formatNumber(Math.abs(amountBtc), assetDigits)} <span className="text-xl">{meta.symbol}</span>
           </div>
         )}
 
@@ -66,7 +60,9 @@ export const TransactionDetail: React.FC = () => {
         </div>
 
         {preferences?.fiatCurrency === 'USD' ? (
-          <span className="text-xs leading-loose text-foreground">{formatNumber(Math.abs(amountBtc), 8)} BTC</span>
+          <span className="text-xs leading-loose text-foreground">
+            {formatNumber(Math.abs(amountBtc), assetDigits)} {meta.symbol}
+          </span>
         ) : (
           <span className="text-xs leading-loose text-foreground">{formatNumber(Math.abs(amountUsd))} USD</span>
         )}
@@ -77,8 +73,8 @@ export const TransactionDetail: React.FC = () => {
           label="Amount"
           value={
             preferences?.fiatCurrency === 'USD'
-              ? `${formatNumber(Math.abs(amountUsd))} USD (${formatNumber(Math.abs(amountBtc), 8)} BTC)`
-              : `${formatNumber(Math.abs(amountBtc), 8)} BTC (${formatNumber(Math.abs(amountUsd))} USD)`
+              ? `${formatNumber(Math.abs(amountUsd))} USD (${formatNumber(Math.abs(amountBtc), assetDigits)} ${meta.symbol})`
+              : `${formatNumber(Math.abs(amountBtc), assetDigits)} ${meta.symbol} (${formatNumber(Math.abs(amountUsd))} USD)`
           }
         />
 
@@ -87,8 +83,8 @@ export const TransactionDetail: React.FC = () => {
             label="Fee"
             value={
               preferences?.fiatCurrency === 'USD'
-                ? `${formatNumber(Math.abs(feeUsd))} USD (${formatNumber(Math.abs(feeBtc), 8)} BTC)`
-                : `${formatNumber(Math.abs(feeBtc), 8)} BTC (${formatNumber(Math.abs(feeUsd))} USD)`
+                ? `${formatNumber(Math.abs(feeUsd))} USD (${formatNumber(Math.abs(feeBtc), assetDigits)} ${meta.symbol})`
+                : `${formatNumber(Math.abs(feeBtc), assetDigits)} ${meta.symbol} (${formatNumber(Math.abs(feeUsd))} USD)`
             }
           />
         )}
@@ -108,7 +104,7 @@ export const TransactionDetail: React.FC = () => {
         <LabelValue
           label="Transaction ID"
           value={
-            <a href={`https://www.blockonomics.co/#/search?q=${transactionHash}`} className="underline" target="_blank">
+            <a href={explorerUrl} className="underline" target="_blank">
               {transactionHash}
             </a>
           }
