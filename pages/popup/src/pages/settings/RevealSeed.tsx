@@ -56,8 +56,8 @@ export const RevealSeed: React.FC = () => {
           <div className="mt-1 text-lg leading-[25px] text-foreground">Write it down and keep it safe.</div>
         </div>
         <div className="flex gap-4 self-center text-base leading-9 whitespace-nowrap min-h-[292px] text-foreground">
-          <SeedColumn words={leftColumnWords} />
-          <SeedColumn words={rightColumnWords} />
+          <SeedColumn words={leftColumnWords} startIndex={1} />
+          <SeedColumn words={rightColumnWords} startIndex={7} />
         </div>
       </div>
       <div className="w-full flex justify-center">

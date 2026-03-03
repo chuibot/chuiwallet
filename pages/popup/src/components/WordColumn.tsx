@@ -27,12 +27,9 @@ export const WordColumn: React.FC<WordColumnProps> = ({ words }) => (
             />
           ) : (
             <div
-              className={`gap-3 self-stretch px-1.5 w-full rounded-md min-h-[35px] ${
+              className={`gap-3 self-stretch px-1.5 w-full rounded-md min-h-[35px] cursor-default ${
                 item.isHighlighted ? 'bg-neutral-400 text-neutral-800' : 'bg-neutral-700 text-foreground'
-              }`}
-              tabIndex={0}
-              role="button"
-              aria-pressed={item.isHighlighted}>
+              }`}>
               {item.text}
             </div>
           )}
