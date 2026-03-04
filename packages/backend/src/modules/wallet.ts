@@ -211,6 +211,7 @@ export class Wallet {
       return psbt.extractTransaction().toHex();
     } catch (e) {
       console.error(e);
+      return undefined;
     }
   }
 

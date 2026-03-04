@@ -15,7 +15,7 @@ type ScriptPubKey = Readonly<{
   hex?: string;
 }>;
 
-const toSats = (btc: number | string | undefined): bigint => (btc ? BigInt(Math.round(Number(btc) * 1e8)) : 0n);
+const toSats = (btc: number | string | undefined): bigint => (btc ? BigInt(Math.round(Number(btc) * 1e8)) : BigInt(0));
 const toBtc = (sats: bigint): number => Number(sats) / 1e8;
 
 type InPart = { address: string; valueSat: bigint; mine: boolean };
@@ -66,9 +66,9 @@ export class TxHistoryService {
     const inputs: InPart[] = await this.resolveInputs(tx, myAllSet);
     const outputs: OutPart[] = this.resolveOutputs(tx, myAllSet);
 
-    const inTotalSat = inputs.reduce((s, i) => s + i.valueSat, 0n);
-    const outTotalSat = outputs.reduce((s, o) => s + o.valueSat, 0n);
-    const feeSat = inTotalSat > 0n && inTotalSat > outTotalSat ? inTotalSat - outTotalSat : 0n;
+    const inTotalSat = inputs.reduce((s, i) => s + i.valueSat, BigInt(0));
+    const outTotalSat = outputs.reduce((s, o) => s + o.valueSat, BigInt(0));
+    const feeSat = inTotalSat > BigInt(0) && inTotalSat > outTotalSat ? inTotalSat - outTotalSat : BigInt(0);
 
     const anyInMine = inputs.some(i => i.mine);
     const anyOutMine = outputs.some(o => o.mine);
@@ -81,16 +81,16 @@ export class TxHistoryService {
     const isOpReturn = (spk: ScriptPubKey | undefined) =>
       spk?.type === 'nulldata' || (typeof spk?.asm === 'string' && spk.asm.startsWith('OP_RETURN'));
 
-    const opReturnSat = tx.vout.reduce((s, v) => (isOpReturn(v.scriptPubKey) ? s + toSats(v.value) : s), 0n);
+    const opReturnSat = tx.vout.reduce((s, v) => (isOpReturn(v.scriptPubKey) ? s + toSats(v.value) : s), BigInt(0));
 
     let amountSat: bigint;
     if (type === 'RECEIVE') {
-      amountSat = outputs.filter(o => o.mine).reduce((s, o) => s + o.valueSat, 0n);
+      amountSat = outputs.filter(o => o.mine).reduce((s, o) => s + o.valueSat, BigInt(0));
     } else {
       // For SEND, handle change or self-transfer (subtract everything that came back)
-      const returnedSat = outputs.filter(o => o.mine).reduce((s, o) => s + o.valueSat, 0n);
+      const returnedSat = outputs.filter(o => o.mine).reduce((s, o) => s + o.valueSat, BigInt(0));
       const sent = outTotalSat - returnedSat - opReturnSat;
-      amountSat = sent > 0n ? sent : 0n;
+      amountSat = sent > BigInt(0) ? sent : BigInt(0);
     }
 
     const { sender, receiver } = this.pickSenderReceiverFromOutputs(type, inputs, tx, myChangeSet);

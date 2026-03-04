@@ -186,6 +186,7 @@ export class WalletManager {
       return await feeService.getFeeEstimates([], toAddress, account.network, account.scriptType);
     } catch (error) {
       console.log(error);
+      return undefined;
     }
   }
 
