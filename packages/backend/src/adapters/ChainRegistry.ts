@@ -68,6 +68,36 @@ export class ChainRegistry {
     }
     return balances;
   }
+
+  /** Fetch cached balances from adapters that support local snapshots */
+  async getAllCachedBalances(): Promise<Record<string, Awaited<ReturnType<IChainAdapter['getBalance']>>>> {
+    const adapters = this.getAll();
+    const results = await Promise.allSettled(
+      adapters.map(async adapter => {
+        if (typeof adapter.getCachedBalance !== 'function') {
+          return null;
+        }
+
+        const balance = await adapter.getCachedBalance();
+        if (!balance) {
+          return null;
+        }
+
+        return {
+          chainType: adapter.chainType,
+          balance,
+        };
+      }),
+    );
+
+    const balances: Record<string, Awaited<ReturnType<IChainAdapter['getBalance']>>> = {};
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value) {
+        balances[result.value.chainType] = result.value.balance;
+      }
+    }
+    return balances;
+  }
 }
 
 /** Singleton registry instance */

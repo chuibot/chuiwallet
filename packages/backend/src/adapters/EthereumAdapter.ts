@@ -1,5 +1,6 @@
 import { ethers } from 'ethers';
 import { Network } from '../types/electrum';
+import { chainBalanceCache } from '../modules/chainBalanceCache';
 import { chainTransactionHistoryCache } from '../modules/chainTransactionHistoryCache';
 import { assetPriceService } from '../modules/assetPriceService';
 import {
@@ -129,6 +130,7 @@ export class EthereumAdapter implements IChainAdapter {
   async getBalance(): Promise<ChainBalance> {
     if (!this.provider) throw new Error('Provider not initialized');
     const address = this.getReceivingAddress();
+    const balanceScope = this.getBalanceScope(address);
 
     const priceIds = this.getTrackedPriceIds();
     const [ethBalanceWei, priceByAssetId] = await Promise.all([
@@ -142,7 +144,7 @@ export class EthereumAdapter implements IChainAdapter {
 
     const tokenBalances = await this.getErc20Balances(address, priceByAssetId);
 
-    return {
+    const nextBalance = {
       confirmed: ethBalanceFloat,
       unconfirmed: 0,
       confirmedFiat: ethBalanceUsd,
@@ -150,6 +152,18 @@ export class EthereumAdapter implements IChainAdapter {
       nativeFiatRate: ethPriceUsd > 0 ? ethPriceUsd : undefined,
       tokens: tokenBalances,
     };
+
+    await chainBalanceCache.set(balanceScope, nextBalance);
+    return nextBalance;
+  }
+
+  async getCachedBalance(): Promise<ChainBalance | null> {
+    try {
+      const address = this.getReceivingAddress();
+      return await chainBalanceCache.get(this.getBalanceScope(address));
+    } catch {
+      return null;
+    }
   }
 
   /** Blockscout API URLs per network (free, no API key required, Etherscan-compatible format) */
@@ -169,14 +183,75 @@ export class EthereumAdapter implements IChainAdapter {
 
     try {
       const latestTransactions = await this.fetchTransactionHistoryFromIndexer(historyScope.address, tokenAddress);
-      return await chainTransactionHistoryCache.merge(historyScope, latestTransactions);
+      const mergedTransactions = await chainTransactionHistoryCache.merge(historyScope, latestTransactions);
+      return await this.reconcilePendingTransactions(historyScope, mergedTransactions);
     } catch {
-      return cachedTransactions;
+      return await this.reconcilePendingTransactions(historyScope, cachedTransactions);
     }
   }
 
   async getCachedTransactionHistory(options?: ChainTransactionHistoryOptions): Promise<ChainTransaction[]> {
     return chainTransactionHistoryCache.get(this.getHistoryScope(options));
+  }
+
+  private async reconcilePendingTransactions(
+    historyScope: {
+      chain: ChainType;
+      network: Network;
+      address: string;
+      assetKey?: string;
+    },
+    transactions: ChainTransaction[],
+  ): Promise<ChainTransaction[]> {
+    if (!this.provider || transactions.length === 0) {
+      return transactions;
+    }
+
+    const pendingTransactions = transactions.filter(transaction => transaction.status === 'pending');
+    if (pendingTransactions.length === 0) {
+      return transactions;
+    }
+
+    try {
+      const currentBlockNumber = await this.provider.getBlockNumber();
+      let hasUpdates = false;
+
+      const nextTransactions = await Promise.all(
+        transactions.map(async transaction => {
+          if (transaction.status !== 'pending') {
+            return transaction;
+          }
+
+          try {
+            const receipt = await this.provider!.getTransactionReceipt(transaction.hash);
+            if (!receipt || receipt.blockNumber == null) {
+              return transaction;
+            }
+
+            const confirmations =
+              currentBlockNumber >= receipt.blockNumber ? currentBlockNumber - receipt.blockNumber + 1 : 0;
+            const nextStatus = receipt.status === 0 ? ('failed' as const) : ('confirmed' as const);
+
+            hasUpdates = true;
+            return {
+              ...transaction,
+              status: nextStatus,
+              confirmations,
+            };
+          } catch {
+            return transaction;
+          }
+        }),
+      );
+
+      if (hasUpdates) {
+        return await chainTransactionHistoryCache.merge(historyScope, nextTransactions);
+      }
+
+      return nextTransactions;
+    } catch {
+      return transactions;
+    }
   }
 
   private async fetchTransactionHistoryFromIndexer(
@@ -561,6 +636,18 @@ export class EthereumAdapter implements IChainAdapter {
       network: this.network,
       address: this.getReceivingAddress(),
       assetKey: options?.tokenSymbol?.toLowerCase(),
+    };
+  }
+
+  private getBalanceScope(address: string): {
+    chain: ChainType;
+    network: Network;
+    address: string;
+  } {
+    return {
+      chain: this.chainType,
+      network: this.network,
+      address,
     };
   }
 

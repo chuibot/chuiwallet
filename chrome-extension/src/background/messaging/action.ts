@@ -10,6 +10,7 @@ import { walletManager } from '@extension/backend/src/walletManager';
 import { accountManager } from '@extension/backend/src/accountManager';
 import { scanManager } from '@extension/backend/src/scanManager';
 import { historyService } from '@extension/backend/src/modules/txHistoryService';
+import { chainBalanceCache } from '@extension/backend/src/modules/chainBalanceCache';
 import { chainTransactionHistoryCache } from '@extension/backend/src/modules/chainTransactionHistoryCache';
 import { chainRegistry } from '@extension/backend/src/adapters/ChainRegistry';
 import {
@@ -217,9 +218,12 @@ const handlers: Record<string, Handler> = {
       throw new ActionError('WALLET_LOCKED', 'wallet.switchNetwork is unavailable while wallet is locked');
     }
 
-    const ethAdapter = getEthereumAdapter();
-    if (ethAdapter) {
-      await ethAdapter.init(network);
+    const sessionPassword = await getSessionPassword();
+    if (sessionPassword) {
+      const mnemonic = await walletManager.getMnemonic(sessionPassword);
+      if (mnemonic) {
+        await hydrateEthAdapter(mnemonic, walletManager.getActiveAccountListIndex(), network);
+      }
     }
 
     triggerAccountScans();
@@ -298,6 +302,7 @@ const handlers: Record<string, Handler> = {
   'wallet.logout': async () => {
     try {
       await walletManager.logout();
+      await chainBalanceCache.clear();
       await chainTransactionHistoryCache.clear();
     } finally {
       // Clear ETH key material from memory
@@ -341,6 +346,10 @@ const handlers: Record<string, Handler> = {
 
   'chain.getAllBalances': async () => {
     return chainRegistry.getAllBalances();
+  },
+
+  'chain.getCachedAllBalances': async () => {
+    return chainRegistry.getAllCachedBalances();
   },
 
   'chain.getReceivingAddress': async params => {

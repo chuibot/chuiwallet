@@ -1,5 +1,5 @@
 import type { RpcRequest } from '@src/background/messaging/rpc';
-import { ensureBackgroundBootstrap } from '@src/background/bootstrap';
+import { ensureChainAdaptersReady } from '@src/background/bootstrap';
 import { handle as handleAction } from '@src/background/messaging/action';
 import { handle as handleRpc } from '@src/background/messaging/rpc';
 import browser, { Runtime } from 'webextension-polyfill';
@@ -27,7 +27,7 @@ function isBadRouterRequest() {
 
 export function registerMessageRouter() {
   browser.runtime.onMessage.addListener(async (message: unknown, sender: MessageSender) => {
-    await ensureBackgroundBootstrap();
+    await ensureChainAdaptersReady();
 
     if (!isRouterAction(message)) {
       return isBadRouterRequest();

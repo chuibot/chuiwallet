@@ -140,6 +140,8 @@ export interface IChainAdapter {
 
   /** Fetch the current balance from the network */
   getBalance(): Promise<ChainBalance>;
+  /** Optional cached balance snapshot, when the adapter supports it */
+  getCachedBalance?(): Promise<ChainBalance | null>;
 
   // ── Transactions ──────────────────────────────────────────────────
 
