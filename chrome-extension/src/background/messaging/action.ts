@@ -160,7 +160,7 @@ const handlers: Record<string, Handler> = {
     const sessionPassword = await getSessionPassword();
     const isRestorable = await walletManager.restoreIfPossible(sessionPassword);
     if (isRestorable) {
-      const mnemonic = walletManager.getMnemonic(sessionPassword!);
+      const mnemonic = await walletManager.getMnemonic(sessionPassword!);
       if (mnemonic) {
         await hydrateEthAdapter(
           mnemonic,
@@ -174,11 +174,22 @@ const handlers: Record<string, Handler> = {
   },
   'wallet.create': async params => {
     const payload = expectObjectParams('wallet.create', params);
-    const mnemonic = expectStringParam('wallet.create', payload, 'mnemonic');
     const password = expectStringParam('wallet.create', payload, 'password');
+    let mnemonic: string | undefined;
+
+    if ('mnemonic' in payload && payload.mnemonic !== undefined) {
+      if (typeof payload.mnemonic !== 'string' || payload.mnemonic.trim().length === 0) {
+        throw new ActionError('BAD_REQUEST', 'Invalid params for wallet.create: "mnemonic" must be a string');
+      }
+      mnemonic = payload.mnemonic;
+    }
+
     await walletManager.createWallet(mnemonic, password);
     await setSessionPassword(password);
-    await hydrateEthAdapter(mnemonic, 0, preferenceManager.get().activeNetwork);
+    const mnemonicToHydrate = mnemonic ?? (await walletManager.getMnemonic(password));
+    if (mnemonicToHydrate) {
+      await hydrateEthAdapter(mnemonicToHydrate, 0, preferenceManager.get().activeNetwork);
+    }
   },
   'wallet.getMnemonic': async () => {
     const password = await requireUnlockedWallet('wallet.getMnemonic');
@@ -234,7 +245,7 @@ const handlers: Record<string, Handler> = {
 
     const sessionPassword = await getSessionPassword();
     if (sessionPassword) {
-      const mnemonic = walletManager.getMnemonic(sessionPassword);
+      const mnemonic = await walletManager.getMnemonic(sessionPassword);
       if (mnemonic) {
         await hydrateEthAdapter(mnemonic, accountIndex, preferenceManager.get().activeNetwork);
       }
@@ -249,7 +260,7 @@ const handlers: Record<string, Handler> = {
 
     const sessionPassword = await getSessionPassword();
     if (sessionPassword) {
-      const mnemonic = walletManager.getMnemonic(sessionPassword);
+      const mnemonic = await walletManager.getMnemonic(sessionPassword);
       if (mnemonic) {
         await hydrateEthAdapter(
           mnemonic,

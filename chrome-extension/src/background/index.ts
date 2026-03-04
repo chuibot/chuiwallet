@@ -11,6 +11,7 @@ import { electrumService } from '@extension/backend/src/modules/electrumService'
 import { logger } from '@extension/backend/src/utils/logger';
 import { scanManager } from '@extension/backend/src/scanManager';
 import { historyService } from '@extension/backend/src/modules/txHistoryService';
+import { ensureBackgroundBootstrap } from '@src/background/bootstrap';
 import { registerMessageRouter } from '@src/background/messaging';
 import { emitBalance, emitConnection, registerMessagePort } from '@src/background/messaging/port';
 import { chainRegistry } from '@extension/backend/src/adapters/ChainRegistry';
@@ -22,8 +23,8 @@ bitcoin.initEccLib(secp256k1);
 let electrumReconnecting = false;
 
 async function init() {
-  await preferenceManager.init();
-  await walletManager.init();
+  await ensureBackgroundBootstrap();
+
   await electrumService.init(preferenceManager.get().activeNetwork);
 
   // Register chain adapters
@@ -41,7 +42,7 @@ async function init() {
   // the ETH adapter with the mnemonic so getReceivingAddress() works immediately
   const sessionPw = await getSessionPassword();
   if (sessionPw) {
-    const mnemonic = walletManager.getMnemonic(sessionPw);
+    const mnemonic = await walletManager.getMnemonic(sessionPw);
     if (mnemonic) {
       ethAdapter.initWithMnemonic(mnemonic, walletManager.getActiveAccountListIndex());
     }
@@ -63,7 +64,6 @@ async function init() {
     }
   });
   await electrumService.connect();
-  await accountManager.init(preferenceManager.get().activeAccountIndex);
   if (accountManager.activeAccountIndex >= 0) {
     await scanManager.init();
     scanManager.onStatus.on(async (event: ScanEvent) => {
