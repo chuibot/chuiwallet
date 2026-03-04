@@ -17,12 +17,13 @@ export const Dashboard: React.FC = () => {
     refreshBalance,
     refreshChainBalances,
     chainBalances,
+    hasHydratedChainBalances,
     isBackedUp,
   } = useWalletContext();
 
   React.useEffect(() => {
     refreshBalance();
-    refreshChainBalances();
+    void refreshChainBalances();
   }, []);
 
   const usdtMeta = getCurrencyMeta('usdt');
@@ -52,8 +53,9 @@ export const Dashboard: React.FC = () => {
     };
   }, [balance, chainBalances, usdtTokenBalance]);
 
-  let balanceLoading = false;
-  balanceLoading = balanceLoading == null ? false : balanceLoading;
+  const balanceLoading = balance === undefined || !hasHydratedChainBalances;
+  const btcBalanceLoading = balance === undefined;
+  const chainBalanceLoading = !hasHydratedChainBalances;
 
   return (
     <div className="relative flex flex-col items-center text-white bg-dark h-full px-4 pb-[19px]">
@@ -175,7 +177,7 @@ export const Dashboard: React.FC = () => {
                 : '0 USD'
           }
           icon="popup/btc_coin.svg"
-          isLoading={balanceLoading}
+          isLoading={btcBalanceLoading}
           onClick={() =>
             navigate('/dashboard/btc/activity', {
               state: {
@@ -198,7 +200,7 @@ export const Dashboard: React.FC = () => {
               : '0 USD'
           }
           icon="popup/eth_coin.svg"
-          isLoading={false}
+          isLoading={chainBalanceLoading}
           onClick={() => navigate('/dashboard/eth/activity')}
         />
         <CryptoBalance
@@ -216,7 +218,7 @@ export const Dashboard: React.FC = () => {
               : '0 USD'
           }
           icon="popup/usdt_coin.svg"
-          isLoading={false}
+          isLoading={chainBalanceLoading}
           onClick={() => navigate('/dashboard/usdt/activity')}
         />
       </div>
