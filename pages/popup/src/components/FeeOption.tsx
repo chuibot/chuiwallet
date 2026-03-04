@@ -1,15 +1,33 @@
-import { capitalizeFirstLetter, formatNumber } from '@src/utils';
+import { capitalizeFirstLetter } from '@src/utils';
+import { formatFeeAmount, formatFeeRate, formatFiatValue } from '@src/utils/sendFormatting';
 import type * as React from 'react';
 
 export interface FeeOptionProps {
-  speed: string;
-  btcAmount: number;
-  usdAmount: number;
+  name?: string;
+  fee: number;
+  fiatAmount?: number;
+  rateValue?: number;
+  rateUnit?: string;
+  symbol: string;
   selected: boolean;
   onSelect?: () => void;
 }
 
-export const FeeOption: React.FC<FeeOptionProps> = ({ speed, btcAmount, usdAmount, selected, onSelect }) => {
+export const FeeOption: React.FC<FeeOptionProps> = ({
+  name,
+  fee,
+  fiatAmount,
+  rateValue,
+  rateUnit,
+  symbol,
+  selected,
+  onSelect,
+}) => {
+  const iconVariant = (name ?? 'Medium').toLowerCase();
+  const formattedRate = formatFeeRate(rateValue, rateUnit);
+  const showsRateOnly = rateUnit === 'gwei';
+  const primaryValue = showsRateOnly ? (formattedRate ?? 'Fee unavailable') : formatFeeAmount(fee, symbol);
+
   return (
     <button
       onClick={onSelect}
@@ -18,15 +36,18 @@ export const FeeOption: React.FC<FeeOptionProps> = ({ speed, btcAmount, usdAmoun
       <div className="w-full flex justify-center">
         <img
           loading="lazy"
-          src={chrome.runtime.getURL(`popup/fee_${speed}_icon.svg`)}
+          src={chrome.runtime.getURL(`popup/fee_${iconVariant}_icon.svg`)}
           alt=""
           className="object-contain shrink-0 self-stretch my-auto w-6 aspect-square"
         />
       </div>
-      <div className="w-full text-sm font-medium whitespace-nowrap text-zinc-500">{capitalizeFirstLetter(speed)}</div>
+      <div className="w-full text-sm font-medium whitespace-nowrap text-zinc-500">
+        {name ? capitalizeFirstLetter(name) : 'Medium'}
+      </div>
       <div className="flex flex-col items-center w-full text-xs text-white gap-1">
-        <div>{formatNumber(btcAmount, 8)} BTC</div>
-        <div>{formatNumber(usdAmount)} USD</div>
+        <div>{primaryValue}</div>
+        <div>{formatFiatValue(fiatAmount)}</div>
+        {!showsRateOnly && formattedRate && <div className="text-[10px] text-foreground-79">{formattedRate}</div>}
       </div>
     </button>
   );

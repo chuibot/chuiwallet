@@ -1,35 +1,55 @@
 import { Button } from '@src/components/Button';
+import { useWalletContext } from '@src/context/WalletContext';
+import { buildTransactionExplorerUrl, isSupportedSendCurrency } from '@src/utils/currencyMeta';
 import { currencyMapping, type Currencies } from '@src/types';
 import type * as React from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 interface SendStatusStates {
-  status: 'success' | 'fail';
-  transactionHash: string;
+  status?: 'success' | 'fail';
+  transactionHash?: string;
 }
 
 export const SendStatus: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { preferences } = useWalletContext();
 
   const { currency } = useParams<{ currency: Currencies }>();
-  const states = location.state as SendStatusStates;
+  const states = (location.state as SendStatusStates | null) ?? null;
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!currency) {
+      navigate('/dashboard', { replace: true });
+      return;
+    }
+
+    if (!isSupportedSendCurrency(currency)) {
+      navigate(`/dashboard/${currency}/activity`, { replace: true });
+      return;
+    }
+
+    if (!states?.transactionHash || !states.status) {
+      navigate(`/dashboard/${currency}/activity`, { replace: true });
+    }
+  }, [currency, navigate, states]);
+
+  if (!currency || !isSupportedSendCurrency(currency) || !states?.transactionHash || !states.status) {
+    return null;
+  }
+
+  const explorerUrl = buildTransactionExplorerUrl(currency, preferences.activeNetwork, states.transactionHash);
 
   const handleCopyToClipboard = async () => {
     try {
-      if (!states.transactionHash) {
-        console.error('Address not found');
-        return;
-      }
-
-      await navigator.clipboard.writeText(states.transactionHash);
+      await navigator.clipboard.writeText(states.transactionHash!);
 
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch (err) {
-      console.error('Failed to copy seed:', err);
+      console.error('Failed to copy transaction hash:', err);
     }
   };
 
@@ -43,9 +63,8 @@ export const SendStatus: React.FC = () => {
 
   const handleTransactionLinkClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
-    const url = 'https://www.blockonomics.co/#/search?q=' + states.transactionHash;
-    // Set 'active: false' to not close the browser extension on click
-    chrome.tabs.create({ url, active: true });
+    // Open in a new browser tab so the extension UI can remain open.
+    chrome.tabs.create({ url: explorerUrl, active: true });
   };
 
   return (
@@ -63,10 +82,7 @@ export const SendStatus: React.FC = () => {
       </div>
       <div className="mt-5 text-lg leading-none text-center text-zinc-400">
         See the state of{' '}
-        <a
-          href={'https://www.blockonomics.co/#/search?q=' + states.transactionHash}
-          onClick={handleTransactionLinkClick}
-          className="text-primary-yellow cursor-pointer">
+        <a href={explorerUrl} onClick={handleTransactionLinkClick} className="text-primary-yellow cursor-pointer">
           your transaction
         </a>
       </div>

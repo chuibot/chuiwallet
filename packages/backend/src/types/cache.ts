@@ -24,9 +24,9 @@ export interface TxEntry {
   type: TxType;
   status: TxStatus;
   amountBtc: number;
-  amountUsd: number;
+  amountUsd?: number;
   feeBtc: number;
-  feeUsd: number;
+  feeUsd?: number;
   timestamp: number;
   confirmations: number;
   transactionHash: string;
@@ -34,7 +34,7 @@ export interface TxEntry {
   receiver: string;
 }
 
-export type TxStatus = 'PENDING' | 'CONFIRMED';
+export type TxStatus = 'PENDING' | 'CONFIRMED' | 'FAILED';
 export type TxType = 'SEND' | 'RECEIVE';
 
 export enum CacheType {

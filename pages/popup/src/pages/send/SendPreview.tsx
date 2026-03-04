@@ -1,35 +1,66 @@
+import type { ChainSendOptions } from '@extension/backend/src/adapters/IChainAdapter';
+import { ChainType } from '@extension/backend/src/adapters/IChainAdapter';
 import type { Currencies } from '@src/types';
 import { currencyMapping } from '@src/types';
 import Header from '@src/components/Header';
 import { Button } from '@src/components/Button';
 import { formatNumber } from '@src/utils';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { sendMessage } from '@src/utils/bridge';
 import { ERROR_MESSAGES } from '@src/constants';
 import { InputField } from '@src/components/InputField';
+import { getCurrencyMeta, getSendAmountPrecision, isSupportedSendCurrency } from '@src/utils/currencyMeta';
+import { formatFeeAmount, formatFeeRate, formatFiatValue } from '@src/utils/sendFormatting';
 
 interface SendPreviewStates {
-  destinationAddress: string;
-  amountBtc: number;
-  amountUsd: number;
-  feeBtc: number;
-  feeUsd: number;
-  sats: number;
+  destinationAddress?: string;
+  amount?: string;
+  amountUsd?: number;
+  feeAmount?: number;
+  feeUsd?: number;
+  feeName?: string;
+  rateValue?: number;
+  rateUnit?: string;
+  sendOptions?: ChainSendOptions;
 }
 
 export function SendPreview() {
   const navigate = useNavigate();
   const location = useLocation();
   const { currency } = useParams<{ currency: Currencies }>();
-  const states = location.state as SendPreviewStates;
+  const states = (location.state as SendPreviewStates | null) ?? null;
+  const meta = getCurrencyMeta(currency);
+  const assetDigits = getSendAmountPrecision(currency);
+  const formattedFeeRate = formatFeeRate(states?.rateValue, states?.rateUnit);
+  const showsRateOnlyFee = states?.rateUnit === 'gwei';
 
   const [confirmLoading, setConfirmLoading] = useState<boolean>(false);
   const [error, setError] = useState('');
   const [password, setPassword] = useState('');
   const [showPasswordInput, setShowPasswordInput] = useState(false);
 
+  useEffect(() => {
+    if (!currency) {
+      navigate('/dashboard', { replace: true });
+      return;
+    }
+
+    if (!isSupportedSendCurrency(currency)) {
+      navigate(`/dashboard/${currency}/activity`, { replace: true });
+      return;
+    }
+
+    if (!states?.destinationAddress || !states.amount || states.feeAmount === undefined) {
+      navigate(`/send/${currency}`, { replace: true });
+    }
+  }, [currency, navigate, states]);
+
   const handleConfirm = async () => {
+    if (!currency || !states?.destinationAddress || !states.amount) {
+      return;
+    }
+
     if (!showPasswordInput) {
       setShowPasswordInput(true);
       return;
@@ -48,11 +79,13 @@ export function SendPreview() {
         throw new Error('Invalid password');
       }
 
-      const txid = await sendMessage('payment.send', {
-        toAddress: states.destinationAddress,
-        amountInSats: Math.round(states.amountBtc * 1e8),
-        feerate: states.sats,
+      const txid = await sendMessage<string>('chain.sendPayment', {
+        chain: meta.chain,
+        to: states.destinationAddress,
+        amount: states.amount,
+        options: states.sendOptions,
       });
+
       if (txid) {
         navigate(`/send/${currency}/status`, {
           state: {
@@ -65,18 +98,18 @@ export function SendPreview() {
       }
     } catch (e) {
       const errorMessage = String((e as Error)?.message || e || '');
+      const normalizedMessage = errorMessage.toLowerCase();
 
-      if (errorMessage.toLowerCase().includes('dust')) {
-        setError(ERROR_MESSAGES.SEND_TRANSACTION_TOO_SMALL);
-      } else if (
-        errorMessage.toLowerCase().includes('insufficient funds') ||
-        errorMessage.toLowerCase().includes('insufficient')
-      ) {
-        setError(ERROR_MESSAGES.SEND_TRANSACTION_INSUFFICIENT_FUNDS);
-      } else if (errorMessage.toLowerCase().includes('fee')) {
-        setError(ERROR_MESSAGES.SEND_TRANSACTION_FEE_ERROR);
-      } else if (errorMessage.includes('Invalid password')) {
+      if (errorMessage.includes('Invalid password')) {
         setError('Invalid password');
+      } else if (normalizedMessage.includes('insufficient funds') || normalizedMessage.includes('insufficient')) {
+        setError(ERROR_MESSAGES.SEND_TRANSACTION_INSUFFICIENT_FUNDS);
+      } else if (meta.chain === ChainType.Bitcoin && normalizedMessage.includes('dust')) {
+        setError(ERROR_MESSAGES.SEND_TRANSACTION_TOO_SMALL);
+      } else if (meta.chain === ChainType.Bitcoin && normalizedMessage.includes('fee')) {
+        setError(ERROR_MESSAGES.SEND_TRANSACTION_FEE_ERROR);
+      } else if (meta.chain === ChainType.Ethereum && errorMessage) {
+        setError(errorMessage);
       } else {
         setError(ERROR_MESSAGES.SOMETHING_WENT_WRONG_WHILE_SENDING_TRANSACTION);
       }
@@ -84,6 +117,10 @@ export function SendPreview() {
       setConfirmLoading(false);
     }
   };
+
+  if (!currency || !isSupportedSendCurrency(currency) || !states?.destinationAddress || !states.amount) {
+    return null;
+  }
 
   return (
     <div className="flex flex-col items-center text-white bg-dark h-full px-4 pt-12 pb-[19px]">
@@ -100,7 +137,7 @@ export function SendPreview() {
               alt="Asset"
             />
             <div className="self-stretch my-auto">
-              {currency ? currencyMapping[currency] : 'Unknown'} ({currency?.toUpperCase()})
+              {currency ? currencyMapping[currency] : 'Unknown'} ({meta.symbol})
             </div>
           </div>
         </div>
@@ -110,15 +147,26 @@ export function SendPreview() {
         </div>
         <div className="flex flex-col mt-6 w-full leading-none text-foreground-79 shrink-0">
           <div className="font-medium text-white">Amount to send</div>
-          <div className="mt-2">{formatNumber(states.amountBtc, 8)} BTC</div>
-          <div className="mt-2">{formatNumber(states.amountUsd)} USD</div>
+          <div className="mt-2">
+            {formatNumber(Number(states.amount), assetDigits)} {meta.symbol}
+          </div>
+          <div className="mt-2">
+            {states.amountUsd !== undefined ? `${formatNumber(states.amountUsd)} USD` : 'USD unavailable'}
+          </div>
         </div>
         <div className="flex flex-col mt-6 w-full leading-none text-foreground-79 shrink-0">
-          <div className="font-medium text-white">Fee</div>
-          <div className="mt-2">
-            {formatNumber(states.feeBtc, 8)} BTC <span className="text-sm">({formatNumber(states.sats)} sat/vB)</span>
+          <div className="font-medium text-white">
+            Fee{meta.networkFeeSymbol ? ` (${meta.networkFeeSymbol} network fee)` : ''}
           </div>
-          <div className="mt-2">{formatNumber(states.feeUsd)} USD</div>
+          <div className="mt-2">
+            {showsRateOnlyFee
+              ? (formattedFeeRate ?? 'Fee unavailable')
+              : states.feeAmount !== undefined
+                ? formatFeeAmount(states.feeAmount, meta.symbol)
+                : 'Fee unavailable'}
+            {!showsRateOnlyFee && formattedFeeRate && <span className="text-sm"> ({formattedFeeRate})</span>}
+          </div>
+          <div className="mt-2">{formatFiatValue(states.feeUsd)}</div>
         </div>
       </div>
 

@@ -41,7 +41,7 @@ export function pickRandomPositions(n: number, total: number): number[] {
 
 export function formatNumber(value: number, digits: number = 2): string {
   const fixed = value.toFixed(digits);
-  let [integer, fraction] = fixed.split('.');
+  let [integer, fraction = ''] = fixed.split('.');
   integer = parseInt(integer, 10).toLocaleString();
   fraction = fraction.replace(/0+$/, '');
   fraction = fraction.length > 0 ? '.' + fraction : '';
@@ -92,6 +92,13 @@ export function formatTimestamp(timestamp: number) {
  * Return an icon path and label text based on status
  */
 export function getStatusMeta(status: string) {
+  if (status === 'failed') {
+    return {
+      icon: 'popup/pending_icon.svg',
+      label: 'Failed',
+    };
+  }
+
   return {
     icon: `popup/${status}_icon.svg`,
     label: capitalizeFirstLetter(status),
@@ -121,6 +128,31 @@ export function isValidBTCAddress(addr: string, expected: Network): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Ethereum address format validation (0x + 40 hex chars).
+ * Note: Does not verify EIP-55 mixed-case checksums. Full checksum validation
+ * would require the ethers library which is not available in the popup bundle.
+ */
+export function isValidETHAddress(addr: string): boolean {
+  return /^0x[0-9a-fA-F]{40}$/.test(addr);
+}
+
+/**
+ * Chain-aware address validation dispatcher.
+ * Routes to the correct validator based on the currency parameter.
+ */
+export function isValidAddress(addr: string, currency: string, network: Network): boolean {
+  switch (currency) {
+    case 'btc':
+      return isValidBTCAddress(addr, network);
+    case 'usdt':
+    case 'eth':
+      return isValidETHAddress(addr);
+    default:
+      return false;
   }
 }
 

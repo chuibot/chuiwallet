@@ -1,5 +1,6 @@
 import type { Network } from './electrum';
 import type { ChangeType } from './cache';
+import type { ChainType } from '../adapters/IChainAdapter';
 
 export interface WalletMeta {
   vault: string | null;
@@ -11,7 +12,11 @@ export interface Vault {
 }
 
 /**
- * Metadata for HD-wallet account
+ * Metadata for HD-wallet account.
+ *
+ * The `chain` and `address` fields are optional for backward compatibility
+ * with existing Bitcoin-only accounts created before multi-chain support.
+ * When absent, the account is assumed to be Bitcoin.
  */
 export interface Account {
   name: string;
@@ -19,6 +24,10 @@ export interface Account {
   network: Network;
   xpub: string;
   scriptType: ScriptType;
+  /** Blockchain this account belongs to. Defaults to Bitcoin if absent. */
+  chain?: ChainType;
+  /** Derived address (used by address-based chains like Ethereum). */
+  address?: string;
 }
 
 /**
@@ -37,3 +46,9 @@ export interface Balance {
   confirmedUsd: number;
   unconfirmedUsd: number;
 }
+
+/**
+ * Aggregated balances across all supported chains.
+ * Keyed by chain symbol (e.g. 'BTC', 'ETH', 'USDT').
+ */
+export type MultiChainBalance = Record<string, Balance>;

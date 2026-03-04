@@ -186,6 +186,7 @@ export class WalletManager {
       return await feeService.getFeeEstimates([], toAddress, account.network, account.scriptType);
     } catch (error) {
       console.log(error);
+      return undefined;
     }
   }
 
@@ -343,7 +344,7 @@ export class WalletManager {
    * @param {string} password - The password to encrypt the vault.
    * @returns {Promise<void>} A promise that resolves when creation is complete.
    */
-  public async createWallet(mnemonic: string, password: string): Promise<void> {
+  public async createWallet(mnemonic: string | undefined, password: string): Promise<void> {
     await wallet.create({
       network: preferenceManager.get().activeNetwork,
       mnemonic,
