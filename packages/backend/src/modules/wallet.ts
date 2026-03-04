@@ -3,7 +3,7 @@ import BIP32Factory from 'bip32';
 import type { Account, Vault, WalletMeta } from '../types/wallet';
 import { ScriptType } from '../types/wallet';
 import type { SpendableUtxo } from './utxoSelection';
-import encryption from '../utils/encryption.js';
+import { encrypt, decrypt } from '../utils/encryption.js';
 import * as bip39 from 'bip39';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import * as bitcoin from 'bitcoinjs-lib';
@@ -68,7 +68,7 @@ export class Wallet {
     }
 
     this.network = network === Network.Testnet ? bitcoin.networks.testnet : bitcoin.networks.bitcoin;
-    const vault: Vault | null = this.decryptVault(password);
+    const vault: Vault | null = await this.decryptVault(password);
     if (!vault) {
       throw new Error('Vault is empty');
     }
@@ -97,7 +97,7 @@ export class Wallet {
       vault.mnemonic = bip39.generateMnemonic();
     }
     this.deriveRootAndXpub(vault.xpriv, vault.mnemonic);
-    this.encryptVault(vault, options.password);
+    await this.encryptVault(vault, options.password);
     await this.save();
   }
 
@@ -162,8 +162,8 @@ export class Wallet {
    * Retrieves the mnemonic phrase from the decrypted vault.
    * @param {string} password - The password to decrypt the vault.
    */
-  public getMnemonic(password: string): string | null {
-    const vault: Vault | null = this.decryptVault(password);
+  public async getMnemonic(password: string): Promise<string | null> {
+    const vault: Vault | null = await this.decryptVault(password);
     if (!vault) {
       throw new Error('Vault is empty');
     }
@@ -253,13 +253,14 @@ export class Wallet {
    * @returns {Vault | null} The decrypted vault object, or null if no vault exists or decryption fails.
    * @private
    */
-  public decryptVault(password: string): Vault | null {
+  public async decryptVault(password: string): Promise<Vault | null> {
     if (!this.encryptedVault) {
       return null;
     }
 
     try {
-      return JSON.parse(encryption.decrypt(this.encryptedVault, password));
+      const decrypted = await decrypt(this.encryptedVault, password);
+      return JSON.parse(decrypted);
     } catch {
       throw new Error('Decryption error');
     }
@@ -271,8 +272,8 @@ export class Wallet {
    * @param {string} password - The password for encryption.
    * @private
    */
-  private encryptVault(vault: Vault, password: string) {
-    this.encryptedVault = encryption.encrypt(JSON.stringify(vault), password);
+  private async encryptVault(vault: Vault, password: string): Promise<void> {
+    this.encryptedVault = await encrypt(JSON.stringify(vault), password);
   }
 
   /**

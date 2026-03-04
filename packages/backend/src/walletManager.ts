@@ -102,9 +102,9 @@ export class WalletManager {
     return preferenceManager.get();
   }
 
-  verifyPassword(password: string): boolean {
+  async verifyPassword(password: string): Promise<boolean> {
     try {
-      const success = wallet.decryptVault(password);
+      const success = await wallet.decryptVault(password);
       return !!success;
     } catch {
       return false;
@@ -281,8 +281,8 @@ export class WalletManager {
    * Get the mnemonic of the current wallet
    * @param password
    */
-  public getMnemonic(password: string) {
-    return wallet.getMnemonic(password);
+  public async getMnemonic(password: string) {
+    return await wallet.getMnemonic(password);
   }
 
   /**
