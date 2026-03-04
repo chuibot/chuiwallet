@@ -41,7 +41,7 @@ export function pickRandomPositions(n: number, total: number): number[] {
 
 export function formatNumber(value: number, digits: number = 2): string {
   const fixed = value.toFixed(digits);
-  let [integer, fraction] = fixed.split('.');
+  let [integer, fraction = ''] = fixed.split('.');
   integer = parseInt(integer, 10).toLocaleString();
   fraction = fraction.replace(/0+$/, '');
   fraction = fraction.length > 0 ? '.' + fraction : '';
