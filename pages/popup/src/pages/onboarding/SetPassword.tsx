@@ -71,6 +71,12 @@ export const SetPassword: React.FC = () => {
     setStep('choose-method');
   };
 
+  const handleTosLinkClick = async () => {
+    if (password && password === confirmPassword && passwordStrength === 'strong') {
+      await setSessionPassword(password);
+    }
+  };
+
   const handlePasswordConfirmation = (passwordConfirmation: string) => {
     if (passwordConfirmation !== password) {
       setNoMatchMsg(ERROR_MESSAGES.PASSWORDS_DO_NOT_MATCH);
@@ -155,7 +161,11 @@ export const SetPassword: React.FC = () => {
               special characters.
             </span>
 
-            <TermsCheckbox onAcceptChange={setTermsAccepted} />
+            <TermsCheckbox
+              onAcceptChange={setTermsAccepted}
+              onBeforeTosOpen={handleTosLinkClick}
+              initialChecked={termsAccepted}
+            />
 
             {errorMsg && <span className="mt-1 text-xs text-primary-red font-light">{errorMsg}</span>}
           </div>
