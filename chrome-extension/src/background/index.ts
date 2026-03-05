@@ -9,6 +9,7 @@ import { accountManager } from '@extension/backend/src/accountManager';
 import { electrumService } from '@extension/backend/src/modules/electrumService';
 import { logger } from '@extension/backend/src/utils/logger';
 import { scanManager } from '@extension/backend/src/scanManager';
+import { ensureChainAdaptersReady } from '@src/background/bootstrap';
 import { registerMessageRouter } from '@src/background/messaging';
 import { emitBalance, emitConnection, registerMessagePort } from '@src/background/messaging/port';
 
@@ -17,9 +18,10 @@ bitcoin.initEccLib(secp256k1);
 let electrumReconnecting = false;
 
 async function init() {
-  await preferenceManager.init();
-  await walletManager.init();
+  await ensureChainAdaptersReady();
+
   await electrumService.init(preferenceManager.get().activeNetwork);
+
   electrumService.onStatus.on(update => {
     emitConnection(update.status, update.detail);
     if (update.status === 'disconnected' && !electrumReconnecting && update.reason !== 'switchNetwork') {
@@ -36,7 +38,6 @@ async function init() {
     }
   });
   await electrumService.connect();
-  await accountManager.init(preferenceManager.get().activeAccountIndex);
   if (accountManager.activeAccountIndex >= 0) {
     await scanManager.init();
     scanManager.onStatus.on(async (event: ScanEvent) => {

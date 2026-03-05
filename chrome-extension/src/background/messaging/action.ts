@@ -1,17 +1,157 @@
 import type { Runtime } from 'webextension-polyfill';
-import type { Network } from '@extension/backend/src/types/electrum';
+import { Network } from '@extension/backend/src/types/electrum';
+import type { EthereumAdapter } from '@extension/backend/src/adapters/EthereumAdapter';
 import type { AppAction } from '@src/background/messaging/index';
 import browser from 'webextension-polyfill';
-import { ChangeType } from '@extension/backend/src/types/cache';
 import { getSessionPassword, setSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
+import { getApprovalRequest, rejectApproval, resolveApproval } from '@src/background/messaging/rpc';
 import { preferenceManager } from '@extension/backend/src/preferenceManager';
 import { walletManager } from '@extension/backend/src/walletManager';
 import { accountManager } from '@extension/backend/src/accountManager';
 import { scanManager } from '@extension/backend/src/scanManager';
 import { historyService } from '@extension/backend/src/modules/txHistoryService';
-import { getApprovalRequest, rejectApproval, resolveApproval } from '@src/background/messaging/rpc';
+import { chainBalanceCache } from '@extension/backend/src/modules/chainBalanceCache';
+import { chainTransactionHistoryCache } from '@extension/backend/src/modules/chainTransactionHistoryCache';
+import { chainRegistry } from '@extension/backend/src/adapters/ChainRegistry';
+import {
+  ChainType,
+  type ChainSendOptions,
+  type ChainTransactionHistoryOptions,
+  type IChainAdapter,
+} from '@extension/backend/src/adapters/IChainAdapter';
+import { ChangeType } from '@extension/backend/src/types/cache';
+import { logger } from '@extension/backend/src/utils/logger';
 
 type Handler = (params: unknown, sender: Runtime.MessageSender) => Promise<unknown> | unknown;
+type ParamsRecord = Record<string, unknown>;
+
+class ActionError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+    this.name = 'ActionError';
+  }
+}
+
+function expectObjectParams(action: string, params: unknown): ParamsRecord {
+  if (typeof params !== 'object' || params === null || Array.isArray(params)) {
+    throw new ActionError('BAD_REQUEST', `Invalid params for ${action}`);
+  }
+  return params as ParamsRecord;
+}
+
+function expectStringParam(
+  action: string,
+  params: ParamsRecord,
+  key: string,
+  options: { allowEmpty?: boolean } = {},
+): string {
+  const value = params[key];
+  if (typeof value !== 'string') {
+    throw new ActionError('BAD_REQUEST', `Invalid params for ${action}: "${key}" must be a string`);
+  }
+  if (!options.allowEmpty && value.trim().length === 0) {
+    throw new ActionError('BAD_REQUEST', `Invalid params for ${action}: "${key}" is required`);
+  }
+  return value;
+}
+
+function expectNumberParam(
+  action: string,
+  params: ParamsRecord,
+  key: string,
+  options: { integer?: boolean; min?: number } = {},
+): number {
+  const value = params[key];
+  if (typeof value !== 'number' || Number.isNaN(value) || !Number.isFinite(value)) {
+    throw new ActionError('BAD_REQUEST', `Invalid params for ${action}: "${key}" must be a number`);
+  }
+  if (options.integer && !Number.isInteger(value)) {
+    throw new ActionError('BAD_REQUEST', `Invalid params for ${action}: "${key}" must be an integer`);
+  }
+  if (options.min !== undefined && value < options.min) {
+    throw new ActionError('BAD_REQUEST', `Invalid params for ${action}: "${key}" must be >= ${options.min}`);
+  }
+  return value;
+}
+
+function expectBooleanParam(action: string, params: ParamsRecord, key: string): boolean {
+  const value = params[key];
+  if (typeof value !== 'boolean') {
+    throw new ActionError('BAD_REQUEST', `Invalid params for ${action}: "${key}" must be a boolean`);
+  }
+  return value;
+}
+
+function expectEnumParam<T extends string>(
+  action: string,
+  params: ParamsRecord,
+  key: string,
+  allowed: readonly T[],
+): T {
+  const value = params[key];
+  if (typeof value !== 'string' || !allowed.includes(value as T)) {
+    throw new ActionError(
+      'BAD_REQUEST',
+      `Invalid params for ${action}: "${key}" must be one of ${allowed.map(item => `"${item}"`).join(', ')}`,
+    );
+  }
+  return value as T;
+}
+
+async function requireUnlockedWallet(action: string): Promise<string> {
+  const sessionPassword = await getSessionPassword();
+  if (!sessionPassword) {
+    throw new ActionError('WALLET_LOCKED', `${action} is unavailable while wallet is locked`);
+  }
+  return sessionPassword;
+}
+
+function getEthereumAdapter(): EthereumAdapter | undefined {
+  return chainRegistry.get(ChainType.Ethereum) as EthereumAdapter | undefined;
+}
+
+function clearEthereumKeys(): void {
+  const ethAdapter = getEthereumAdapter();
+  if (ethAdapter) ethAdapter.clearKeys();
+}
+
+function supportsCachedTransactionHistory(adapter: IChainAdapter): adapter is IChainAdapter & {
+  getCachedTransactionHistory: (options?: ChainTransactionHistoryOptions) => Promise<unknown>;
+} {
+  return (
+    'getCachedTransactionHistory' in adapter &&
+    typeof (
+      adapter as IChainAdapter & {
+        getCachedTransactionHistory?: unknown;
+      }
+    ).getCachedTransactionHistory === 'function'
+  );
+}
+
+function triggerAccountScans(): void {
+  void (async () => {
+    try {
+      await Promise.all([scanManager.backfillScan(), scanManager.backfillScan(ChangeType.Internal)]);
+      await Promise.all([scanManager.forwardScan(), scanManager.forwardScan(ChangeType.Internal)]);
+    } catch (error) {
+      logger.error('Failed to trigger account scans', error);
+    }
+  })();
+}
+
+/**
+ * Centralized helper to initialize EthereumAdapter.
+ * Called on wallet restore, create, account switch/create, and network switch.
+ */
+async function hydrateEthAdapter(mnemonic: string, addressIndex: number, network: Network): Promise<void> {
+  const ethAdapter = getEthereumAdapter();
+  if (!ethAdapter) return;
+  ethAdapter.initWithMnemonic(mnemonic, addressIndex);
+  await ethAdapter.init(network);
+}
 
 const handlers: Record<string, Handler> = {
   'wallet.exist': () => {
@@ -21,27 +161,47 @@ const handlers: Record<string, Handler> = {
     const sessionPassword = await getSessionPassword();
     const isRestorable = await walletManager.restoreIfPossible(sessionPassword);
     if (isRestorable) {
+      const mnemonic = await walletManager.getMnemonic(sessionPassword!);
+      if (mnemonic) {
+        await hydrateEthAdapter(
+          mnemonic,
+          walletManager.getActiveAccountListIndex(),
+          preferenceManager.get().activeNetwork,
+        );
+      }
       browser.alarms.create('forwardScan', { when: Date.now() + 100 });
     }
     return isRestorable;
   },
   'wallet.create': async params => {
-    const { mnemonic, password } = params as { mnemonic: string; password: string };
+    const payload = expectObjectParams('wallet.create', params);
+    const password = expectStringParam('wallet.create', payload, 'password');
+    let mnemonic: string | undefined;
+
+    if ('mnemonic' in payload && payload.mnemonic !== undefined) {
+      if (typeof payload.mnemonic !== 'string' || payload.mnemonic.trim().length === 0) {
+        throw new ActionError('BAD_REQUEST', 'Invalid params for wallet.create: "mnemonic" must be a string');
+      }
+      mnemonic = payload.mnemonic;
+    }
+
     await walletManager.createWallet(mnemonic, password);
     await setSessionPassword(password);
+    const mnemonicToHydrate = mnemonic ?? (await walletManager.getMnemonic(password));
+    if (mnemonicToHydrate) {
+      await hydrateEthAdapter(mnemonicToHydrate, 0, preferenceManager.get().activeNetwork);
+    }
   },
   'wallet.getMnemonic': async () => {
-    const password = await getSessionPassword();
-    if (!password) {
-      throw new Error('Password is required');
-    }
+    const password = await requireUnlockedWallet('wallet.getMnemonic');
     return walletManager.getMnemonic(password);
   },
   'wallet.getXpub': async () => {
     return walletManager.getXpub();
   },
   'wallet.verifyPassword': async params => {
-    const { password } = params as { password: string };
+    const payload = expectObjectParams('wallet.verifyPassword', params);
+    const password = expectStringParam('wallet.verifyPassword', payload, 'password');
     return walletManager.verifyPassword(password);
   },
   'wallet.getBalance': async () => {
@@ -51,16 +211,27 @@ const handlers: Record<string, Handler> = {
     return walletManager.getAddress();
   },
   'wallet.switchNetwork': async params => {
-    const { network } = params as { network: Network };
+    const payload = expectObjectParams('wallet.switchNetwork', params);
+    const network = expectEnumParam('wallet.switchNetwork', payload, 'network', Object.values(Network));
     const success = await walletManager.switchNetwork(network);
-    scanManager.backfillScan();
-    scanManager.backfillScan(ChangeType.Internal);
-    scanManager.forwardScan();
-    scanManager.forwardScan(ChangeType.Internal);
+    if (!success) {
+      throw new ActionError('WALLET_LOCKED', 'wallet.switchNetwork is unavailable while wallet is locked');
+    }
+
+    const sessionPassword = await getSessionPassword();
+    if (sessionPassword) {
+      const mnemonic = await walletManager.getMnemonic(sessionPassword);
+      if (mnemonic) {
+        await hydrateEthAdapter(mnemonic, walletManager.getActiveAccountListIndex(), network);
+      }
+    }
+
+    triggerAccountScans();
     return success;
   },
   'wallet.setBackupStatus': async (params: unknown) => {
-    const { isBackedUp } = params as { isBackedUp: boolean };
+    const payload = expectObjectParams('wallet.setBackupStatus', params);
+    const isBackedUp = expectBooleanParam('wallet.setBackupStatus', payload, 'isBackedUp');
     // This will merge the new value and save to chrome.storage automatically
     return await preferenceManager.update({ isWalletBackedUp: isBackedUp });
   },
@@ -71,52 +242,89 @@ const handlers: Record<string, Handler> = {
     return accountManager.accounts;
   },
   'accounts.switch': async params => {
-    const { accountIndex } = params as { accountIndex: number };
+    await requireUnlockedWallet('accounts.switch');
+    const payload = expectObjectParams('accounts.switch', params);
+    const accountIndex = expectNumberParam('accounts.switch', payload, 'accountIndex', { integer: true, min: 0 });
     const preferences = await walletManager.switchAccount(accountIndex);
-    scanManager.backfillScan();
-    scanManager.backfillScan(ChangeType.Internal);
-    scanManager.forwardScan();
-    scanManager.forwardScan(ChangeType.Internal);
+
+    const sessionPassword = await getSessionPassword();
+    if (sessionPassword) {
+      const mnemonic = await walletManager.getMnemonic(sessionPassword);
+      if (mnemonic) {
+        await hydrateEthAdapter(mnemonic, accountIndex, preferenceManager.get().activeNetwork);
+      }
+    }
+
+    triggerAccountScans();
     return preferences;
   },
   'accounts.create': async () => {
+    await requireUnlockedWallet('accounts.create');
     const preferences = await walletManager.createAccount();
-    scanManager.backfillScan();
-    scanManager.backfillScan(ChangeType.Internal);
-    scanManager.forwardScan();
-    scanManager.forwardScan(ChangeType.Internal);
+
+    const sessionPassword = await getSessionPassword();
+    if (sessionPassword) {
+      const mnemonic = await walletManager.getMnemonic(sessionPassword);
+      if (mnemonic) {
+        await hydrateEthAdapter(
+          mnemonic,
+          walletManager.getActiveAccountListIndex(),
+          preferenceManager.get().activeNetwork,
+        );
+      }
+    }
+
+    triggerAccountScans();
     return { preferences, accounts: accountManager.accounts };
   },
   'transactions.get': async () => {
     return await historyService.get();
   },
   'fee.estimates': async param => {
-    return await walletManager.getFeeEstimates(param as string);
+    if (typeof param !== 'string' || param.trim().length === 0) {
+      throw new ActionError('BAD_REQUEST', 'Invalid params for fee.estimates: destination address is required');
+    }
+    return await walletManager.getFeeEstimates(param);
   },
   'payment.send': async param => {
-    const { toAddress, amountInSats, feerate } = param as { toAddress: string; amountInSats: number; feerate: number };
-    if (!toAddress || !amountInSats || !feerate) {
-      throw new Error('Missing required parameter');
-    }
+    await requireUnlockedWallet('payment.send');
+    const payload = expectObjectParams('payment.send', param);
+    const toAddress = expectStringParam('payment.send', payload, 'toAddress');
+    const amountInSats = expectNumberParam('payment.send', payload, 'amountInSats', { min: 1 });
+    const feerate = expectNumberParam('payment.send', payload, 'feerate', { min: 1 });
     return await walletManager.sendPayment(toAddress, amountInSats, feerate);
   },
   'wallet.lock': async () => {
     await walletManager.lock();
+    // Clear ETH key material from memory
+    clearEthereumKeys();
   },
   'wallet.logout': async () => {
-    await walletManager.logout();
+    try {
+      await walletManager.logout();
+      await chainBalanceCache.clear();
+      await chainTransactionHistoryCache.clear();
+    } finally {
+      // Clear ETH key material from memory
+      clearEthereumKeys();
+    }
   },
   'provider.getApproval': async params => {
-    const { id } = params as { id: number };
+    const payload = expectObjectParams('provider.getApproval', params);
+    const id = expectNumberParam('provider.getApproval', payload, 'id', { integer: true, min: 0 });
     return getApprovalRequest(id);
   },
   'provider.resolveApproval': async params => {
-    const { id, approved } = params as { id: number; approved: boolean };
+    const payload = expectObjectParams('provider.resolveApproval', params);
+    const id = expectNumberParam('provider.resolveApproval', payload, 'id', { integer: true, min: 0 });
+    const approved = expectBooleanParam('provider.resolveApproval', payload, 'approved');
     resolveApproval(id, approved);
     return true;
   },
   'provider.rejectApproval': async params => {
-    const { id, reason } = params as { id: number; reason: string };
+    const payload = expectObjectParams('provider.rejectApproval', params);
+    const id = expectNumberParam('provider.rejectApproval', payload, 'id', { integer: true, min: 0 });
+    const reason = expectStringParam('provider.rejectApproval', payload, 'reason');
     rejectApproval(id, reason);
     return true;
   },
@@ -124,6 +332,97 @@ const handlers: Record<string, Handler> = {
   echo: params => {
     const p = params as { msg?: unknown } | undefined;
     return { echoed: typeof p?.msg === 'string' ? p.msg : '' };
+  },
+
+  // Multi-Chain Handlers for Delegation to the chain adapter registry for a unified chain API.
+
+  'chain.getBalance': async params => {
+    const payload = expectObjectParams('chain.getBalance', params);
+    const chain = expectEnumParam('chain.getBalance', payload, 'chain', Object.values(ChainType));
+    const adapter = chainRegistry.get(chain);
+    if (!adapter) throw new Error(`Unsupported chain: ${chain}`);
+    return adapter.getBalance();
+  },
+
+  'chain.getAllBalances': async () => {
+    return chainRegistry.getAllBalances();
+  },
+
+  'chain.getCachedAllBalances': async () => {
+    return chainRegistry.getAllCachedBalances();
+  },
+
+  'chain.getReceivingAddress': async params => {
+    const payload = expectObjectParams('chain.getReceivingAddress', params);
+    const chain = expectEnumParam('chain.getReceivingAddress', payload, 'chain', Object.values(ChainType));
+    const adapter = chainRegistry.get(chain);
+    if (!adapter) throw new Error(`Unsupported chain: ${chain}`);
+    return adapter.getReceivingAddress();
+  },
+
+  'chain.getTransactionHistory': async params => {
+    const payload = expectObjectParams('chain.getTransactionHistory', params);
+    const chain = expectEnumParam('chain.getTransactionHistory', payload, 'chain', Object.values(ChainType));
+    const rawOptions = payload.options;
+    const options =
+      rawOptions === undefined
+        ? undefined
+        : (expectObjectParams('chain.getTransactionHistory.options', rawOptions) as ChainTransactionHistoryOptions);
+    const adapter = chainRegistry.get(chain);
+    if (!adapter) throw new Error(`Unsupported chain: ${chain}`);
+    return adapter.getTransactionHistory(options);
+  },
+
+  'chain.getCachedTransactionHistory': async params => {
+    const payload = expectObjectParams('chain.getCachedTransactionHistory', params);
+    const chain = expectEnumParam('chain.getCachedTransactionHistory', payload, 'chain', Object.values(ChainType));
+    const rawOptions = payload.options;
+    const options =
+      rawOptions === undefined
+        ? undefined
+        : (expectObjectParams(
+            'chain.getCachedTransactionHistory.options',
+            rawOptions,
+          ) as ChainTransactionHistoryOptions);
+    const adapter = chainRegistry.get(chain);
+    if (!adapter) throw new Error(`Unsupported chain: ${chain}`);
+    if (supportsCachedTransactionHistory(adapter)) {
+      return adapter.getCachedTransactionHistory(options);
+    }
+    return adapter.getTransactionHistory(options);
+  },
+
+  'chain.estimateFee': async params => {
+    const payload = expectObjectParams('chain.estimateFee', params);
+    const chain = expectEnumParam('chain.estimateFee', payload, 'chain', Object.values(ChainType));
+    const to = expectStringParam('chain.estimateFee', payload, 'to');
+    const rawAmount = payload.amount;
+    const amount = rawAmount === undefined ? undefined : expectStringParam('chain.estimateFee', payload, 'amount');
+    const rawOptions = payload.options;
+    const options =
+      rawOptions === undefined
+        ? undefined
+        : (expectObjectParams('chain.estimateFee.options', rawOptions) as ChainSendOptions);
+    const adapter = chainRegistry.get(chain);
+    if (!adapter) throw new Error(`Unsupported chain: ${chain}`);
+    return adapter.estimateFee(to, amount, options);
+  },
+
+  'chain.sendPayment': async params => {
+    await requireUnlockedWallet('chain.sendPayment');
+    const payload = expectObjectParams('chain.sendPayment', params);
+    const chain = expectEnumParam('chain.sendPayment', payload, 'chain', Object.values(ChainType));
+    const to = expectStringParam('chain.sendPayment', payload, 'to');
+    const amount = expectStringParam('chain.sendPayment', payload, 'amount');
+    const rawOptions = payload.options;
+    const options =
+      rawOptions === undefined
+        ? undefined
+        : (expectObjectParams('chain.sendPayment.options', rawOptions) as ChainSendOptions);
+
+    const adapter = chainRegistry.get(chain);
+    if (!adapter) throw new Error(`Unsupported chain: ${chain}`);
+    return adapter.sendPayment(to, amount, options);
   },
 };
 
@@ -133,12 +432,18 @@ export type RouterResponse =
 
 export async function handle(message: AppAction, sender: Runtime.MessageSender): Promise<RouterResponse> {
   try {
-    const fn = handlers[message.action!];
+    if (!message.action) {
+      return { status: 'error', error: { code: 'BAD_REQUEST', message: 'Action is required' } };
+    }
+    const fn = handlers[message.action];
     if (!fn)
       return { status: 'error', error: { code: 'METHOD_NOT_FOUND', message: `Method not found: ${message.action}` } };
     const data = await fn(message.params, sender);
     return { status: 'ok', data };
   } catch (e) {
+    if (e instanceof ActionError) {
+      return { status: 'error', error: { code: e.code, message: e.message } };
+    }
     const msg = e instanceof Error ? e.message : String(e);
     return { status: 'error', error: { code: 'INTERNAL', message: msg } };
   }

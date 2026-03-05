@@ -5,19 +5,31 @@ import AddressQRCode from '@src/components/AddressQRCode';
 import { Button } from '@src/components/Button';
 import Header from '@src/components/Header';
 import { useWalletContext } from '@src/context/WalletContext';
+import { getCurrencyMeta } from '@src/utils/currencyMeta';
 import type { Currencies } from '@src/types';
+import { ChainType } from '@extension/backend/src/adapters/IChainAdapter';
 
 export const Receive: React.FC = () => {
-  const { getReceivingAddress } = useWalletContext();
+  const { getReceivingAddress, getChainReceivingAddress } = useWalletContext();
   const { currency } = useParams<{ currency: Currencies }>();
+  const meta = getCurrencyMeta(currency);
   const [address, setAddress] = useState<string>('Address not found');
   const [copyText, setCopyText] = useState<string>('Copy address');
 
   useEffect(() => {
     (async () => {
-      setAddress(await getReceivingAddress());
+      try {
+        if (meta.chain === ChainType.Ethereum) {
+          setAddress(await getChainReceivingAddress(meta.chain));
+        } else {
+          setAddress(await getReceivingAddress());
+        }
+      } catch (e) {
+        console.error('Failed to get receiving address:', e);
+        setAddress('Address not found');
+      }
     })();
-  }, [getReceivingAddress]);
+  }, [getReceivingAddress, getChainReceivingAddress, meta.chain]);
 
   const handleCopyAddress = async () => {
     try {

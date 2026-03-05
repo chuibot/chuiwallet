@@ -1,4 +1,5 @@
 import type { RpcRequest } from '@src/background/messaging/rpc';
+import { ensureChainAdaptersReady } from '@src/background/bootstrap';
 import { handle as handleAction } from '@src/background/messaging/action';
 import { handle as handleRpc } from '@src/background/messaging/rpc';
 import browser, { Runtime } from 'webextension-polyfill';
@@ -25,28 +26,18 @@ function isBadRouterRequest() {
 }
 
 export function registerMessageRouter() {
-  browser.runtime.onMessage.addListener((message: unknown, sender: MessageSender, sendResponse) => {
+  browser.runtime.onMessage.addListener(async (message: unknown, sender: MessageSender) => {
+    await ensureChainAdaptersReady();
+
     if (!isRouterAction(message)) {
       return isBadRouterRequest();
     }
 
     switch (message.type) {
       case 'APP_ACTION':
-        handleAction(message, sender)
-          .then(sendResponse)
-          .catch(err => {
-            console.error('handleAction error:', err);
-            sendResponse({ status: 'error', error: { code: 'INTERNAL', message: err.message } });
-          });
-        return true;
+        return handleAction(message, sender);
       case 'PROVIDER_RPC':
-        handleRpc(message, sender)
-          .then(sendResponse)
-          .catch(err => {
-            console.error('handleRpc error:', err);
-            sendResponse({ status: 'error', error: { code: 'INTERNAL', message: err.message } });
-          });
-        return true;
+        return handleRpc(message, sender);
       default:
         return isBadRouterRequest();
     }

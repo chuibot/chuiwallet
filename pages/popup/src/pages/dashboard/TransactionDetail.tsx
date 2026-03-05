@@ -1,43 +1,46 @@
 import type * as React from 'react';
-import type { TransactionActivityStatus, TransactionType } from '@src/types';
+import type { Currencies, TransactionActivityStatus, TransactionType } from '@src/types';
 import Header from '@src/components/Header';
 import LabelValue from '@src/components/LabelValue';
 import { useWalletContext } from '@src/context/WalletContext';
 import { formatNumber, formatTimestamp } from '@src/utils';
-import { useLocation } from 'react-router-dom';
+import { buildTransactionExplorerUrl, getAssetDisplayPrecision, getCurrencyMeta } from '@src/utils/currencyMeta';
+import { useLocation, useParams } from 'react-router-dom';
 
 export interface TransactionDetailStates {
   type: TransactionType;
   status: TransactionActivityStatus;
   amountBtc: number;
-  amountUsd: number;
+  amountUsd?: number;
   feeBtc: number;
-  feeUsd: number;
+  feeUsd?: number;
   timestamp: number;
   confirmations: number;
   transactionHash: string;
   sender: string;
   receiver: string;
+  feeUnit?: string;
 }
 
 export const TransactionDetail: React.FC = () => {
   const { preferences } = useWalletContext();
   const location = useLocation();
+  const { currency } = useParams<{ currency: Currencies }>();
+  const meta = getCurrencyMeta(currency);
+  const assetDigits = getAssetDisplayPrecision(currency);
 
   const transactionDetailStates = location.state as TransactionDetailStates;
-  const {
-    type,
-    status,
-    amountBtc,
-    amountUsd,
-    feeBtc,
-    feeUsd,
-    timestamp,
-    confirmations,
-    transactionHash,
-    sender,
-    receiver,
-  } = transactionDetailStates;
+  const { type, status, amountBtc, amountUsd, feeBtc, feeUsd, timestamp, confirmations, transactionHash, feeUnit } =
+    transactionDetailStates;
+  const explorerUrl = buildTransactionExplorerUrl(currency, preferences.activeNetwork, transactionHash);
+  const feeSymbol = feeUnit ?? meta.networkFeeSymbol ?? meta.symbol;
+  const feeDigits = feeSymbol === 'BTC' ? 8 : 6;
+  const hasAmountUsd = Number.isFinite(amountUsd);
+  const hasFeeUsd = Number.isFinite(feeUsd);
+  const statusLabel =
+    status === 'FAILED' ? 'Failed' : status == 'CONFIRMED' ? (type == 'SEND' ? 'Sent' : 'Received') : 'Pending';
+  const statusAlt =
+    status === 'FAILED' ? 'Failed' : status == 'CONFIRMED' ? (type == 'SEND' ? 'Sent' : 'Received') : 'Pending';
 
   return (
     <div className="flex flex-col items-center text-white bg-dark h-full px-4 pt-12 pb-[19px]">
@@ -46,29 +49,33 @@ export const TransactionDetail: React.FC = () => {
       <div className="flex flex-col justify-center items-center self-center mt-10 mb-4 max-w-full w-[151px] gap-0.5">
         <img
           loading="lazy"
-          src={chrome.runtime.getURL(`popup/${type == 'SEND' ? 'sent' : 'received'}_icon.svg`)}
-          alt={status == 'CONFIRMED' ? (type == 'SEND' ? 'Sent' : 'Received') : 'Pending'}
+          src={chrome.runtime.getURL(
+            `popup/${status === 'FAILED' ? 'pending' : type == 'SEND' ? 'sent' : 'received'}_icon.svg`,
+          )}
+          alt={statusAlt}
           className="object-contain w-6"
         />
 
-        {preferences?.fiatCurrency === 'USD' ? (
+        {preferences?.fiatCurrency === 'USD' && hasAmountUsd ? (
           <div className="text-[35px] leading-[53.2px] font-bold text-center text-white uppercase text-nowrap">
-            {formatNumber(Math.abs(amountUsd))} <span className="text-xl">USD</span>
+            {formatNumber(Math.abs(amountUsd ?? 0))} <span className="text-xl">USD</span>
           </div>
         ) : (
           <div className="text-[35px] leading-[53.2px] font-bold text-center text-white uppercase text-nowrap">
-            {formatNumber(Math.abs(amountBtc), 8)} <span className="text-xl">BTC</span>
+            {formatNumber(Math.abs(amountBtc), assetDigits)} <span className="text-xl">{meta.symbol}</span>
           </div>
         )}
 
-        <div className="text-base font-bold leading-none text-white">
-          {status == 'CONFIRMED' ? (type == 'SEND' ? 'Sent' : 'Received') : 'Pending'}
-        </div>
+        <div className="text-base font-bold leading-none text-white">{statusLabel}</div>
 
-        {preferences?.fiatCurrency === 'USD' ? (
-          <span className="text-xs leading-loose text-foreground">{formatNumber(Math.abs(amountBtc), 8)} BTC</span>
+        {preferences?.fiatCurrency === 'USD' && hasAmountUsd ? (
+          <span className="text-xs leading-loose text-foreground">
+            {formatNumber(Math.abs(amountBtc), assetDigits)} {meta.symbol}
+          </span>
         ) : (
-          <span className="text-xs leading-loose text-foreground">{formatNumber(Math.abs(amountUsd))} USD</span>
+          <span className="text-xs leading-loose text-foreground">
+            {hasAmountUsd ? `${formatNumber(Math.abs(amountUsd ?? 0))} USD` : 'USD unavailable'}
+          </span>
         )}
       </div>
 
@@ -76,9 +83,9 @@ export const TransactionDetail: React.FC = () => {
         <LabelValue
           label="Amount"
           value={
-            preferences?.fiatCurrency === 'USD'
-              ? `${formatNumber(Math.abs(amountUsd))} USD (${formatNumber(Math.abs(amountBtc), 8)} BTC)`
-              : `${formatNumber(Math.abs(amountBtc), 8)} BTC (${formatNumber(Math.abs(amountUsd))} USD)`
+            preferences?.fiatCurrency === 'USD' && hasAmountUsd
+              ? `${formatNumber(Math.abs(amountUsd ?? 0))} USD (${formatNumber(Math.abs(amountBtc), assetDigits)} ${meta.symbol})`
+              : `${formatNumber(Math.abs(amountBtc), assetDigits)} ${meta.symbol} (${hasAmountUsd ? `${formatNumber(Math.abs(amountUsd ?? 0))} USD` : 'USD unavailable'})`
           }
         />
 
@@ -86,19 +93,24 @@ export const TransactionDetail: React.FC = () => {
           <LabelValue
             label="Fee"
             value={
-              preferences?.fiatCurrency === 'USD'
-                ? `${formatNumber(Math.abs(feeUsd))} USD (${formatNumber(Math.abs(feeBtc), 8)} BTC)`
-                : `${formatNumber(Math.abs(feeBtc), 8)} BTC (${formatNumber(Math.abs(feeUsd))} USD)`
+              preferences?.fiatCurrency === 'USD' && hasFeeUsd
+                ? `${formatNumber(Math.abs(feeUsd ?? 0))} USD (${formatNumber(Math.abs(feeBtc), feeDigits)} ${feeSymbol})`
+                : `${formatNumber(Math.abs(feeBtc), feeDigits)} ${feeSymbol} (${hasFeeUsd ? `${formatNumber(Math.abs(feeUsd ?? 0))} USD` : 'USD unavailable'})`
             }
           />
         )}
 
-        {status == 'CONFIRMED' && <LabelValue label="Date & Time" value={formatTimestamp(timestamp)} />}
+        {status !== 'PENDING' && <LabelValue label="Date & Time" value={formatTimestamp(timestamp)} />}
         <LabelValue
           label="Confirmations"
           value={
-            <div className={`${confirmations == 0 ? 'text-primary-orange' : 'text-primary-green'}`}>
-              {confirmations == 0 ? 'Unconfirmed' : `${formatNumber(confirmations)} Confirmations`}
+            <div
+              className={`${status === 'FAILED' ? 'text-primary-red' : confirmations == 0 ? 'text-primary-orange' : 'text-primary-green'}`}>
+              {status === 'FAILED'
+                ? 'Failed'
+                : confirmations == 0
+                  ? 'Unconfirmed'
+                  : `${formatNumber(confirmations)} Confirmations`}
             </div>
           }
         />
@@ -108,7 +120,7 @@ export const TransactionDetail: React.FC = () => {
         <LabelValue
           label="Transaction ID"
           value={
-            <a href={`https://www.blockonomics.co/#/search?q=${transactionHash}`} className="underline" target="_blank">
+            <a href={explorerUrl} className="underline" target="_blank">
               {transactionHash}
             </a>
           }

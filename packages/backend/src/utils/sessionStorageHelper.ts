@@ -1,6 +1,6 @@
-import { decryptText, encryptText } from './cryptoUtils';
+import { decryptText, encryptText } from './encryption';
 
-export const SESSION_PASSWORD_KEY = '8C7822A5D65E99D67FDE93E344AF9'; //consider chrome-app-id
+export const SESSION_PASSWORD_KEY = '8C7822A5D65E99D67FDE93E344AF9';
 const PASSWORD_TTL = 60 * 60 * 1000;
 
 export async function setSessionPassword(pwd: string): Promise<void> {
