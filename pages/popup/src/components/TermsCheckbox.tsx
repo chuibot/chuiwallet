@@ -2,15 +2,30 @@ import * as React from 'react';
 
 export interface TermsCheckboxProps {
   onAcceptChange: (accepted: boolean) => void;
+  onBeforeTosOpen?: () => Promise<void>;
+  initialChecked?: boolean;
 }
 
-export const TermsCheckbox: React.FC<TermsCheckboxProps> = ({ onAcceptChange }) => {
-  const [checked, setChecked] = React.useState(false);
+export const TermsCheckbox: React.FC<TermsCheckboxProps> = ({
+  onAcceptChange,
+  onBeforeTosOpen,
+  initialChecked = false,
+}) => {
+  const [checked, setChecked] = React.useState(initialChecked);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.checked;
     setChecked(newValue);
     onAcceptChange(newValue);
+  };
+
+  const handleTosClick = async (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (onBeforeTosOpen) {
+      e.preventDefault();
+      const href = (e.currentTarget as HTMLAnchorElement).href;
+      await onBeforeTosOpen();
+      window.open(href, '_blank', 'noopener,noreferrer');
+    }
   };
 
   return (
@@ -44,7 +59,8 @@ export const TermsCheckbox: React.FC<TermsCheckboxProps> = ({ onAcceptChange }) 
             href="https://www.blockonomics.co/privacy"
             className="text-primary-yellow no-underline"
             target="_blank"
-            rel="noopener noreferrer">
+            rel="noopener noreferrer"
+            onClick={handleTosClick}>
             Terms of Service
           </a>
         </label>

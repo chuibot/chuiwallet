@@ -7,6 +7,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { sendMessage } from '@src/utils/bridge';
 import { useChuiEvents } from '@src/hooks/useChuiEvents';
 import { defaultPreferences } from '@extension/backend/src/preferenceManager';
+import { deleteSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
 
 interface WalletContextType {
   onboarded: boolean;
@@ -227,6 +228,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const logout = async () => {
     return (async () => {
       await sendMessage('wallet.logout');
+      await deleteSessionPassword();
       setIsBackedUp(false);
       setOnboarded(false);
       _setChainBalances({});
