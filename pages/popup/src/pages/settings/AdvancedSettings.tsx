@@ -8,10 +8,10 @@ import NetworkSelector from '@src/components/NetworkSelector';
 export const AdvancedSettings: React.FC = () => {
   const navigate = useNavigate();
   const { preferences, switchNetwork } = useWalletContext();
-  const displayNetwork = preferences?.activeNetwork === 'mainnet' ? 'Mainnet' : 'Testnet';
+  const displayNetwork = preferences?.activeNetwork === 'mainnet' ? 'Mainnet' : 'Testnet4';
 
   const networkChanged = async (selected: string) => {
-    const selectedNetwork = selected.toLowerCase() as Network;
+    const selectedNetwork = (selected === 'Testnet4' ? 'testnet' : selected.toLowerCase()) as Network;
     await switchNetwork(selectedNetwork);
   };
 
@@ -23,7 +23,7 @@ export const AdvancedSettings: React.FC = () => {
         <div className="flex flex-col mt-3 mb-3 w-full font-bold">
           <NetworkSelector
             initialNetwork={displayNetwork}
-            options={['Mainnet', 'Testnet']}
+            options={['Mainnet', 'Testnet4']}
             onChange={network => networkChanged(network)}
           />
         </div>
