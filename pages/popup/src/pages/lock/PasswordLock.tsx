@@ -4,6 +4,7 @@ import { InputField } from '@src/components/InputField';
 import { Button } from '@src/components/Button';
 import { setSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
 import { useWalletContext } from '@src/context/WalletContext';
+import { sendMessage } from '@src/utils/bridge';
 
 export const PasswordLock: React.FC = () => {
   const navigate = useNavigate();
@@ -28,6 +29,12 @@ export const PasswordLock: React.FC = () => {
     setLoading(true);
 
     try {
+      const isValid = await sendMessage<boolean>('wallet.verifyPassword', { password });
+      if (!isValid) {
+        setErrorMsg('Incorrect password.');
+        return;
+      }
+
       await setSessionPassword(password);
       await init();
       navigate(next, { replace: true });
