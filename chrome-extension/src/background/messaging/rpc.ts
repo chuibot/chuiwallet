@@ -1,5 +1,8 @@
 import type { Runtime } from 'webextension-polyfill';
 import type { ProviderRpc } from '@src/background/messaging/index';
+import { chainRegistry } from '@extension/backend/src/adapters/ChainRegistry';
+import { ChainType } from '@extension/backend/src/adapters/IChainAdapter';
+import { ChangeType } from '@extension/backend/src/types/cache';
 import { walletManager } from '@extension/backend/src/walletManager';
 
 export type RpcRequest = {
@@ -40,12 +43,36 @@ type PendingApproval = {
 
 type Handler = (params: unknown, sender: Runtime.MessageSender) => Promise<unknown> | unknown;
 
+type ProviderAddresses = {
+  bitcoin: {
+    xpub?: string | null;
+    receivingAddress: string | null;
+    changeAddress: string | null;
+  };
+  evm: {
+    address: string | null;
+  };
+};
+
 const rpcVersion = '2.0';
 const pendingApprovals = new Map<number, PendingApproval>();
 
 const handlers: Record<string, Handler> = {
   getXpub: () => {
     return walletManager.getXpub();
+  },
+  getAddresses: async () => {
+    return getAddresses();
+  },
+  getXpubAddresses: async () => {
+    const addresses = await getAddresses();
+    return {
+      ...addresses,
+      bitcoin: {
+        ...addresses.bitcoin,
+        xpub: walletManager.getXpub(),
+      },
+    };
   },
 };
 
@@ -80,6 +107,7 @@ export function resolveApproval(approvalId: number, approved: boolean) {
 export function rejectApproval(approvalId: number, reason: string) {
   const item = pendingApprovals.get(approvalId);
   if (!item) return;
+  void reason;
   pendingApprovals.delete(approvalId);
   item.resolve(false);
 }
@@ -130,6 +158,39 @@ export async function handle(message: ProviderRpc, sender: Runtime.MessageSender
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
     return rpcErrorResponse(rpcRequest.id, -32603, 'Internal error', errorMessage);
+  }
+}
+
+async function getAddresses(): Promise<ProviderAddresses> {
+  return {
+    bitcoin: {
+      receivingAddress: getBitcoinAddress(ChangeType.External),
+      changeAddress: getBitcoinAddress(ChangeType.Internal),
+    },
+    evm: {
+      address: getEvmAddress(),
+    },
+  };
+}
+
+function getBitcoinAddress(changeType: ChangeType): string | null {
+  try {
+    return walletManager.getAddress(changeType) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function getEvmAddress(): string | null {
+  const adapter = chainRegistry.get(ChainType.Ethereum);
+  if (!adapter) {
+    return null;
+  }
+
+  try {
+    return adapter.getReceivingAddress();
+  } catch {
+    return null;
   }
 }
 

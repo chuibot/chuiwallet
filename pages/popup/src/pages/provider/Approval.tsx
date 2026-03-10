@@ -17,6 +17,15 @@ type ApprovalData = {
   rpc: RpcRequest;
 };
 
+const METHOD_COPY: Record<string, string> = {
+  getXpub:
+    'This website is requesting access to your Bitcoin extended public key (xpub). This lets it derive all your Bitcoin receiving addresses and track your Bitcoin wallet history.',
+  getAddresses:
+    'This website is requesting your Bitcoin receiving address, Bitcoin change address, and your EVM address. This lets it identify your wallet addresses and monitor incoming and outgoing payments.',
+  getXpubAddresses:
+    'This website is requesting your Bitcoin xpub together with your Bitcoin receiving address, Bitcoin change address, and your EVM address. The xpub lets it derive all your Bitcoin receiving addresses and track your Bitcoin wallet history.',
+};
+
 export const ProviderApproval: React.FC = () => {
   const location = useLocation();
   const search = new URLSearchParams(location.search);
@@ -67,6 +76,7 @@ export const ProviderApproval: React.FC = () => {
   }
 
   const { origin, rpc } = approval;
+  const methodDescription = METHOD_COPY[rpc.method];
 
   return (
     <div className="flex flex-col justify-start items-start text-white bg-dark h-[600px] px-4 pt-12">
@@ -96,12 +106,7 @@ export const ProviderApproval: React.FC = () => {
           <div className="font-bold">{rpc.method}</div>
         </div>
 
-        {rpc.method === 'getXpub' && (
-          <p className="text-sm text-white">
-            This website is requesting access to your extended public key (xpub). This lets it derive all your receiving
-            addresses and track your wallet history.
-          </p>
-        )}
+        {methodDescription && <p className="text-sm text-white">{methodDescription}</p>}
       </div>
 
       <div className="fixed bottom-[19px] w-full">

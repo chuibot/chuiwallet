@@ -7,5 +7,5 @@ export const providerInfo: BtcProviderInfo = {
   // icon: 'data:image/svg+xml;base64,...', // add later
   webUrl: 'https://chuiwallet.example', // add later
   chromeWebStoreUrl: 'https://chromewebstore.google.com/detail/...', // add later
-  methods: ['getAddresses', 'getXpub'],
+  methods: ['getXpub', 'getAddresses', 'getXpubAddresses'],
 };
