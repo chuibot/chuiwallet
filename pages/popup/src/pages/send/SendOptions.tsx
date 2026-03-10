@@ -358,6 +358,11 @@ export const SendOptions: React.FC = () => {
       return;
     }
 
+    const valueParts = value.split('.');
+    if (valueParts[1] && valueParts[1].length > assetDigits) {
+      return;
+    }
+
     setError('');
     setLastEditedField('asset');
     setAssetAmount(value);
@@ -366,6 +371,11 @@ export const SendOptions: React.FC = () => {
   const handleUsdAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     if (value !== '' && !DECIMAL_INPUT_REGEX.test(value)) {
+      return;
+    }
+
+    const valueParts = value.split('.');
+    if (valueParts[1] && valueParts[1].length > 2) {
       return;
     }
 
