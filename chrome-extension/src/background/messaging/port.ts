@@ -49,6 +49,6 @@ export function emitBalance(accountIndex: number, balance: Balance) {
   broadcast({ type: 'BALANCE', accountIndex, balance, ts: Date.now() });
 }
 
-export function emitTx(accountIndex: number, tx: any) {
+export function emitTx(accountIndex: number, tx: unknown) {
   broadcast({ type: 'TX', accountIndex, tx, ts: Date.now() });
 }

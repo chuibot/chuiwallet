@@ -24,7 +24,7 @@ import { Accounts } from '@src/pages/accounts/Accounts';
 import { useWalletContext } from '@src/context/WalletContext';
 import { ProviderApproval } from '@src/pages/provider/Approval';
 import { ErrorBanner } from '@src/components/ErrorBanner';
-import Xpub from '@src/pages/settings/Xpub';
+import { Xpub } from '@src/pages/settings/Xpub';
 import Splash from '@src/pages/splash/Splash';
 
 const RequireUnlocked: React.FC<{ children: React.ReactNode }> = ({ children }) => {

@@ -113,6 +113,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         console.error(e);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Get wallet balance

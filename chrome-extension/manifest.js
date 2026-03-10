@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import deepmerge from 'deepmerge';
 
 const packageJson = JSON.parse(fs.readFileSync('../package.json', 'utf8'));
 
@@ -12,12 +11,6 @@ function withSidePanel(manifest) {
   }
 
   return manifest;
-  // return deepmerge(manifest, {
-  //   side_panel: {
-  //     default_path: 'side-panel/index.html',
-  //   },
-  //   permissions: ['sidePanel', 'alarms'],
-  // });
 }
 
 /**

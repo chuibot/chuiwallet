@@ -24,6 +24,7 @@ export const Dashboard: React.FC = () => {
   React.useEffect(() => {
     refreshBalance();
     void refreshChainBalances();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const usdtMeta = getCurrencyMeta('usdt');

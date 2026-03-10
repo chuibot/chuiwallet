@@ -46,11 +46,12 @@ const AddressQRCode: React.FC<AddressSectionProps> = ({ currency, address }) => 
       <QRCode value={address} size={178} level="H" className="object-contain mt-8 max-w-full aspect-square w-[168px]" />
 
       <div className="relative mt-6 flex flex-col w-full max-w-[224px]">
-        <div
+        <button
+          type="button"
           className="flex flex-start self-start text-[1rem] leading-5 text-center btc-address w-full"
           onClick={handleCopyToClipboard}>
-          <span className="overflow-wrap text-wrap w-full">{address}</span>
-        </div>
+          <span className="overflow-wrap text-wrap w-full text-left">{address}</span>
+        </button>
 
         {copied && (
           <div className="absolute ml-1 mt-2 top-0 left-full p-1 bg-body font-normal bg-neutral-700 text-foreground text-xs rounded z-[1]">

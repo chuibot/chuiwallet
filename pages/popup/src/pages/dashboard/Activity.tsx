@@ -99,6 +99,7 @@ export const Activity: React.FC = () => {
 
   useEffect(() => {
     refreshTransactions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preferences?.activeAccountIndex]);
 
   // Fetch chain transaction history and user address for ETH/USDT
