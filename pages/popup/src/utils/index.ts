@@ -48,26 +48,6 @@ export function formatNumber(value: number, digits: number = 2): string {
   return integer === '0' ? '0' + fraction : integer + fraction;
 }
 
-/**
- * Helper to format timestamp to something like "10:30 AM"
- */
-export function timestampToTime(timestamp: number) {
-  const date = new Date(timestamp * 1000);
-
-  let hours = date.getHours();
-  const minutes = date.getMinutes();
-
-  const period = hours >= 12 ? 'PM' : 'AM';
-
-  hours = hours % 12;
-  hours = hours ? hours : 12;
-
-  const formattedHours = hours < 10 ? '0' + hours : hours;
-  const formattedMinutes = minutes < 10 ? '0' + minutes : minutes;
-
-  return `${formattedHours}:${formattedMinutes} ${period}`;
-}
-
 export function capitalizeFirstLetter(value: string) {
   return String(value).charAt(0).toUpperCase() + String(value).slice(1);
 }
