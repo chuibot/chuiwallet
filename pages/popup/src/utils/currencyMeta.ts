@@ -96,5 +96,10 @@ export function buildTransactionExplorerUrl(currency: string | undefined, networ
     return `${baseUrl}${txHash}`;
   }
 
+  // Bitcoin (default)
+  if (network === 'testnet') {
+    return `https://mempool.space/testnet4/tx/${txHash}`;
+  }
+
   return `https://www.blockonomics.co/#/search?q=${txHash}`;
 }

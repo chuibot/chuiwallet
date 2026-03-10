@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Header from '@src/components/Header';
 import { Button } from '@src/components/Button';
 import XpubQRCode from '@src/components/XpubQRCode';
@@ -11,22 +11,22 @@ export const Xpub: React.FC = () => {
   const [error, setError] = useState<string>('');
   const [copyText, setCopyText] = useState<string>('Copy To Clipboard');
 
-  const fetchXpub = async () => {
+  const fetchXpub = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const xpub: string = await sendMessage('wallet.getXpub');
       setXpub(xpub);
-    } catch (e: any) {
-      setError(e.message || 'Failed to fetch xPub key');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to fetch xPub key');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchXpub();
-  }, []);
+  }, [fetchXpub]);
 
   const handleCopyToClipboard = async () => {
     try {

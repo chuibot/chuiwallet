@@ -1,5 +1,6 @@
 import type * as React from 'react';
-import type { Currencies, TransactionActivityStatus, TransactionType } from '@src/types';
+import type { Currencies } from '@src/types';
+import type { TxStatus, TxType } from '@extension/backend/src/types/cache';
 import Header from '@src/components/Header';
 import LabelValue from '@src/components/LabelValue';
 import { useWalletContext } from '@src/context/WalletContext';
@@ -8,8 +9,8 @@ import { buildTransactionExplorerUrl, getAssetDisplayPrecision, getCurrencyMeta 
 import { useLocation, useParams } from 'react-router-dom';
 
 export interface TransactionDetailStates {
-  type: TransactionType;
-  status: TransactionActivityStatus;
+  type: TxType;
+  status: TxStatus;
   amountBtc: number;
   amountUsd?: number;
   feeBtc: number;
