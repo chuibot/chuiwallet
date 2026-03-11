@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { WordColumn } from '@src/components/WordColumn';
+import { SeedColumn } from '@src/components/SeedColumn';
 import { Button } from '@src/components/Button';
 import { useWalletContext } from '@src/context/WalletContext';
 import { pickRandomPositions } from '@src/utils';
@@ -15,6 +16,7 @@ export const VerifySeed: React.FC = () => {
   const [userInputs, setUserInputs] = useState<{ [pos: number]: string }>({});
   const [errorMsg, setErrorMsg] = React.useState('');
   const [isValid, setIsValid] = useState(false);
+  const [showSeed, setShowSeed] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -104,9 +106,24 @@ export const VerifySeed: React.FC = () => {
           </div>
         </div>
 
+        <button
+          className="mt-4 text-xs font-bold text-primary-yellow bg-transparent border-none outline-none"
+          onClick={() => setShowSeed(prev => !prev)}>
+          {showSeed ? 'Hide seed phrase' : 'View seed phrase'}
+        </button>
+
         <div className="flex gap-4 self-center mt-6 text-base leading-9 whitespace-nowrap min-h-[289px] text-foreground">
-          <WordColumn words={leftWords} />
-          <WordColumn words={rightWords} />
+          {showSeed ? (
+            <>
+              <SeedColumn words={seedWords.slice(0, 6)} startIndex={1} />
+              <SeedColumn words={seedWords.slice(6, 12)} startIndex={7} />
+            </>
+          ) : (
+            <>
+              <WordColumn words={leftWords} />
+              <WordColumn words={rightWords} />
+            </>
+          )}
         </div>
       </div>
 
