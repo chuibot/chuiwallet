@@ -1,139 +1,143 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { WordColumn } from '@src/components/WordColumn';
-import { SeedColumn } from '@src/components/SeedColumn';
 import { Button } from '@src/components/Button';
 import { useWalletContext } from '@src/context/WalletContext';
 import { pickRandomPositions } from '@src/utils';
 import { sendMessage } from '@src/utils/bridge';
 import Header from '@src/components/Header';
 
+interface Challenge {
+  position: number; // 1-based
+  answer: string;
+  choices: string[]; // 4 shuffled options
+}
+
+function shuffle<T>(arr: T[]): T[] {
+  return [...arr].sort(() => Math.random() - 0.5);
+}
+
 export const VerifySeed: React.FC = () => {
   const navigate = useNavigate();
   const { setIsBackedUp } = useWalletContext();
-  const [seedWords, setSeedWords] = useState<string[]>(Array(12).fill(''));
-  const [missingPositions, setMissingPositions] = useState<number[]>([]);
-  const [userInputs, setUserInputs] = useState<{ [pos: number]: string }>({});
-  const [errorMsg, setErrorMsg] = React.useState('');
-  const [isValid, setIsValid] = useState(false);
-  const [showSeed, setShowSeed] = useState(false);
+  const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const [step, setStep] = useState(0);
+  const [picked, setPicked] = useState<string[]>(['', '', '']);
+  const [verified, setVerified] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const positions = pickRandomPositions(3, 12);
-      setMissingPositions(positions);
-
       try {
         const seed: string = await sendMessage('wallet.getMnemonic');
-        if (!seed) {
-          console.error('Failed to recover seed');
-          return;
-        }
-
-        setSeedWords(seed.split(' '));
+        if (!seed) return;
+        const words = seed.split(' ');
+        const positions = pickRandomPositions(3, 12);
+        setChallenges(
+          positions.map(pos => {
+            const answer = words[pos - 1];
+            const decoys = words
+              .filter((_, i) => i !== pos - 1)
+              .sort(() => Math.random() - 0.5)
+              .slice(0, 3);
+            return { position: pos, answer, choices: shuffle([answer, ...decoys]) };
+          }),
+        );
       } catch (err) {
         console.error('Error recovering seed in verify:', err);
       }
     })();
   }, []);
 
-  useEffect(() => {
-    const allMissingMatch = missingPositions.every(pos => {
-      return userInputs[pos]?.trim() === seedWords[pos - 1]?.trim();
-    });
-    setIsValid(allMissingMatch);
-  }, [userInputs, missingPositions, seedWords]);
+  if (!challenges.length) return null;
 
-  const handleChange = (pos: number, value: string) => {
-    const firstWord = value.trim().split(/\s+/)[0];
-    setUserInputs(prev => ({ ...prev, [pos]: firstWord }));
+  const current = challenges[step];
+  const isLastStep = step === challenges.length - 1;
+
+  const handleSelect = (word: string) => {
+    const next = [...picked];
+    next[step] = word;
+    setPicked(next);
+    setFailed(false);
   };
 
-  const handleVerify = async () => {
-    let valid = true;
-
-    for (const pos of missingPositions) {
-      const actual = seedWords[pos - 1]?.trim();
-      const userVal = userInputs[pos]?.trim();
-      if (actual !== userVal) {
-        valid = false;
-        break;
-      }
-    }
-
-    if (!valid) {
-      setErrorMsg('Seed verification failed. Please try again.');
+  const handleNext = () => {
+    if (!isLastStep) {
+      setStep(s => s + 1);
       return;
     }
+    const allCorrect = challenges.every((c, i) => picked[i] === c.answer);
+    if (allCorrect) {
+      setVerified(true);
+    } else {
+      setFailed(true);
+      setStep(0);
+      setPicked(['', '', '']);
+    }
+  };
 
+  const handleContinue = async () => {
     await sendMessage('wallet.setBackupStatus', { isBackedUp: true });
     setIsBackedUp(true);
     navigate('/dashboard');
   };
 
-  const leftWords = seedWords.slice(0, 6).map((word, i) => {
-    const pos = i + 1;
-    if (missingPositions.includes(pos)) {
-      return {
-        text: userInputs[pos] || '',
-        isInput: true,
-        onChange: (val: string) => handleChange(i + 1, val),
-        placeholder: `${i + 1}.`,
-      };
-    }
-    return { text: word, isHighlighted: false, isInput: false };
-  });
-  const rightWords = seedWords.slice(6, 12).map((word, i) => {
-    const pos = i + 7;
-    if (missingPositions.includes(pos)) {
-      return {
-        text: userInputs[pos] || '',
-        isInput: true,
-        onChange: (val: string) => handleChange(i + 7, val),
-        placeholder: `${i + 7}.`,
-      };
-    }
-    return { text: word, isHighlighted: false, isInput: false };
-  });
-
   return (
     <div className="relative flex overflow-hidden flex-col px-5 pt-12 pb-[19px] bg-dark h-full w-full">
       <Header title="Verify words" hideClose={true} />
-      <div className="flex flex-col self-center w-full text-center">
-        <div className="flex flex-col w-full">
-          <div className="mt-8 text-lg leading-6 text-foreground">
-            Rewrite the correct words on the empty fields to verify your wallet
+
+      <div className="flex flex-col items-center w-full mt-8 flex-grow">
+        <p className="text-lg leading-6 text-foreground text-center">
+          Select the correct word for each position to verify your backup
+        </p>
+
+        {/* Step indicator */}
+        <div className="flex gap-3 mt-6">
+          {challenges.map((_, i) => (
+            <div
+              key={i}
+              className={`w-2.5 h-2.5 rounded-full transition-colors ${
+                verified || i < step ? 'bg-primary-yellow' : i === step ? 'bg-foreground' : 'bg-gray-600'
+              }`}
+            />
+          ))}
+        </div>
+
+        {!verified ? (
+          <>
+            <p className="mt-10 text-sm text-foreground/60">What is word #{current.position}?</p>
+
+            <div className="grid grid-cols-2 gap-3 mt-4 w-full">
+              {current.choices.map(word => (
+                <button
+                  key={word}
+                  onClick={() => handleSelect(word)}
+                  className={`py-3 rounded-lg text-sm font-semibold transition-colors ${picked[step] === word ? 'bg-primary-yellow text-dark' : 'bg-neutral-700 text-foreground hover:bg-neutral-600'}`}>
+                  {word}
+                </button>
+              ))}
+            </div>
+
+            {failed && (
+              <p className="mt-4 text-xs text-primary-red text-center">One or more words were incorrect. Try again.</p>
+            )}
+          </>
+        ) : (
+          <div className="flex flex-col items-center mt-16">
+            <span className="text-5xl text-primary-yellow font-bold">&#10003;</span>
+            <p className="text-foreground text-center mt-4 text-lg">Seed phrase verified!</p>
           </div>
-        </div>
-
-        <button
-          className="mt-4 text-xs font-bold text-primary-yellow bg-transparent border-none outline-none"
-          onClick={() => setShowSeed(prev => !prev)}>
-          {showSeed ? 'Hide seed phrase' : 'View seed phrase'}
-        </button>
-
-        <div className="flex gap-4 self-center mt-6 text-base leading-9 whitespace-nowrap min-h-[289px] text-foreground">
-          {showSeed ? (
-            <>
-              <SeedColumn words={seedWords.slice(0, 6)} startIndex={1} />
-              <SeedColumn words={seedWords.slice(6, 12)} startIndex={7} />
-            </>
-          ) : (
-            <>
-              <WordColumn words={leftWords} />
-              <WordColumn words={rightWords} />
-            </>
-          )}
-        </div>
+        )}
       </div>
 
-      <span className="mt-6 text-xs text-primary-red font-light text-center">{errorMsg}</span>
-
-      <div className="flex-grow" />
-
-      <Button className="absolute w-full bottom-[19px]" disabled={!isValid} onClick={handleVerify}>
-        Continue
-      </Button>
+      {!verified ? (
+        <Button className="absolute w-full bottom-[19px]" disabled={picked[step] === ''} onClick={handleNext}>
+          {isLastStep ? 'Verify' : 'Next'}
+        </Button>
+      ) : (
+        <Button className="absolute w-full bottom-[19px]" onClick={handleContinue}>
+          Continue
+        </Button>
+      )}
     </div>
   );
 };
