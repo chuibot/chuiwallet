@@ -58,7 +58,7 @@ const NetworkSelector: React.FC<NetworkSelectorProps> = ({
 
   return (
     <div className="relative flex flex-col justify-center w-full gap-[2px]">
-      <div className="text-base leading-[22px] text-white font-bold mt-[8px]">BTC Network</div>
+      <div className="text-base leading-[22px] text-white font-bold mt-[8px]">Network</div>
       <Dropdown
         options={options}
         selected={selectedNetwork}
