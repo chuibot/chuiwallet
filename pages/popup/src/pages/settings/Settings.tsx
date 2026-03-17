@@ -12,8 +12,8 @@ export const Settings: React.FC = () => {
     navigate('/locked');
   };
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate('/onboard/set-password');
   };
 
