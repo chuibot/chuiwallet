@@ -1,122 +1,81 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { WordColumn } from '@src/components/WordColumn';
 import { Button } from '@src/components/Button';
 import { useWalletContext } from '@src/context/WalletContext';
-import { pickRandomPositions } from '@src/utils';
 import { sendMessage } from '@src/utils/bridge';
 import Header from '@src/components/Header';
 
-export const VerifySeed: React.FC = () => {
+export const VerifySeed = () => {
   const navigate = useNavigate();
   const { setIsBackedUp } = useWalletContext();
-  const [seedWords, setSeedWords] = useState<string[]>(Array(12).fill(''));
-  const [missingPositions, setMissingPositions] = useState<number[]>([]);
-  const [userInputs, setUserInputs] = useState<{ [pos: number]: string }>({});
-  const [errorMsg, setErrorMsg] = React.useState('');
-  const [isValid, setIsValid] = useState(false);
+  const [seed, setSeed] = useState('');
+  const [input, setInput] = useState('');
+  const [failed, setFailed] = useState(false);
+  const [verified, setVerified] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const positions = pickRandomPositions(3, 12);
-      setMissingPositions(positions);
-
-      try {
-        const seed: string = await sendMessage('wallet.getMnemonic');
-        if (!seed) {
-          console.error('Failed to recover seed');
-          return;
-        }
-
-        setSeedWords(seed.split(' '));
-      } catch (err) {
-        console.error('Error recovering seed in verify:', err);
-      }
+      const mnemonic: string = await sendMessage('wallet.getMnemonic');
+      setSeed(mnemonic);
     })();
   }, []);
 
-  useEffect(() => {
-    const allMissingMatch = missingPositions.every(pos => {
-      return userInputs[pos]?.trim() === seedWords[pos - 1]?.trim();
-    });
-    setIsValid(allMissingMatch);
-  }, [userInputs, missingPositions, seedWords]);
-
-  const handleChange = (pos: number, value: string) => {
-    const firstWord = value.trim().split(/\s+/)[0];
-    setUserInputs(prev => ({ ...prev, [pos]: firstWord }));
+  const handleVerify = () => {
+    if (input.trim() === seed.trim()) {
+      setVerified(true);
+    } else {
+      setFailed(true);
+      setInput('');
+    }
   };
 
-  const handleVerify = async () => {
-    let valid = true;
-
-    for (const pos of missingPositions) {
-      const actual = seedWords[pos - 1]?.trim();
-      const userVal = userInputs[pos]?.trim();
-      if (actual !== userVal) {
-        valid = false;
-        break;
-      }
-    }
-
-    if (!valid) {
-      setErrorMsg('Seed verification failed. Please try again.');
-      return;
-    }
-
+  const handleContinue = async () => {
     await sendMessage('wallet.setBackupStatus', { isBackedUp: true });
     setIsBackedUp(true);
     navigate('/dashboard');
   };
 
-  const leftWords = seedWords.slice(0, 6).map((word, i) => {
-    const pos = i + 1;
-    if (missingPositions.includes(pos)) {
-      return {
-        text: userInputs[pos] || '',
-        isInput: true,
-        onChange: (val: string) => handleChange(i + 1, val),
-        placeholder: `${i + 1}.`,
-      };
-    }
-    return { text: word, isHighlighted: false, isInput: false };
-  });
-  const rightWords = seedWords.slice(6, 12).map((word, i) => {
-    const pos = i + 7;
-    if (missingPositions.includes(pos)) {
-      return {
-        text: userInputs[pos] || '',
-        isInput: true,
-        onChange: (val: string) => handleChange(i + 7, val),
-        placeholder: `${i + 7}.`,
-      };
-    }
-    return { text: word, isHighlighted: false, isInput: false };
-  });
-
   return (
     <div className="relative flex overflow-hidden flex-col px-5 pt-12 pb-[19px] bg-dark h-full w-full">
       <Header title="Verify words" hideClose={true} />
-      <div className="flex flex-col self-center w-full text-center">
-        <div className="flex flex-col w-full">
-          <div className="mt-8 text-lg leading-6 text-foreground">
-            Rewrite the correct words on the empty fields to verify your wallet
-          </div>
-        </div>
 
-        <div className="flex gap-4 self-center mt-6 text-base leading-9 whitespace-nowrap min-h-[289px] text-foreground">
-          <WordColumn words={leftWords} />
-          <WordColumn words={rightWords} />
-        </div>
+      <div className="flex flex-col items-center w-full mt-8 flex-grow">
+        {!verified ? (
+          <>
+            <p className="text-lg leading-6 text-foreground text-center">
+              Enter your seed phrase to confirm you've backed it up
+            </p>
+
+            <textarea
+              className="w-full mt-6 p-3 rounded-lg bg-neutral-700 text-foreground text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary-yellow"
+              rows={4}
+              placeholder="Enter your 12-word seed phrase..."
+              value={input}
+              onChange={e => {
+                setInput(e.target.value);
+                setFailed(false);
+              }}
+            />
+
+            {failed && <p className="mt-3 text-xs text-primary-red text-center">Incorrect seed phrase. Try again.</p>}
+          </>
+        ) : (
+          <div className="flex flex-col items-center mt-16">
+            <span className="text-5xl text-primary-yellow font-bold">&#10003;</span>
+            <p className="text-foreground text-center mt-4 text-lg">Seed phrase verified!</p>
+          </div>
+        )}
       </div>
 
-      <span className="mt-6 text-xs text-primary-red font-light text-center">{errorMsg}</span>
-
-      <div className="flex-grow" />
-
-      <Button className="absolute w-full bottom-[19px]" disabled={!isValid} onClick={handleVerify}>
-        Continue
-      </Button>
+      {!verified ? (
+        <Button className="absolute w-full bottom-[19px]" disabled={input.trim() === ''} onClick={handleVerify}>
+          Verify
+        </Button>
+      ) : (
+        <Button className="absolute w-full bottom-[19px]" onClick={handleContinue}>
+          Continue
+        </Button>
+      )}
     </div>
   );
 };
