@@ -3,12 +3,14 @@ import { useState, useEffect } from 'react';
 import { Dropdown } from './Dropdown';
 
 type NetworkSelectorProps = {
+  label?: string;
   initialNetwork?: string;
   options?: string[];
   onChange?: (network: string) => void | Promise<void>;
 };
 
 const NetworkSelector: React.FC<NetworkSelectorProps> = ({
+  label = 'BTC Network',
   initialNetwork = 'Mainnet',
   options = ['Mainnet', 'Testnet'],
   onChange,
@@ -58,7 +60,7 @@ const NetworkSelector: React.FC<NetworkSelectorProps> = ({
 
   return (
     <div className="relative flex flex-col justify-center w-full gap-[2px]">
-      <div className="text-base leading-[22px] text-white font-bold mt-[8px]">BTC Network</div>
+      <div className="text-base leading-[22px] text-white font-bold mt-[8px]">{label}</div>
       <Dropdown
         options={options}
         selected={selectedNetwork}

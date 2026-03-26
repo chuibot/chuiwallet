@@ -19,6 +19,7 @@ export interface Preferences {
   fiatCurrency: string;
   activeAccountIndex: number; // Index into account list (accountManager.accounts), not HD account index
   activeNetwork: Network;
+  activeEvmNetwork: Network;
   isWalletBackedUp: boolean;
   ethRpcApiKey?: string;
 }
