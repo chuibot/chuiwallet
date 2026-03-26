@@ -24,6 +24,7 @@ interface WalletContextType {
   addAccount: () => Promise<void>;
   switchAccount: (accountIndex: number) => Promise<void>;
   switchNetwork: (network: Network) => Promise<void>;
+  switchEvmNetwork: (network: Network) => Promise<void>;
   balance: BalanceData | undefined;
   refreshBalance: () => void;
   transactions: TxEntry[];
@@ -215,6 +216,19 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     refreshTransactions();
   };
 
+  const switchEvmNetwork = async (network: Network) => {
+    await sendMessage('wallet.switchEvmNetwork', { network });
+    const nextPreferences: Preferences = await sendMessage('preferences.get');
+    setPreferences(nextPreferences);
+    // Only refresh Ethereum-related state; Bitcoin is unaffected
+    const hasCachedChainBalances = await loadCachedChainBalances();
+    if (!hasCachedChainBalances) {
+      _setChainBalances({});
+      setHasHydratedChainBalances(false);
+    }
+    void refreshChainBalances();
+  };
+
   const getChainReceivingAddress = async (chain: ChainType): Promise<string> => {
     return sendMessage<string>('chain.getReceivingAddress', { chain });
   };
@@ -252,6 +266,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         addAccount,
         switchAccount,
         switchNetwork,
+        switchEvmNetwork,
         balance,
         transactions,
         setOnboarded,

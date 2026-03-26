@@ -8,6 +8,7 @@ export interface Preferences {
   fiatCurrency: string;
   activeAccountIndex: number; // Index into accountManager.accounts (list index), not HD account index
   activeNetwork: Network;
+  activeEvmNetwork: Network;
   isWalletBackedUp: boolean;
   ethRpcApiKey?: string;
 }
@@ -19,6 +20,7 @@ export const defaultPreferences: Preferences = {
   fiatCurrency: 'USD',
   activeAccountIndex: -1,
   activeNetwork: Network.Mainnet,
+  activeEvmNetwork: Network.Mainnet,
   isWalletBackedUp: false,
   ethRpcApiKey: '',
 };
@@ -65,7 +67,16 @@ export class PreferenceManager {
       return defaultPreferences;
     }
 
-    return result[STORAGE_KEY] as Preferences;
+    const stored = result[STORAGE_KEY] as Preferences;
+
+    // Migration: existing users upgrading won't have activeEvmNetwork yet.
+    // Default it to their current activeNetwork so behaviour stays the same.
+    if (stored.activeEvmNetwork === undefined) {
+      stored.activeEvmNetwork = stored.activeNetwork;
+      await this.save(stored);
+    }
+
+    return stored;
   }
 
   /**

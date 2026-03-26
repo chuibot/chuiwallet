@@ -50,7 +50,8 @@ export function ensureChainAdaptersReady(): Promise<void> {
         chainRegistry.register(ethAdapter);
       }
 
-      await ethAdapter.init(preferenceManager.get().activeNetwork);
+      const evmNetwork = preferenceManager.get().activeEvmNetwork ?? preferenceManager.get().activeNetwork;
+      await ethAdapter.init(evmNetwork);
 
       const sessionPassword = await getSessionPassword();
       if (sessionPassword) {

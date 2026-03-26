@@ -166,7 +166,7 @@ const handlers: Record<string, Handler> = {
         await hydrateEthAdapter(
           mnemonic,
           walletManager.getActiveAccountListIndex(),
-          preferenceManager.get().activeNetwork,
+          preferenceManager.get().activeEvmNetwork ?? preferenceManager.get().activeNetwork,
         );
       }
       browser.alarms.create('forwardScan', { when: Date.now() + 100 });
@@ -189,7 +189,11 @@ const handlers: Record<string, Handler> = {
     await setSessionPassword(password);
     const mnemonicToHydrate = mnemonic ?? (await walletManager.getMnemonic(password));
     if (mnemonicToHydrate) {
-      await hydrateEthAdapter(mnemonicToHydrate, 0, preferenceManager.get().activeNetwork);
+      await hydrateEthAdapter(
+        mnemonicToHydrate,
+        0,
+        preferenceManager.get().activeEvmNetwork ?? preferenceManager.get().activeNetwork,
+      );
     }
   },
   'wallet.getMnemonic': async () => {
@@ -222,12 +226,37 @@ const handlers: Record<string, Handler> = {
     if (sessionPassword) {
       const mnemonic = await walletManager.getMnemonic(sessionPassword);
       if (mnemonic) {
-        await hydrateEthAdapter(mnemonic, walletManager.getActiveAccountListIndex(), network);
+        await hydrateEthAdapter(
+          mnemonic,
+          walletManager.getActiveAccountListIndex(),
+          preferenceManager.get().activeEvmNetwork ?? preferenceManager.get().activeNetwork,
+        );
       }
     }
 
     triggerAccountScans();
     return success;
+  },
+  'wallet.switchEvmNetwork': async params => {
+    const payload = expectObjectParams('wallet.switchEvmNetwork', params);
+    const network = expectEnumParam('wallet.switchEvmNetwork', payload, 'network', Object.values(Network));
+    await walletManager.switchEvmNetwork(network);
+
+    // Re-initialise the Ethereum adapter on the new network
+    const ethAdapter = getEthereumAdapter();
+    if (ethAdapter) {
+      await ethAdapter.init(network);
+
+      const sessionPassword = await getSessionPassword();
+      if (sessionPassword) {
+        const mnemonic = await walletManager.getMnemonic(sessionPassword);
+        if (mnemonic) {
+          ethAdapter.initWithMnemonic(mnemonic, walletManager.getActiveAccountListIndex());
+        }
+      }
+    }
+
+    return true;
   },
   'wallet.setBackupStatus': async (params: unknown) => {
     const payload = expectObjectParams('wallet.setBackupStatus', params);
@@ -251,7 +280,11 @@ const handlers: Record<string, Handler> = {
     if (sessionPassword) {
       const mnemonic = await walletManager.getMnemonic(sessionPassword);
       if (mnemonic) {
-        await hydrateEthAdapter(mnemonic, accountIndex, preferenceManager.get().activeNetwork);
+        await hydrateEthAdapter(
+          mnemonic,
+          accountIndex,
+          preferenceManager.get().activeEvmNetwork ?? preferenceManager.get().activeNetwork,
+        );
       }
     }
 
@@ -269,7 +302,7 @@ const handlers: Record<string, Handler> = {
         await hydrateEthAdapter(
           mnemonic,
           walletManager.getActiveAccountListIndex(),
-          preferenceManager.get().activeNetwork,
+          preferenceManager.get().activeEvmNetwork ?? preferenceManager.get().activeNetwork,
         );
       }
     }

@@ -6,14 +6,19 @@ import Header from '@src/components/Header';
 import NetworkSelector from '@src/components/NetworkSelector';
 
 export const AdvancedSettings: React.FC = () => {
-  const testnetLabel = 'Testnet 4 / Sepolia';
   const navigate = useNavigate();
-  const { preferences, switchNetwork } = useWalletContext();
-  const displayNetwork = preferences?.activeNetwork === 'mainnet' ? 'Mainnet' : testnetLabel;
+  const { preferences, switchNetwork, switchEvmNetwork } = useWalletContext();
+  const displayBtcNetwork = preferences?.activeNetwork === 'mainnet' ? 'Mainnet' : 'Testnet 4';
+  const displayEvmNetwork = preferences?.activeEvmNetwork === 'mainnet' ? 'Mainnet' : 'Sepolia';
 
-  const networkChanged = async (selected: string) => {
-    const selectedNetwork = (selected === testnetLabel ? 'testnet' : selected.toLowerCase()) as Network;
+  const btcNetworkChanged = async (selected: string) => {
+    const selectedNetwork = (selected === 'Testnet 4' ? 'testnet' : selected.toLowerCase()) as Network;
     await switchNetwork(selectedNetwork);
+  };
+
+  const evmNetworkChanged = async (selected: string) => {
+    const selectedNetwork = (selected === 'Sepolia' ? 'testnet' : selected.toLowerCase()) as Network;
+    await switchEvmNetwork(selectedNetwork);
   };
 
   return (
@@ -23,9 +28,19 @@ export const AdvancedSettings: React.FC = () => {
       <main className="flex flex-col self-center mt-10 w-full max-w-[328px]">
         <div className="flex flex-col mt-3 mb-3 w-full font-bold">
           <NetworkSelector
-            initialNetwork={displayNetwork}
-            options={['Mainnet', testnetLabel]}
-            onChange={network => networkChanged(network)}
+            label="BTC Network"
+            initialNetwork={displayBtcNetwork}
+            options={['Mainnet', 'Testnet 4']}
+            onChange={network => btcNetworkChanged(network)}
+          />
+        </div>
+
+        <div className="flex flex-col mt-3 mb-3 w-full font-bold">
+          <NetworkSelector
+            label="ETH Network"
+            initialNetwork={displayEvmNetwork}
+            options={['Mainnet', 'Sepolia']}
+            onChange={network => evmNetworkChanged(network)}
           />
         </div>
 

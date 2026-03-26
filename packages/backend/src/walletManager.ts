@@ -71,6 +71,15 @@ export class WalletManager {
     return false;
   }
 
+  /**
+   * Switch only the EVM (Ethereum) network without affecting Bitcoin.
+   * Updates the activeEvmNetwork preference only.
+   */
+  async switchEvmNetwork(network: Network) {
+    await preferenceManager.update({ activeEvmNetwork: network });
+    return true;
+  }
+
   public async switchAccount(accountListIndex: number) {
     const account = accountManager.accounts[accountListIndex];
     if (!account) {
