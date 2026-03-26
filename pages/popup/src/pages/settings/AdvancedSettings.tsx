@@ -8,11 +8,11 @@ import NetworkSelector from '@src/components/NetworkSelector';
 export const AdvancedSettings: React.FC = () => {
   const navigate = useNavigate();
   const { preferences, switchNetwork, switchEvmNetwork } = useWalletContext();
-  const displayBtcNetwork = preferences?.activeNetwork === 'mainnet' ? 'Mainnet' : 'Testnet4';
+  const displayBtcNetwork = preferences?.activeNetwork === 'mainnet' ? 'Mainnet' : 'Testnet 4';
   const displayEvmNetwork = preferences?.activeEvmNetwork === 'mainnet' ? 'Mainnet' : 'Sepolia';
 
   const btcNetworkChanged = async (selected: string) => {
-    const selectedNetwork = (selected === 'Testnet4' ? 'testnet' : selected.toLowerCase()) as Network;
+    const selectedNetwork = (selected === 'Testnet 4' ? 'testnet' : selected.toLowerCase()) as Network;
     await switchNetwork(selectedNetwork);
   };
 
@@ -30,7 +30,7 @@ export const AdvancedSettings: React.FC = () => {
           <NetworkSelector
             label="BTC Network"
             initialNetwork={displayBtcNetwork}
-            options={['Mainnet', 'Testnet4']}
+            options={['Mainnet', 'Testnet 4']}
             onChange={network => btcNetworkChanged(network)}
           />
         </div>
