@@ -57,9 +57,10 @@ export const TransactionDetail: React.FC = () => {
           className="object-contain w-6"
         />
 
-        {preferences?.fiatCurrency === 'USD' && hasAmountUsd ? (
+        {preferences?.fiatCurrency !== 'BTC' && hasAmountUsd ? (
           <div className="text-[35px] leading-[53.2px] font-bold text-center text-white uppercase text-nowrap">
-            {formatNumber(Math.abs(amountUsd ?? 0))} <span className="text-xl">USD</span>
+            {formatNumber(Math.abs(amountUsd ?? 0))}{' '}
+            <span className="text-xl">{preferences?.fiatCurrency || 'USD'}</span>
           </div>
         ) : (
           <div className="text-[35px] leading-[53.2px] font-bold text-center text-white uppercase text-nowrap">
@@ -69,13 +70,15 @@ export const TransactionDetail: React.FC = () => {
 
         <div className="text-base font-bold leading-none text-white">{statusLabel}</div>
 
-        {preferences?.fiatCurrency === 'USD' && hasAmountUsd ? (
+        {preferences?.fiatCurrency !== 'BTC' && hasAmountUsd ? (
           <span className="text-xs leading-loose text-foreground">
             {formatNumber(Math.abs(amountBtc), assetDigits)} {meta.symbol}
           </span>
         ) : (
           <span className="text-xs leading-loose text-foreground">
-            {hasAmountUsd ? `${formatNumber(Math.abs(amountUsd ?? 0))} USD` : 'USD unavailable'}
+            {hasAmountUsd
+              ? `${formatNumber(Math.abs(amountUsd ?? 0))} ${preferences?.fiatCurrency || 'USD'}`
+              : `${preferences?.fiatCurrency || 'USD'} unavailable`}
           </span>
         )}
       </div>
@@ -84,9 +87,9 @@ export const TransactionDetail: React.FC = () => {
         <LabelValue
           label="Amount"
           value={
-            preferences?.fiatCurrency === 'USD' && hasAmountUsd
-              ? `${formatNumber(Math.abs(amountUsd ?? 0))} USD (${formatNumber(Math.abs(amountBtc), assetDigits)} ${meta.symbol})`
-              : `${formatNumber(Math.abs(amountBtc), assetDigits)} ${meta.symbol} (${hasAmountUsd ? `${formatNumber(Math.abs(amountUsd ?? 0))} USD` : 'USD unavailable'})`
+            preferences?.fiatCurrency !== 'BTC' && hasAmountUsd
+              ? `${formatNumber(Math.abs(amountUsd ?? 0))} ${preferences?.fiatCurrency || 'USD'} (${formatNumber(Math.abs(amountBtc), assetDigits)} ${meta.symbol})`
+              : `${formatNumber(Math.abs(amountBtc), assetDigits)} ${meta.symbol} (${hasAmountUsd ? `${formatNumber(Math.abs(amountUsd ?? 0))} ${preferences?.fiatCurrency || 'USD'}` : `${preferences?.fiatCurrency || 'USD'} unavailable`})`
           }
         />
 
@@ -94,9 +97,9 @@ export const TransactionDetail: React.FC = () => {
           <LabelValue
             label="Fee"
             value={
-              preferences?.fiatCurrency === 'USD' && hasFeeUsd
-                ? `${formatNumber(Math.abs(feeUsd ?? 0))} USD (${formatNumber(Math.abs(feeBtc), feeDigits)} ${feeSymbol})`
-                : `${formatNumber(Math.abs(feeBtc), feeDigits)} ${feeSymbol} (${hasFeeUsd ? `${formatNumber(Math.abs(feeUsd ?? 0))} USD` : 'USD unavailable'})`
+              preferences?.fiatCurrency !== 'BTC' && hasFeeUsd
+                ? `${formatNumber(Math.abs(feeUsd ?? 0))} ${preferences?.fiatCurrency || 'USD'} (${formatNumber(Math.abs(feeBtc), feeDigits)} ${feeSymbol})`
+                : `${formatNumber(Math.abs(feeBtc), feeDigits)} ${feeSymbol} (${hasFeeUsd ? `${formatNumber(Math.abs(feeUsd ?? 0))} ${preferences?.fiatCurrency || 'USD'}` : `${preferences?.fiatCurrency || 'USD'} unavailable`})`
             }
           />
         )}

@@ -54,6 +54,8 @@ export const Dashboard: React.FC = () => {
     };
   }, [balance, chainBalances, usdtTokenBalance]);
 
+  const isFiatMode = preferences?.fiatCurrency !== 'BTC';
+  const fiatLabel = preferences?.fiatCurrency || 'USD';
   const balanceLoading = balance === undefined || !hasHydratedChainBalances;
   const btcBalanceLoading = balance === undefined;
   const chainBalanceLoading = !hasHydratedChainBalances;
@@ -107,12 +109,12 @@ export const Dashboard: React.FC = () => {
             <>
               <span>
                 {balance || chainBalances[ChainType.Ethereum]
-                  ? preferences?.fiatCurrency === 'USD'
+                  ? isFiatMode
                     ? formatNumber(totals.totalUsd)
                     : formatNumber(totals.totalBtcEquivalent, 8)
                   : '0'}
               </span>
-              <span className="text-xl">{preferences?.fiatCurrency === 'USD' ? 'USD' : 'BTC'}</span>
+              <span className="text-xl">{isFiatMode ? fiatLabel : 'BTC'}</span>
             </>
           )}
         </div>
@@ -123,15 +125,15 @@ export const Dashboard: React.FC = () => {
       ) : (
         <>
           <div className="mt-2 text-sm leading-none text-center text-white cursor-pointer">
-            {preferences?.fiatCurrency === 'USD'
+            {isFiatMode
               ? totals.hasBtcEquivalent
                 ? `${formatNumber(totals.totalBtcEquivalent, 8)} BTC`
                 : 'BTC equivalent unavailable'
-              : `${formatNumber(totals.totalUsd)} USD`}
+              : `${formatNumber(totals.totalUsd)} ${fiatLabel}`}
           </div>
           {totals.hasUnpricedTokenBalance && (
             <div className="mt-2 text-xs leading-none text-center text-foreground">
-              Token balances without live USD pricing are excluded from totals
+              Token balances without live pricing are excluded from totals
             </div>
           )}
         </>
@@ -140,10 +142,8 @@ export const Dashboard: React.FC = () => {
       {!balanceLoading && balance && balance.unconfirmed > 0 && (
         <div className="mt-2 text-sm leading-none text-center text-neutral-400">
           <span className="text-green-500 mr-2">Unconfirmed</span>+
-          {preferences?.fiatCurrency === 'USD'
-            ? formatNumber(balance.unconfirmedUsd)
-            : formatNumber(balance.unconfirmed / 1e8, 8)}{' '}
-          {preferences?.fiatCurrency === 'USD' ? 'USD' : 'BTC'}
+          {isFiatMode ? formatNumber(balance.unconfirmedUsd) : formatNumber(balance.unconfirmed / 1e8, 8)}{' '}
+          {isFiatMode ? fiatLabel : 'BTC'}
         </div>
       )}
 
@@ -161,21 +161,21 @@ export const Dashboard: React.FC = () => {
           cryptoName="Bitcoin"
           cryptoAmount={
             balance
-              ? preferences?.fiatCurrency === 'USD'
-                ? `${formatNumber(balance.confirmedUsd)} USD`
+              ? isFiatMode
+                ? `${formatNumber(balance.confirmedUsd)} ${fiatLabel}`
                 : `${formatNumber(balance.confirmed / 1e8, 8)} BTC`
-              : preferences?.fiatCurrency === 'USD'
-                ? '0 USD'
+              : isFiatMode
+                ? `0 ${fiatLabel}`
                 : '0 BTC'
           }
           usdAmount={
             balance
-              ? preferences?.fiatCurrency === 'USD'
+              ? isFiatMode
                 ? `${formatNumber(balance.confirmed / 1e8, 8)} BTC`
-                : `${formatNumber(balance.confirmedUsd)} USD`
-              : preferences?.fiatCurrency === 'USD'
+                : `${formatNumber(balance.confirmedUsd)} ${fiatLabel}`
+              : isFiatMode
                 ? '0 BTC'
-                : '0 USD'
+                : `0 ${fiatLabel}`
           }
           icon="popup/btc_coin.svg"
           isLoading={btcBalanceLoading}
@@ -197,8 +197,8 @@ export const Dashboard: React.FC = () => {
           }
           usdAmount={
             chainBalances[ChainType.Ethereum]
-              ? `${formatNumber(chainBalances[ChainType.Ethereum]!.confirmedFiat)} USD`
-              : '0 USD'
+              ? `${formatNumber(chainBalances[ChainType.Ethereum]!.confirmedFiat)} ${fiatLabel}`
+              : `0 ${fiatLabel}`
           }
           icon="popup/eth_coin.svg"
           isLoading={chainBalanceLoading}
@@ -214,9 +214,9 @@ export const Dashboard: React.FC = () => {
           usdAmount={
             usdtTokenBalance
               ? usdtTokenBalance.balanceFiat !== undefined
-                ? `${formatNumber(usdtTokenBalance.balanceFiat)} USD`
-                : 'USD unavailable'
-              : '0 USD'
+                ? `${formatNumber(usdtTokenBalance.balanceFiat)} ${fiatLabel}`
+                : `${fiatLabel} unavailable`
+              : `0 ${fiatLabel}`
           }
           icon="popup/usdt_coin.svg"
           isLoading={chainBalanceLoading}

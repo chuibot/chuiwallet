@@ -179,7 +179,8 @@ export class WalletManager {
     let confirmedUsd = 0;
     let unconfirmedUsd = 0;
     try {
-      const rate = await getBitcoinPrice();
+      const fiatCurrency = preferenceManager.get().fiatCurrency || 'USD';
+      const rate = await getBitcoinPrice(fiatCurrency === 'BTC' ? 'USD' : fiatCurrency);
       confirmedUsd = (confirmed / 1e8) * rate;
       unconfirmedUsd = (unconfirmed / 1e8) * rate;
     } catch {
