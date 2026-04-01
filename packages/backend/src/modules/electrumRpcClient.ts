@@ -112,8 +112,8 @@ export class ElectrumRpcClient {
   }
 
   /**
-   * Handle a raw text chunk from the WebSocket.
-   * Accumulates into a buffer and processes newline-delimited JSON messages.
+   * Handle a raw text payload from the WebSocket.
+   * Some Electrum servers send newline-delimited JSON, while others send one JSON object per WS frame.
    */
   private handleIncomingChunk(raw: string): void {
     this.buffer += raw;
@@ -135,6 +135,20 @@ export class ElectrumRpcClient {
       }
 
       this.dispatchRpcPayload(payload);
+    }
+
+    const remainingPayload = this.buffer.trim();
+    if (!remainingPayload) {
+      this.buffer = '';
+      return;
+    }
+
+    try {
+      const payload = JSON.parse(remainingPayload) as unknown;
+      this.buffer = '';
+      this.dispatchRpcPayload(payload);
+    } catch {
+      // Keep buffering when the payload is incomplete or awaiting a newline terminator.
     }
   }
 

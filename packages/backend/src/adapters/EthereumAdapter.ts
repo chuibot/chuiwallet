@@ -3,6 +3,7 @@ import { Network } from '../types/electrum';
 import { chainBalanceCache } from '../modules/chainBalanceCache';
 import { chainTransactionHistoryCache } from '../modules/chainTransactionHistoryCache';
 import { assetPriceService } from '../modules/assetPriceService';
+import { preferenceManager } from '../preferenceManager';
 import {
   ChainType,
   type IChainAdapter,
@@ -35,7 +36,7 @@ const ERC20_TOKEN_DEFINITIONS: Record<string, Erc20TokenDefinition> = {
     coingeckoId: 'tether',
     contracts: {
       [Network.Mainnet]: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-      [Network.Testnet]: '',
+      [Network.Testnet]: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
     },
   },
 };
@@ -62,8 +63,14 @@ export class EthereumAdapter implements IChainAdapter {
 
   /** Public RPC fallbacks — no API key required */
   private static readonly PUBLIC_RPC: Record<Network, string> = {
-    [Network.Mainnet]: 'https://cloudflare-eth.com',
+    [Network.Mainnet]: 'https://ethereum-rpc.publicnode.com',
     [Network.Testnet]: 'https://ethereum-sepolia-rpc.publicnode.com',
+  };
+
+  /** Static network definitions prevent ethers from retry-looping on startup discovery. */
+  private static readonly RPC_NETWORK: Record<Network, ethers.Network> = {
+    [Network.Mainnet]: ethers.Network.from('mainnet'),
+    [Network.Testnet]: ethers.Network.from('sepolia'),
   };
 
   private static readonly INFURA_RPC: Record<Network, string> = {
@@ -87,13 +94,14 @@ export class EthereumAdapter implements IChainAdapter {
     const rpcUrl = this.rpcApiKey
       ? EthereumAdapter.INFURA_RPC[network] + this.rpcApiKey
       : EthereumAdapter.PUBLIC_RPC[network];
+    const rpcNetwork = EthereumAdapter.RPC_NETWORK[network];
 
-    this.provider = new ethers.JsonRpcProvider(rpcUrl);
+    this.provider = new ethers.JsonRpcProvider(rpcUrl, rpcNetwork, { staticNetwork: rpcNetwork });
   }
 
   async connect(): Promise<void> {
     if (this.provider) {
-      await this.provider.getNetwork(); // Verify connection
+      await this.provider.getBlockNumber(); // Verify the RPC endpoint is reachable
     }
   }
 
@@ -133,9 +141,11 @@ export class EthereumAdapter implements IChainAdapter {
     const balanceScope = this.getBalanceScope(address);
 
     const priceIds = this.getTrackedPriceIds();
+    const fiatCurrency = preferenceManager.get().fiatCurrency || 'USD';
+    const vsCurrency = fiatCurrency === 'BTC' ? 'usd' : fiatCurrency.toLowerCase();
     const [ethBalanceWei, priceByAssetId] = await Promise.all([
       this.provider.getBalance(address),
-      assetPriceService.getUsdPrices(priceIds),
+      assetPriceService.getUsdPrices(priceIds, vsCurrency),
     ]);
     const ethPriceUsd = priceByAssetId.ethereum ?? 0;
 
@@ -323,10 +333,12 @@ export class EthereumAdapter implements IChainAdapter {
       throw new Error(`${options?.tokenSymbol ?? 'Token'} is unavailable on this network`);
     }
 
+    const feeFiatCurrency = preferenceManager.get().fiatCurrency || 'USD';
+    const feeVsCurrency = feeFiatCurrency === 'BTC' ? 'usd' : feeFiatCurrency.toLowerCase();
     const [feeData, latestBlock, ethPriceUsd, recentFeeMarket, rpcPriorityFee] = await Promise.all([
       this.provider.getFeeData(),
       this.provider.getBlock('latest'),
-      assetPriceService.getUsdPrice('ethereum'),
+      assetPriceService.getUsdPrices(['ethereum'], feeVsCurrency).then(p => p.ethereum ?? 0),
       this.getRecentFeeMarket(),
       this.getRpcPriorityFee(),
     ]);
