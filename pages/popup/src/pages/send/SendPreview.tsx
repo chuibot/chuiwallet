@@ -12,6 +12,7 @@ import { ERROR_MESSAGES } from '@src/constants';
 import { InputField } from '@src/components/InputField';
 import { getCurrencyMeta, getSendAmountPrecision, isSupportedSendCurrency } from '@src/utils/currencyMeta';
 import { formatFeeAmount, formatFeeRate, formatFiatValue } from '@src/utils/sendFormatting';
+import { useWalletContext } from '@src/context/WalletContext';
 
 interface SendPreviewStates {
   destinationAddress?: string;
@@ -29,6 +30,8 @@ export function SendPreview() {
   const navigate = useNavigate();
   const location = useLocation();
   const { currency } = useParams<{ currency: Currencies }>();
+  const { preferences } = useWalletContext();
+  const fiatLabel = preferences?.fiatCurrency || 'USD';
   const states = (location.state as SendPreviewStates | null) ?? null;
   const meta = getCurrencyMeta(currency);
   const assetDigits = getSendAmountPrecision(currency);
@@ -151,7 +154,9 @@ export function SendPreview() {
             {formatNumber(Number(states.amount), assetDigits)} {meta.symbol}
           </div>
           <div className="mt-2">
-            {states.amountUsd !== undefined ? `${formatNumber(states.amountUsd)} USD` : 'USD unavailable'}
+            {states.amountUsd !== undefined
+              ? `${formatNumber(states.amountUsd)} ${fiatLabel}`
+              : `${fiatLabel} unavailable`}
           </div>
         </div>
         <div className="flex flex-col mt-6 w-full leading-none text-foreground-79 shrink-0">
@@ -166,7 +171,7 @@ export function SendPreview() {
                 : 'Fee unavailable'}
             {!showsRateOnlyFee && formattedFeeRate && <span className="text-sm"> ({formattedFeeRate})</span>}
           </div>
-          <div className="mt-2">{formatFiatValue(states.feeUsd)}</div>
+          <div className="mt-2">{formatFiatValue(states.feeUsd, fiatLabel)}</div>
         </div>
       </div>
 

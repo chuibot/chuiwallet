@@ -9,16 +9,16 @@ export function formatFeeAmount(value: number, symbol: string): string {
   return `${formatNumber(value, digits)} ${symbol}`;
 }
 
-export function formatFiatValue(value?: number): string {
+export function formatFiatValue(value?: number, currency: string = 'USD'): string {
   if (value === undefined || !Number.isFinite(value)) {
-    return 'USD unavailable';
+    return `${currency} unavailable`;
   }
 
   if (value > 0 && value < 0.01) {
-    return '<0.01 USD';
+    return `<0.01 ${currency}`;
   }
 
-  return `${formatNumber(value)} USD`;
+  return `${formatNumber(value)} ${currency}`;
 }
 
 export function formatFeeRate(value?: number, unit?: string): string | null {

@@ -25,6 +25,7 @@ interface WalletContextType {
   switchAccount: (accountIndex: number) => Promise<void>;
   switchNetwork: (network: Network) => Promise<void>;
   switchEvmNetwork: (network: Network) => Promise<void>;
+  setFiatCurrency: (currency: string) => Promise<void>;
   balance: BalanceData | undefined;
   refreshBalance: () => void;
   transactions: TxEntry[];
@@ -229,6 +230,14 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     void refreshChainBalances();
   };
 
+  const setFiatCurrency = async (currency: string) => {
+    const nextPreferences: Preferences = await sendMessage('preferences.setFiatCurrency', { currency });
+    setPreferences(nextPreferences);
+    // Refresh all balances since fiat conversion rates have changed
+    refreshBalance();
+    void refreshChainBalances();
+  };
+
   const getChainReceivingAddress = async (chain: ChainType): Promise<string> => {
     return sendMessage<string>('chain.getReceivingAddress', { chain });
   };
@@ -267,6 +276,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         switchAccount,
         switchNetwork,
         switchEvmNetwork,
+        setFiatCurrency,
         balance,
         transactions,
         setOnboarded,

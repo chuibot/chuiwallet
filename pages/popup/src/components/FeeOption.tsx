@@ -9,6 +9,7 @@ export interface FeeOptionProps {
   rateValue?: number;
   rateUnit?: string;
   symbol: string;
+  fiatCurrency?: string;
   selected: boolean;
   onSelect?: () => void;
 }
@@ -20,6 +21,7 @@ export const FeeOption: React.FC<FeeOptionProps> = ({
   rateValue,
   rateUnit,
   symbol,
+  fiatCurrency = 'USD',
   selected,
   onSelect,
 }) => {
@@ -46,7 +48,7 @@ export const FeeOption: React.FC<FeeOptionProps> = ({
       </div>
       <div className="flex flex-col items-center w-full text-xs text-white gap-1">
         <div>{primaryValue}</div>
-        <div>{formatFiatValue(fiatAmount)}</div>
+        <div>{formatFiatValue(fiatAmount, fiatCurrency)}</div>
         {!showsRateOnly && formattedRate && <div className="text-[10px] text-foreground-79">{formattedRate}</div>}
       </div>
     </button>

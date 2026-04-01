@@ -82,11 +82,11 @@ export const TransactionActivityItem: React.FC<TransactionActivityItemProps> = p
       </div>
 
       <div className="flex flex-col items-end gap-0.5">
-        {selectedFiatCurrency === 'USD' && hasUsdTotal ? (
+        {selectedFiatCurrency !== 'BTC' && hasUsdTotal ? (
           <>
             <span className="text-sm text-white text-nowrap">
               {sign}
-              {formatNumber(Math.abs(totalUsd ?? 0))} USD
+              {formatNumber(Math.abs(totalUsd ?? 0))} {selectedFiatCurrency}
             </span>
             <span className="text-sm text-foreground-79 text-nowrap">
               {sign}
@@ -100,7 +100,9 @@ export const TransactionActivityItem: React.FC<TransactionActivityItemProps> = p
               {formatNumber(Math.abs(totalBtc), amountDecimals)} {unit}
             </span>
             <span className="text-sm text-foreground-79 text-nowrap">
-              {hasUsdTotal ? `${sign}${formatNumber(Math.abs(totalUsd ?? 0))} USD` : 'USD unavailable'}
+              {hasUsdTotal
+                ? `${sign}${formatNumber(Math.abs(totalUsd ?? 0))} ${selectedFiatCurrency}`
+                : `${selectedFiatCurrency} unavailable`}
             </span>
           </>
         )}

@@ -228,7 +228,7 @@ export const Activity: React.FC = () => {
         <div className="flex justify-center items-end mt-2 text-5xl font-bold uppercase cursor-pointer gap-[8px] flex-wrap max-w-[320px]">
           <span>
             {currency === 'btc'
-              ? preferences?.fiatCurrency === 'USD'
+              ? preferences?.fiatCurrency !== 'BTC'
                 ? formatNumber(displayBalanceUsd)
                 : formatNumber(displayBalance / 1e8, 8)
               : formatNumber(displayBalance, meta.displayPrecision)}
@@ -239,14 +239,14 @@ export const Activity: React.FC = () => {
 
       <div className="mt-2 text-sm leading-none text-center text-white cursor-pointer">
         {currency === 'btc'
-          ? preferences?.fiatCurrency === 'USD'
+          ? preferences?.fiatCurrency !== 'BTC'
             ? `${formatNumber(displayBalance / 1e8, 8)} BTC`
-            : `${formatNumber(displayBalanceUsd)} USD`
+            : `${formatNumber(displayBalanceUsd)} ${preferences?.fiatCurrency || 'USD'}`
           : meta.tokenSymbol
             ? tokenFiatRate > 0
-              ? `≈ ${formatNumber(displayBalanceUsd)} USD`
-              : 'USD unavailable'
-            : `≈ ${formatNumber(displayBalanceUsd)} USD`}
+              ? `≈ ${formatNumber(displayBalanceUsd)} ${preferences?.fiatCurrency || 'USD'}`
+              : `${preferences?.fiatCurrency || 'USD'} unavailable`
+            : `≈ ${formatNumber(displayBalanceUsd)} ${preferences?.fiatCurrency || 'USD'}`}
       </div>
 
       <div className="flex gap-2.5 justify-between items-center mt-[44px] w-full text-lg font-medium leading-none text-center whitespace-nowrap max-w-[346px] text-foreground">

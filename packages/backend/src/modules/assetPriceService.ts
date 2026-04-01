@@ -8,13 +8,19 @@ export class AssetPriceService {
 
   private cache = new Map<string, PriceCacheEntry>();
 
+  /** Build a cache key that includes the vs_currency so switching currencies doesn't return stale data */
+  private cacheKey(assetId: string, vsCurrency: string): string {
+    return `${assetId}:${vsCurrency}`;
+  }
+
   async getUsdPrice(assetId: string): Promise<number> {
     const prices = await this.getUsdPrices([assetId]);
     return prices[assetId] ?? 0;
   }
 
-  async getUsdPrices(assetIds: string[]): Promise<Record<string, number>> {
+  async getUsdPrices(assetIds: string[], vsCurrency: string = 'usd'): Promise<Record<string, number>> {
     const now = Date.now();
+    const vs = vsCurrency.toLowerCase();
     const normalizedIds = Array.from(
       new Set(assetIds.map(assetId => assetId.trim().toLowerCase()).filter(assetId => assetId.length > 0)),
     );
@@ -27,7 +33,7 @@ export class AssetPriceService {
     const missingIds: string[] = [];
 
     normalizedIds.forEach(assetId => {
-      const cachedEntry = this.cache.get(assetId);
+      const cachedEntry = this.cache.get(this.cacheKey(assetId, vs));
       if (cachedEntry && now - cachedEntry.fetchedAt < AssetPriceService.PRICE_CACHE_MS) {
         prices[assetId] = cachedEntry.price;
         return;
@@ -39,17 +45,17 @@ export class AssetPriceService {
     if (missingIds.length > 0) {
       try {
         const response = await fetch(
-          `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(missingIds.join(','))}&vs_currencies=usd`,
+          `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(missingIds.join(','))}&vs_currencies=${vs}`,
         );
         if (!response.ok) {
           throw new Error(`CoinGecko HTTP ${response.status}`);
         }
 
-        const payload = (await response.json()) as Record<string, { usd?: number }>;
+        const payload = (await response.json()) as Record<string, Record<string, number | undefined>>;
         missingIds.forEach(assetId => {
-          const nextPrice = payload?.[assetId]?.usd;
+          const nextPrice = payload?.[assetId]?.[vs];
           if (typeof nextPrice === 'number' && Number.isFinite(nextPrice) && nextPrice > 0) {
-            this.cache.set(assetId, {
+            this.cache.set(this.cacheKey(assetId, vs), {
               price: nextPrice,
               fetchedAt: now,
             });
@@ -57,7 +63,7 @@ export class AssetPriceService {
             return;
           }
 
-          const staleEntry = this.cache.get(assetId);
+          const staleEntry = this.cache.get(this.cacheKey(assetId, vs));
           if (staleEntry) {
             prices[assetId] = staleEntry.price;
           }
@@ -65,7 +71,7 @@ export class AssetPriceService {
       } catch (error) {
         console.warn('Failed to fetch asset prices', error);
         missingIds.forEach(assetId => {
-          const staleEntry = this.cache.get(assetId);
+          const staleEntry = this.cache.get(this.cacheKey(assetId, vs));
           if (staleEntry) {
             prices[assetId] = staleEntry.price;
           }

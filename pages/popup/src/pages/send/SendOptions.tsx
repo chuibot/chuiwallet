@@ -49,7 +49,7 @@ export const SendOptions: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { currency } = useParams<{ currency: Currencies }>();
-  const { balance, chainBalances } = useWalletContext();
+  const { balance, chainBalances, preferences } = useWalletContext();
   const states = (location.state as SendOptionsState | null) ?? null;
   const meta = getCurrencyMeta(currency);
   const assetDigits = getSendAmountPrecision(currency);
@@ -424,8 +424,8 @@ export const SendOptions: React.FC = () => {
           />
           <span className="mt-7 text-[20px]">=</span>
           <AmountInputField
-            label="USD"
-            placeholder="0 USD"
+            label={preferences?.fiatCurrency || 'USD'}
+            placeholder={`0 ${preferences?.fiatCurrency || 'USD'}`}
             id="usdAmount"
             value={usdAmount}
             onChange={handleUsdAmountChange}
@@ -434,7 +434,9 @@ export const SendOptions: React.FC = () => {
           />
         </div>
         {fiatRate === null && (
-          <div className="mt-2 text-xs font-normal text-foreground-79 self-end">USD unavailable</div>
+          <div className="mt-2 text-xs font-normal text-foreground-79 self-end">
+            {preferences?.fiatCurrency || 'USD'} unavailable
+          </div>
         )}
         <button
           className="flex gap-1 items-center self-end mt-2 text-sm font-medium text-center text-primary-yellow"
@@ -469,6 +471,7 @@ export const SendOptions: React.FC = () => {
                   rateValue={option.rateValue}
                   rateUnit={option.rateUnit}
                   symbol={meta.symbol}
+                  fiatCurrency={preferences?.fiatCurrency || 'USD'}
                   selected={selectedFeeIndex === index}
                   onSelect={() => setSelectedFeeIndex(index)}
                 />

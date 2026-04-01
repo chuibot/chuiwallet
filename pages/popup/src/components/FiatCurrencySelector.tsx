@@ -2,13 +2,15 @@ import { useWalletContext } from '@src/context/WalletContext';
 import type React from 'react';
 import { useState, useRef, useEffect } from 'react';
 
+export type FiatCurrencyOption = 'USD' | 'EUR' | 'SGD' | 'KWD' | 'MYR' | 'BTC';
+
 type FiatCurrencySelectorProps = {
-  options?: ('USD' | 'BTC')[];
-  onSelect?: (currency: 'USD' | 'BTC') => void;
+  options?: FiatCurrencyOption[];
+  onSelect?: (currency: FiatCurrencyOption) => void;
 };
 
 const FiatCurrencySelector: React.FC<FiatCurrencySelectorProps> = ({ options, onSelect }) => {
-  const { preferences, setPreferences } = useWalletContext();
+  const { preferences, setFiatCurrency } = useWalletContext();
 
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -17,9 +19,8 @@ const FiatCurrencySelector: React.FC<FiatCurrencySelectorProps> = ({ options, on
     setIsOpen(!isOpen);
   };
 
-  const handleSelect = (selected: 'USD' | 'BTC') => {
-    preferences.fiatCurrency = selected;
-    setPreferences(preferences);
+  const handleSelect = async (selected: FiatCurrencyOption) => {
+    await setFiatCurrency(selected);
     setIsOpen(false);
     if (onSelect) {
       onSelect(selected);

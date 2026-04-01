@@ -25,12 +25,14 @@ export const Accounts: React.FC = () => {
     [accounts, activeNetwork],
   );
 
+  const isFiat = preferences?.fiatCurrency !== 'BTC';
+  const fiatLabel = preferences?.fiatCurrency || 'USD';
   const activeBalanceText = balance
-    ? preferences?.fiatCurrency === 'USD'
-      ? `${formatNumber(balance.confirmedUsd)} USD`
+    ? isFiat
+      ? `${formatNumber(balance.confirmedUsd)} ${fiatLabel}`
       : `${formatNumber(balance.confirmed / 1e8, 8)} BTC`
-    : preferences?.fiatCurrency === 'USD'
-      ? '0 USD'
+    : isFiat
+      ? `0 ${fiatLabel}`
       : '0 BTC';
 
   const getAccountAmount = (index: number) => (index === activeAccountIndex ? activeBalanceText : '--');
