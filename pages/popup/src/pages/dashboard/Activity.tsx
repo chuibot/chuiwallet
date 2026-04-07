@@ -10,6 +10,7 @@ import {
   isSupportedSendCurrency,
 } from '@src/utils/currencyMeta';
 import { ChainType, type ChainTransaction } from '@extension/backend/src/adapters/IChainAdapter';
+import { Network } from '@src/types';
 import type { TxEntry } from '@extension/backend/src/types/cache';
 import TransactionActivityList from '@src/components/TransactionActivityList';
 import Header from '@src/components/Header';
@@ -32,6 +33,15 @@ function mapChainTransactionStatus(status: ChainTransaction['status']): TxEntry[
 
   return 'PENDING';
 }
+
+function truncateAddress(address: string): string {
+  if (address.length <= 13) return address;
+  return `${address.slice(0, 7)}...${address.slice(-5)}`;
+}
+
+const CHAIN_NETWORK_ICONS: Partial<Record<ChainType, string>> = {
+  [ChainType.Ethereum]: 'popup/eth_coin.svg',
+};
 
 /**
  * Convert ChainTransaction (from Blockscout/Etherscan) to TxEntry (used by TransactionActivityList).
@@ -78,6 +88,9 @@ export const Activity: React.FC = () => {
   const [userEthAddress, setUserEthAddress] = useState('');
   const chainHistoryOptions = useMemo(() => getTransactionHistoryOptionsForCurrency(currency), [currency]);
   const tokenFiatRate = meta.tokenSymbol ? (chainBalances[meta.chain]?.tokens?.[meta.tokenSymbol]?.fiatRate ?? 0) : 0;
+  const evmNetwork = preferences?.activeEvmNetwork ?? Network.Mainnet;
+  const tokenContractAddress = meta.tokenSymbol ? meta.contracts?.[evmNetwork] : undefined;
+  const networkIcon = CHAIN_NETWORK_ICONS[meta.chain];
 
   // Derive display balance from state (BTC) or chainBalances (ETH/USDT)
   let displayBalance = 0;
@@ -248,6 +261,13 @@ export const Activity: React.FC = () => {
               : `${preferences?.fiatCurrency || 'USD'} unavailable`
             : `≈ ${formatNumber(displayBalanceUsd)} ${preferences?.fiatCurrency || 'USD'}`}
       </div>
+
+      {tokenContractAddress && networkIcon && (
+        <div className="mt-3 flex items-center gap-1.5 text-xs leading-none text-foreground-79">
+          <img loading="lazy" src={chrome.runtime.getURL(networkIcon)} alt="" className="object-contain w-3.5 h-3.5" />
+          <span title={tokenContractAddress}>{truncateAddress(tokenContractAddress)}</span>
+        </div>
+      )}
 
       <div className="flex gap-2.5 justify-between items-center mt-[44px] w-full text-lg font-medium leading-none text-center whitespace-nowrap max-w-[346px] text-foreground">
         <CryptoButton icon="popup/receive_icon.svg" label="Receive" onClick={() => navigate(`/receive/${currency}`)} />

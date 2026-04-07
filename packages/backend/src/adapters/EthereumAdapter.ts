@@ -13,33 +13,7 @@ import {
   type ChainFeeEstimate,
   type ChainSendOptions,
 } from './IChainAdapter';
-
-type Erc20TokenDefinition = Readonly<{
-  symbol: string;
-  decimals?: number;
-  coingeckoId?: string;
-  contracts: Partial<Record<Network, string>>;
-}>;
-
-/**
- * Supported ERC-20 token contracts on Ethereum networks.
- * Add new tokens here and the adapter can reuse the same balance/history path.
- */
-const ERC20_TOKEN_DEFINITIONS: Record<string, Erc20TokenDefinition> = {
-  /**
-   * Tether USD (ERC-20)
-   * @see https://etherscan.io/token/0xdac17f958d2ee523a2206206994597c13d831ec7
-   */
-  USDT: {
-    symbol: 'USDT',
-    decimals: 6,
-    coingeckoId: 'tether',
-    contracts: {
-      [Network.Mainnet]: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-      [Network.Testnet]: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
-    },
-  },
-};
+import { ERC20_TOKEN_DEFINITIONS, type Erc20TokenDefinition } from './erc20TokenDefinitions';
 
 const ERC20_ABI = [
   'function balanceOf(address owner) view returns (uint256)',

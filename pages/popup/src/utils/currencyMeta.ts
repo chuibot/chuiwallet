@@ -1,4 +1,5 @@
 import { ChainType, type ChainBalance } from '@extension/backend/src/adapters/IChainAdapter';
+import { getErc20ContractAddress } from '@extension/backend/src/adapters/erc20TokenDefinitions';
 import type { BalanceData, Currencies, Network } from '@src/types';
 
 type CurrencyMeta = {
