@@ -1,5 +1,4 @@
 import type { Network } from './electrum';
-import type { ChangeType } from './cache';
 import type { ChainType } from '../adapters/IChainAdapter';
 
 export interface WalletMeta {

@@ -11,6 +11,7 @@ import { Network } from '../types/electrum';
 import { fingerprintBuffer, purposeFromScriptType, toHdSigner } from '../utils/crypto';
 import { accountManager } from '../accountManager';
 import { ChangeType } from '../types/cache';
+import { zeroBuffer } from '../utils/secureMemory';
 
 const bip32 = BIP32Factory(secp256k1);
 const WALLET_KEY = 'wallet';
@@ -36,7 +37,6 @@ export interface CreateWalletOptions {
 export class Wallet {
   private encryptedVault: string | null = null;
   public root: BIP32Interface | null = null;
-  private seed: Buffer | null = null;
   private network: bitcoin.networks.Network | undefined;
   private xpub: string | null = null;
 
@@ -50,7 +50,6 @@ export class Wallet {
 
   public clear() {
     this.root = null;
-    this.seed = null;
     this.xpub = null;
   }
 
@@ -237,8 +236,15 @@ export class Wallet {
       if (!bip39.validateMnemonic(mnemonic)) {
         throw new Error('Invalid mnemonic');
       }
-      this.seed = bip39.mnemonicToSeedSync(mnemonic);
-      this.root = bip32.fromSeed(this.seed, this.network);
+
+      // cryptographically wipe it the moment bip32.fromSeed has consumed it.
+      // try/finally guarantees the wipe runs even if fromSeed throws.
+      const seed = bip39.mnemonicToSeedSync(mnemonic);
+      try {
+        this.root = bip32.fromSeed(seed, this.network);
+      } finally {
+        zeroBuffer(seed);
+      }
     } else {
       throw new Error('xpriv or mnemonic required');
     }
