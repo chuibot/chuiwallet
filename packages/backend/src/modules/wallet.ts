@@ -317,10 +317,16 @@ export class Wallet {
     });
   }
 
-  public async destroy() {
-    chrome.storage.local.remove(WALLET_KEY).then(() => {
+  /**
+   * Tear down the wallet: remove the encrypted vault from chrome.storage and
+   * drop in-memory key material.
+   */
+  public async destroy(): Promise<void> {
+    try {
+      await chrome.storage.local.remove(WALLET_KEY);
+    } finally {
       this.clear();
-    });
+    }
   }
 }
 
