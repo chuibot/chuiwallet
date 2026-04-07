@@ -9,7 +9,6 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { sendMessage } from '@src/utils/bridge';
 import { ERROR_MESSAGES } from '@src/constants';
-import { InputField } from '@src/components/InputField';
 import { getCurrencyMeta, getSendAmountPrecision, isSupportedSendCurrency } from '@src/utils/currencyMeta';
 import { formatFeeAmount, formatFeeRate, formatFiatValue } from '@src/utils/sendFormatting';
 import { useWalletContext } from '@src/context/WalletContext';
@@ -41,7 +40,6 @@ export function SendPreview() {
   const [confirmLoading, setConfirmLoading] = useState<boolean>(false);
   const [error, setError] = useState('');
   const [password, setPassword] = useState('');
-  const [showPasswordInput, setShowPasswordInput] = useState(false);
 
   useEffect(() => {
     if (!currency) {
@@ -61,11 +59,6 @@ export function SendPreview() {
 
   const handleConfirm = async () => {
     if (!currency || !states?.destinationAddress || !states.amount) {
-      return;
-    }
-
-    if (!showPasswordInput) {
-      setShowPasswordInput(true);
       return;
     }
 
@@ -175,28 +168,27 @@ export function SendPreview() {
         </div>
       </div>
 
-      <div className="w-full shrink-0 flex flex-col border-t border-white/10 pt-4">
-        {showPasswordInput && (
-          <div className="mb-4">
-            <InputField
-              label="Password"
-              type="password"
-              placeholder="Enter your password"
-              id="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  handleConfirm();
-                }
-              }}
-            />
-          </div>
-        )}
+      <div className="w-full shrink-0 flex flex-col border-t border-white/10 pt-3">
+        <input
+          type="password"
+          id="password"
+          placeholder="Enter your password"
+          className="mb-3 p-3 w-full rounded-2xl border border-solid bg-input border-background-42 text-foreground-79 max-sm:p-2.5"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              handleConfirm();
+            }
+          }}
+        />
 
-        {error && <span className="mb-4 text-xs text-primary-red font-light">{error}</span>}
+        {error && <span className="mb-3 text-xs text-primary-red font-light">{error}</span>}
 
-        <Button className="flex justify-center gap-2 w-full" onClick={handleConfirm} disabled={confirmLoading}>
+        <Button
+          className="flex justify-center gap-2 w-full"
+          onClick={handleConfirm}
+          disabled={confirmLoading || !password}>
           {confirmLoading && (
             <div role="status">
               <svg

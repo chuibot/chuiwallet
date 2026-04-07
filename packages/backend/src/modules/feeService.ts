@@ -4,6 +4,7 @@ import { ScriptType } from '../types/wallet';
 import { scriptTypeFromAddress } from '../utils/crypto';
 import { getBitcoinPrice } from './blockonomics';
 import { Network } from '../types/electrum';
+import { preferenceManager } from '../preferenceManager';
 
 export type FeeSizer = (inputCount: number, includeChange: boolean) => number;
 
@@ -103,14 +104,15 @@ export class FeeService {
     const { fastestFee, halfHourFee, hourFee } = await this.getReliableFeeRates(network);
     const toScript: ScriptType = scriptTypeFromAddress(toAddress);
     const vbytes = this.estimateTxVbytes(inputs, toScript, changeScriptType);
-    const btcPrice = await getBitcoinPrice();
+    const fiatCurrency = preferenceManager.get().fiatCurrency || 'USD';
+    const btcPrice = await getBitcoinPrice(fiatCurrency === 'BTC' ? 'USD' : fiatCurrency);
     const feeBtc = (rate: number) => (rate * vbytes) / 1e8;
-    const toUsd = (btc: number) => btc * btcPrice;
+    const toFiat = (btc: number) => btc * btcPrice;
 
     return [
-      { speed: 'slow', sats: hourFee, btcAmount: feeBtc(hourFee), usdAmount: toUsd(feeBtc(hourFee)) },
-      { speed: 'medium', sats: halfHourFee, btcAmount: feeBtc(halfHourFee), usdAmount: toUsd(feeBtc(halfHourFee)) },
-      { speed: 'fast', sats: fastestFee, btcAmount: feeBtc(fastestFee), usdAmount: toUsd(feeBtc(fastestFee)) },
+      { speed: 'slow', sats: hourFee, btcAmount: feeBtc(hourFee), usdAmount: toFiat(feeBtc(hourFee)) },
+      { speed: 'medium', sats: halfHourFee, btcAmount: feeBtc(halfHourFee), usdAmount: toFiat(feeBtc(halfHourFee)) },
+      { speed: 'fast', sats: fastestFee, btcAmount: feeBtc(fastestFee), usdAmount: toFiat(feeBtc(fastestFee)) },
     ] as FeeOptionSetting[];
   }
 

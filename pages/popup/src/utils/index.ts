@@ -136,10 +136,10 @@ export function isValidAddress(addr: string, currency: string, network: Network)
   }
 }
 
-export async function getBtcToUsdRate(): Promise<number> {
-  const response = await fetch('https://www.blockonomics.co/api/price?currency=USD');
+export async function getBtcFiatRate(currency: string = 'USD'): Promise<number> {
+  const response = await fetch(`https://www.blockonomics.co/api/price?currency=${encodeURIComponent(currency)}`);
   if (!response.ok) {
-    throw new Error('Failed to fetch BTC to USD rate');
+    throw new Error('Failed to fetch BTC fiat rate');
   }
   const data = await response.json();
   return data.price;
