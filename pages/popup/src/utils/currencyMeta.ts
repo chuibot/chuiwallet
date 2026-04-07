@@ -1,5 +1,6 @@
 import { ChainType, type ChainBalance } from '@extension/backend/src/adapters/IChainAdapter';
 import { getErc20ContractAddress } from '@extension/backend/src/adapters/erc20TokenDefinitions';
+import type { Network as BackendNetwork } from '@extension/backend/src/types/electrum';
 import type { BalanceData, Currencies, Network } from '@src/types';
 
 type CurrencyMeta = {
@@ -87,6 +88,16 @@ export function getTransactionHistoryOptionsForCurrency(currency?: string): { to
   }
 
   return undefined;
+}
+
+/**
+ * Resolve the on-chain ERC-20 contract address for a token currency
+ */
+export function getTokenContractAddress(currency: string | undefined, network: Network): string | undefined {
+  const meta = getCurrencyMeta(currency);
+  if (!meta.tokenSymbol) return undefined;
+  // Popup and backend Network enums use identical string values ('mainnet' / 'testnet').
+  return getErc20ContractAddress(meta.tokenSymbol, network as unknown as BackendNetwork);
 }
 
 export function buildTransactionExplorerUrl(currency: string | undefined, network: Network, txHash: string): string {

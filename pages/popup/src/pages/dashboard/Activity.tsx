@@ -6,6 +6,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { formatNumber } from '@src/utils';
 import {
   getCurrencyMeta,
+  getTokenContractAddress,
   getTransactionHistoryOptionsForCurrency,
   isSupportedSendCurrency,
 } from '@src/utils/currencyMeta';
@@ -88,8 +89,9 @@ export const Activity: React.FC = () => {
   const [userEthAddress, setUserEthAddress] = useState('');
   const chainHistoryOptions = useMemo(() => getTransactionHistoryOptionsForCurrency(currency), [currency]);
   const tokenFiatRate = meta.tokenSymbol ? (chainBalances[meta.chain]?.tokens?.[meta.tokenSymbol]?.fiatRate ?? 0) : 0;
-  const evmNetwork = preferences?.activeEvmNetwork ?? Network.Mainnet;
-  const tokenContractAddress = meta.tokenSymbol ? meta.contracts?.[evmNetwork] : undefined;
+  // Token contract row shown beneath the balance for ERC-20 assets only.
+  // Native EVM coins (e.g. ETH on Ethereum) skip this — the asset name already implies the network.
+  const tokenContractAddress = getTokenContractAddress(currency, preferences?.activeEvmNetwork ?? Network.Mainnet);
   const networkIcon = CHAIN_NETWORK_ICONS[meta.chain];
 
   // Derive display balance from state (BTC) or chainBalances (ETH/USDT)
