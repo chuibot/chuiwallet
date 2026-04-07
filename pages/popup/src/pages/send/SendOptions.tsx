@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AmountInputField } from '@src/components/AmountInputField';
 import { FeeOption } from '@src/components/FeeOption';
 import { useEffect, useState } from 'react';
-import { getBtcToUsdRate } from '@src/utils';
+import { getBtcFiatRate } from '@src/utils';
 import { Button } from '@src/components/Button';
 import Header from '@src/components/Header';
 import { useWalletContext } from '@src/context/WalletContext';
@@ -163,7 +163,8 @@ export const SendOptions: React.FC = () => {
     (async () => {
       try {
         if (currency === 'btc') {
-          const rate = await getBtcToUsdRate();
+          const fiatCurrency = preferences?.fiatCurrency || 'USD';
+          const rate = await getBtcFiatRate(fiatCurrency === 'BTC' ? 'USD' : fiatCurrency);
           if (!cancelled) {
             setFiatRate(rate);
           }
@@ -209,7 +210,7 @@ export const SendOptions: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [chainBalances, currency, meta.tokenSymbol]);
+  }, [chainBalances, currency, meta.tokenSymbol, preferences?.fiatCurrency]);
 
   useEffect(() => {
     if (!currency || !isSupportedSendCurrency(currency) || !states?.destinationAddress) return;
