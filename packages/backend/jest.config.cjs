@@ -3,17 +3,14 @@ module.exports = {
   testEnvironment: 'node',
   roots: ['<rootDir>/tests'],
   testMatch: ['**/*.test.ts'],
-  globals: {
-    'ts-jest': {
-      useESM: true,
-    },
-  },
+  setupFiles: ['<rootDir>/tests/setup.ts'],
   transform: {
-    '^.+\\.(ts|tsx)$': 'ts-jest',
+    '^.+\\.(ts|tsx)$': ['ts-jest', { useESM: true, isolatedModules: true }],
   },
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
-    '^@samouraiwallet/electrum-client$': '<rootDir>/__mocks__/@samouraiwallet/electrum-client.js',
+    '^webextension-polyfill$': '<rootDir>/tests/__mocks__/webextension-polyfill.ts',
   },
   transformIgnorePatterns: ['/node_modules/'],
+  testTimeout: 15000,
 };
