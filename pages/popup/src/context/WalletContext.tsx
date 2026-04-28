@@ -258,7 +258,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       _setChainBalances({});
       setChainBalancesLoading(false);
       setHasHydratedChainBalances(false);
-      setUnlocked(true);
+      setUnlocked(false);
     })();
   };
 

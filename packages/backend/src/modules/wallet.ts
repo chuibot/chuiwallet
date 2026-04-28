@@ -326,6 +326,8 @@ export class Wallet {
       await chrome.storage.local.remove(WALLET_KEY);
     } finally {
       this.clear();
+      this.encryptedVault = null;
+      this.network = undefined;
     }
   }
 }
