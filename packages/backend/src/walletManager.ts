@@ -268,7 +268,6 @@ export class WalletManager {
       getPrevTxHex: (txid: string) => electrumService.getRawTransaction(txid), // Todo: only used for legacy P2PKH, consider depracation
     });
     const txHex = wallet.signPsbt(selectedUtxo.inputs, psbt);
-    logger.log('Send TX Hex', txHex);
     return await electrumService.broadcastTx(txHex!);
   }
 
