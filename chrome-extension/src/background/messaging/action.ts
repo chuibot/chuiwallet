@@ -5,6 +5,11 @@ import type { AppAction } from '@src/background/messaging/index';
 import browser from 'webextension-polyfill';
 import { getSessionPassword, setSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
 import { getApprovalRequest, rejectApproval, resolveApproval } from '@src/background/messaging/rpc';
+import {
+  getLockoutRemainingMs,
+  recordPasswordFailure,
+  recordPasswordSuccess,
+} from '@src/background/messaging/passwordRateLimit';
 import { preferenceManager } from '@extension/backend/src/preferenceManager';
 import { walletManager } from '@extension/backend/src/walletManager';
 import { accountManager } from '@extension/backend/src/accountManager';
@@ -206,7 +211,18 @@ const handlers: Record<string, Handler> = {
   'wallet.verifyPassword': async params => {
     const payload = expectObjectParams('wallet.verifyPassword', params);
     const password = expectStringParam('wallet.verifyPassword', payload, 'password');
-    return walletManager.verifyPassword(password);
+    const remainingMs = await getLockoutRemainingMs();
+    if (remainingMs > 0) {
+      const seconds = Math.ceil(remainingMs / 1000);
+      throw new ActionError('RATE_LIMITED', `Too many failed attempts. Try again in ${seconds}s`);
+    }
+    const success = await walletManager.verifyPassword(password);
+    if (success) {
+      await recordPasswordSuccess();
+    } else {
+      await recordPasswordFailure();
+    }
+    return success;
   },
   'wallet.getBalance': async () => {
     return await walletManager.getBalance();
