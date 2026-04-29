@@ -42,6 +42,7 @@ export class ScanManager {
   public nextReceiveIndex = 0;
   public nextChangeIndex = 0;
   public readonly onStatus = createEmitter<ScanEvent>();
+  private epoch = 0;
 
   constructor(config: ScanManagerConfig = defaultScanConfig) {
     this.config = { ...config };
@@ -72,8 +73,10 @@ export class ScanManager {
    * @param changeType
    */
   public async forwardScan(changeType: ChangeType = ChangeType.External) {
+    const startEpoch = this.epoch;
     let passes = 0;
     while (passes < this.config.forwardExtendMaxPasses) {
+      if (startEpoch !== this.epoch) return;
       const gapLimit = selectByChain(this.config.externalGapLimit, this.config.internalGapLimit, changeType);
       const highestUsed = selectByChain(this.highestUsedReceive, this.highestUsedChange, changeType);
       const highestScanned = selectByChain(this.highestScannedReceive, this.highestScannedChange, changeType);
@@ -109,6 +112,7 @@ export class ScanManager {
    * @param changeType
    */
   public async backfillScan(changeType: ChangeType = ChangeType.External) {
+    const startEpoch = this.epoch;
     const gapLimit = selectByChain(this.config.externalGapLimit, this.config.internalGapLimit, changeType);
     const highestUsed = selectByChain(this.highestUsedReceive, this.highestUsedChange, changeType);
     const highestScanned = selectByChain(this.highestScannedReceive, this.highestScannedChange, changeType);
@@ -144,6 +148,7 @@ export class ScanManager {
     const pickUnused = staleUnused.slice(0, room).map(x => x.index);
     const indicesToScan = Array.from(new Set([...usedPending, ...pickUnused]));
     if (indicesToScan.length === 0) return;
+    if (startEpoch !== this.epoch) return;
 
     const MAX_LOG = 100;
     const preview =
@@ -189,6 +194,7 @@ export class ScanManager {
       return;
     }
 
+    const startEpoch = this.epoch;
     const bitcoinNetwork = toBitcoinNetwork(preferenceManager.get().activeNetwork);
     const addressCache = changeType === ChangeType.External ? this.addressCacheReceive : this.addressCacheChange;
     const historyCache = changeType === ChangeType.External ? this.historyCacheReceive : this.historyCacheChange;
@@ -200,6 +206,7 @@ export class ScanManager {
 
     // Batch in groups for concurrency (adjust based on Electrum limits)
     for (let i = 0; i < indices.length; i += this.config.electrumBatchSize) {
+      if (startEpoch !== this.epoch) return;
       // Bootstrap for batch scanning
       const batchTimestamp = Date.now();
       const batch = indices.slice(i, i + this.config.electrumBatchSize);
@@ -490,6 +497,7 @@ export class ScanManager {
   }
 
   public clear() {
+    this.epoch++;
     this.addressCacheReceive.clear();
     this.addressCacheChange.clear();
     this.historyCacheReceive.clear();
