@@ -42,6 +42,7 @@ function truncateAddress(address: string): string {
 
 const CHAIN_NETWORK_ICONS: Partial<Record<ChainType, string>> = {
   [ChainType.Ethereum]: 'popup/eth_coin.svg',
+  [ChainType.Bitcoin]: 'popup/btc_coin.svg',
 };
 
 /**
@@ -93,6 +94,16 @@ export const Activity: React.FC = () => {
   // Native EVM coins (e.g. ETH on Ethereum) skip this — the asset name already implies the network.
   const tokenContractAddress = getTokenContractAddress(currency, preferences?.activeEvmNetwork ?? Network.Mainnet);
   const networkIcon = CHAIN_NETWORK_ICONS[meta.chain];
+  const activeNetworkForChain =
+    meta.chain === ChainType.Bitcoin
+      ? (preferences?.activeNetwork ?? Network.Mainnet)
+      : (preferences?.activeEvmNetwork ?? Network.Mainnet);
+  const networkLabel =
+    activeNetworkForChain === Network.Testnet
+      ? meta.chain === ChainType.Bitcoin
+        ? 'Testnet 4'
+        : 'Sepolia'
+      : undefined;
 
   // Derive display balance from state (BTC) or chainBalances (ETH/USDT)
   let displayBalance = 0;
@@ -268,6 +279,14 @@ export const Activity: React.FC = () => {
         <div className="mt-3 flex items-center gap-1.5 text-xs leading-none text-foreground-79">
           <img loading="lazy" src={chrome.runtime.getURL(networkIcon)} alt="" className="object-contain w-3.5 h-3.5" />
           <span title={tokenContractAddress}>{truncateAddress(tokenContractAddress)}</span>
+        </div>
+      )}
+
+      {networkLabel && networkIcon && (
+        <div
+          className={`${tokenContractAddress ? 'mt-1' : 'mt-3'} flex items-center gap-1.5 text-xs leading-none text-foreground-79`}>
+          <img loading="lazy" src={chrome.runtime.getURL(networkIcon)} alt="" className="object-contain w-3.5 h-3.5" />
+          <span>{networkLabel}</span>
         </div>
       )}
 
