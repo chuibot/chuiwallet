@@ -5,6 +5,7 @@ export const ERROR_MESSAGES = {
   PASSWORD_TOO_SHORT: 'Password must be at least 8 characters long.',
   PASSWORD_REQUIRED: 'Password is required.',
   INCORRECT_PASSWORD: 'Incorrect password.',
+  TOO_MANY_PASSWORD_ATTEMPTS: 'Too many failed attempts. Please wait before trying again.',
   SOMETHING_WENT_WRONG: 'Something went wrong. Please try again.',
   PLEASE_ENTER_PASSWORD: 'Please enter your password.',
   SOMETHING_WENT_WRONG_WHILE_SENDING_TRANSACTION: 'An error occurred while sending the transaction.',

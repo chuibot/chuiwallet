@@ -32,10 +32,12 @@ type ParamsRecord = Record<string, unknown>;
 
 class ActionError extends Error {
   readonly code: string;
+  readonly data?: Record<string, unknown>;
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, data?: Record<string, unknown>) {
     super(message);
     this.code = code;
+    this.data = data;
     this.name = 'ActionError';
   }
 }
@@ -214,7 +216,7 @@ const handlers: Record<string, Handler> = {
     const remainingMs = await getLockoutRemainingMs();
     if (remainingMs > 0) {
       const seconds = Math.ceil(remainingMs / 1000);
-      throw new ActionError('RATE_LIMITED', `Too many failed attempts. Try again in ${seconds}s`);
+      throw new ActionError('RATE_LIMITED', `Too many failed attempts. Try again in ${seconds}s`, { remainingMs });
     }
     const success = await walletManager.verifyPassword(password);
     if (success) {
@@ -482,7 +484,7 @@ const handlers: Record<string, Handler> = {
 
 export type RouterResponse =
   | { status: 'ok'; data: unknown }
-  | { status: 'error'; error: { code: string; message: string } };
+  | { status: 'error'; error: { code: string; message: string; data?: unknown } };
 
 export async function handle(message: AppAction, sender: Runtime.MessageSender): Promise<RouterResponse> {
   try {
@@ -496,7 +498,7 @@ export async function handle(message: AppAction, sender: Runtime.MessageSender):
     return { status: 'ok', data };
   } catch (e) {
     if (e instanceof ActionError) {
-      return { status: 'error', error: { code: e.code, message: e.message } };
+      return { status: 'error', error: { code: e.code, message: e.message, data: e.data } };
     }
     const msg = e instanceof Error ? e.message : String(e);
     return { status: 'error', error: { code: 'INTERNAL', message: msg } };

@@ -3,38 +3,30 @@ import { useNavigate } from 'react-router-dom';
 import { InputField } from '@src/components/InputField';
 import Header from '@src/components/Header';
 import { ButtonOutline } from '@src/components/ButtonOutline';
-import { sendMessage } from '@src/utils/bridge';
+import { usePasswordVerify } from '@src/hooks/usePasswordVerify';
 import { ERROR_MESSAGES } from '@src/constants';
 
 export const UnlockSeed: React.FC = () => {
   const navigate = useNavigate();
   const [password, setPassword] = React.useState('');
-  const [errorMsg, setErrorMsg] = React.useState('');
-  const [loading, setLoading] = React.useState(false);
+  const [emptyError, setEmptyError] = React.useState('');
+  const { verify, loading, disabled, errorMsg } = usePasswordVerify();
 
   const handleReveal = async () => {
+    setEmptyError('');
+
     if (!password) {
-      setErrorMsg(ERROR_MESSAGES.PLEASE_ENTER_PASSWORD);
+      setEmptyError(ERROR_MESSAGES.PLEASE_ENTER_PASSWORD);
       return;
     }
 
-    setLoading(true);
-    setErrorMsg('');
-
-    try {
-      const success = await sendMessage('wallet.verifyPassword', { password });
-      if (success) {
-        navigate('/settings/advanced/reveal-seed');
-      } else {
-        setErrorMsg(ERROR_MESSAGES.INCORRECT_PASSWORD);
-      }
-    } catch (error) {
-      console.error('Error verifying password:', error);
-      setErrorMsg(ERROR_MESSAGES.SOMETHING_WENT_WRONG);
-    } finally {
-      setLoading(false);
+    const result = await verify(password);
+    if (result.status === 'success') {
+      navigate('/settings/advanced/reveal-seed');
     }
   };
+
+  const displayError = emptyError || errorMsg;
 
   return (
     <div className="flex flex-col h-screen px-5 pt-12 pb-[19px] bg-dark">
@@ -63,9 +55,11 @@ export const UnlockSeed: React.FC = () => {
                 }
               }}
             />
-            {errorMsg && <span className="mt-1 text-xs font-italic text-primary-red font-light">{errorMsg}</span>}
+            {displayError && (
+              <span className="mt-1 text-xs font-italic text-primary-red font-light">{displayError}</span>
+            )}
           </div>
-          <ButtonOutline onClick={handleReveal} disabled={!password || loading}>
+          <ButtonOutline onClick={handleReveal} disabled={!password || disabled}>
             {loading ? 'Unlocking...' : 'Reveal seed phrase'}
           </ButtonOutline>
         </div>
