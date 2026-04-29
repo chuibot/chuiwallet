@@ -375,7 +375,6 @@ export class WalletManager {
     }
     const account = wallet.deriveAccount(nextIndex);
     const activeAccountIndex = await accountManager.add(account);
-    preferenceManager.get().activeAccountIndex = activeAccountIndex;
     await preferenceManager.update({ activeAccountIndex: activeAccountIndex });
   }
 
@@ -402,7 +401,6 @@ export class WalletManager {
       defaultAccountIndex = await accountManager.add(defaultAccount);
     }
 
-    preferenceManager.get().activeAccountIndex = defaultAccountIndex;
     await preferenceManager.update({ activeAccountIndex: defaultAccountIndex });
   }
 }
