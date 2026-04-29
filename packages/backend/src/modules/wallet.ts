@@ -195,13 +195,17 @@ export class Wallet {
   public signPsbt(utxos: SpendableUtxo[], psbt: bitcoin.Psbt): string | undefined {
     try {
       if (!this.root) throw new Error('Wallet is not ready');
+      const masterFingerprint = fingerprintBuffer(this.root);
       for (let i = 0; i < utxos.length; i++) {
         const account = accountManager.getActiveAccount();
-        const accountNode = this.root
-          .deriveHardened(purposeFromScriptType(account.scriptType))
-          .deriveHardened(account.network === Network.Testnet ? 1 : 0)
-          .deriveHardened(account.index);
-        const childNode = accountNode.derive(utxos[i].chain === ChangeType.External ? 0 : 1).derive(utxos[i].index);
+        const purpose = purposeFromScriptType(account.scriptType);
+        const coin = account.network === Network.Testnet ? 1 : 0;
+        const chainNum = utxos[i].chain === ChangeType.External ? 0 : 1;
+        const expectedPath = `m/${purpose}'/${coin}'/${account.index}'/${chainNum}/${utxos[i].index}`;
+        assertPsbtDerivationPath(psbt.data.inputs[i], masterFingerprint, expectedPath);
+
+        const accountNode = this.root.deriveHardened(purpose).deriveHardened(coin).deriveHardened(account.index);
+        const childNode = accountNode.derive(chainNum).derive(utxos[i].index);
         psbt.signInput(i, toHdSigner(childNode));
       }
 
@@ -329,6 +333,26 @@ export class Wallet {
       this.encryptedVault = null;
       this.network = undefined;
     }
+  }
+}
+
+type DerivationEntry = { masterFingerprint: Buffer; path: string };
+
+function assertPsbtDerivationPath(
+  input: { bip32Derivation?: DerivationEntry[]; tapBip32Derivation?: DerivationEntry[] } | undefined,
+  masterFingerprint: Buffer,
+  expectedPath: string,
+): void {
+  if (!input) {
+    throw new Error('PSBT input missing');
+  }
+  const candidates = [...(input.bip32Derivation ?? []), ...(input.tapBip32Derivation ?? [])];
+  const matchedByFp = candidates.filter(d => Buffer.from(d.masterFingerprint).equals(masterFingerprint));
+  if (matchedByFp.length === 0) {
+    throw new Error('PSBT input missing bip32 derivation for this wallet');
+  }
+  if (!matchedByFp.some(d => d.path === expectedPath)) {
+    throw new Error(`PSBT input bip32 derivation path mismatch for ${expectedPath}`);
   }
 }
 
