@@ -1,8 +1,21 @@
+jest.mock('../../src/modules/assetPriceService', () => ({
+  assetPriceService: {
+    getUsdPrices: jest.fn(async () => ({ bitcoin: 60_000 })),
+  },
+}));
+
+jest.mock('../../src/preferenceManager', () => ({
+  preferenceManager: {
+    get: () => ({ fiatCurrency: 'USD' }),
+  },
+}));
+
 import { BitcoinAdapter } from '../../src/adapters/BitcoinAdapter';
 import { ChainType } from '../../src/adapters/IChainAdapter';
 import { ChangeType, type TxEntry } from '../../src/types/cache';
 import { Network } from '../../src/types/electrum';
 import type { Balance } from '../../src/types/wallet';
+import { assetPriceService } from '../../src/modules/assetPriceService';
 
 function makeStubs() {
   const wallet = {
@@ -103,19 +116,27 @@ describe('BitcoinAdapter — addresses', () => {
 });
 
 describe('BitcoinAdapter — getBalance', () => {
-  it('translates Balance into ChainBalance with derived rate', async () => {
+  it('translates Balance into ChainBalance with rate from price service', async () => {
     const { wallet, electrum, scan, history } = makeStubs();
     const a = new BitcoinAdapter(wallet, electrum, scan, history);
     const out = await a.getBalance();
     expect(out.confirmed).toBe(200_000_000);
     expect(out.unconfirmed).toBe(50_000_000);
     expect(out.confirmedFiat).toBe(12_000);
-    expect(out.nativeFiatRate).toBe(12_000 / 2);
+    expect(out.nativeFiatRate).toBe(60_000);
   });
 
-  it('omits nativeFiatRate when confirmed is zero', async () => {
+  it('still returns nativeFiatRate from the price service when balance is zero', async () => {
     const { wallet, electrum, scan, history } = makeStubs();
     wallet.getBalance = jest.fn(async () => ({ confirmed: 0, unconfirmed: 0, confirmedUsd: 0, unconfirmedUsd: 0 }));
+    const a = new BitcoinAdapter(wallet, electrum, scan, history);
+    const out = await a.getBalance();
+    expect(out.nativeFiatRate).toBe(60_000);
+  });
+
+  it('omits nativeFiatRate when the price service returns no price', async () => {
+    (assetPriceService.getUsdPrices as jest.Mock).mockResolvedValueOnce({});
+    const { wallet, electrum, scan, history } = makeStubs();
     const a = new BitcoinAdapter(wallet, electrum, scan, history);
     const out = await a.getBalance();
     expect(out.nativeFiatRate).toBeUndefined();
