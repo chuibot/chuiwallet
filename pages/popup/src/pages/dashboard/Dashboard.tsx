@@ -40,8 +40,8 @@ export const Dashboard: React.FC = () => {
     const ethConfirmedUsd = ethBalance?.confirmedFiat ?? 0;
     const usdtConfirmedUsd = usdtTokenBalance?.balanceFiat ?? 0;
     const totalUsd = btcConfirmedUsd + ethConfirmedUsd + usdtConfirmedUsd;
-    const btcUsdRate = btcAmount > 0 && btcConfirmedUsd > 0 ? btcConfirmedUsd / btcAmount : 0;
-    const totalBtcEquivalent = btcUsdRate > 0 ? totalUsd / btcUsdRate : btcAmount;
+    const btcFiatRate = chainBalances[ChainType.Bitcoin]?.nativeFiatRate ?? 0;
+    const totalBtcEquivalent = btcFiatRate > 0 ? totalUsd / btcFiatRate : btcAmount;
     const hasUnpricedTokenBalance = Boolean(
       usdtTokenBalance && usdtTokenBalance.balance > 0 && usdtTokenBalance.balanceFiat === undefined,
     );
@@ -49,7 +49,7 @@ export const Dashboard: React.FC = () => {
     return {
       totalUsd,
       totalBtcEquivalent,
-      hasBtcEquivalent: btcUsdRate > 0 || totalUsd === 0,
+      btcFiatRate,
       hasUnpricedTokenBalance,
     };
   }, [balance, chainBalances, usdtTokenBalance]);
@@ -124,13 +124,13 @@ export const Dashboard: React.FC = () => {
         <Skeleton className="mt-2 !w-[100px] !h-[16px] !rounded-sm" />
       ) : (
         <>
-          <div className="mt-2 text-sm leading-none text-center text-white cursor-pointer">
-            {isFiatMode
-              ? totals.hasBtcEquivalent
+          {(!isFiatMode || totals.btcFiatRate > 0) && (
+            <div className="mt-2 text-sm leading-none text-center text-white cursor-pointer">
+              {isFiatMode
                 ? `${formatNumber(totals.totalBtcEquivalent, 8)} BTC`
-                : 'BTC equivalent unavailable'
-              : `${formatNumber(totals.totalUsd)} ${fiatLabel}`}
-          </div>
+                : `${formatNumber(totals.totalUsd)} ${fiatLabel}`}
+            </div>
+          )}
           {totals.hasUnpricedTokenBalance && (
             <div className="mt-2 text-xs leading-none text-center text-foreground">
               Token balances without live pricing are excluded from totals

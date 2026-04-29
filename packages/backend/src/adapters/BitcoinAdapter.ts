@@ -1,9 +1,10 @@
 import type { Network } from '../types/electrum';
-import type { Balance } from '../types/wallet';
 import type { WalletManager } from '../walletManager';
 import type { ElectrumService } from '../modules/electrumService';
 import type { ScanManager } from '../scanManager';
 import type { TxHistoryService } from '../modules/txHistoryService';
+import { assetPriceService } from '../modules/assetPriceService';
+import { preferenceManager } from '../preferenceManager';
 import { ChangeType } from '../types/cache';
 import {
   ChainType,
@@ -71,14 +72,20 @@ export class BitcoinAdapter implements IChainAdapter {
   // ── Balance ───────────────────────────────────────────────────────
 
   async getBalance(): Promise<ChainBalance> {
-    const balance: Balance = await this.walletManager.getBalance();
-    const confirmedBtc = balance.confirmed / 1e8;
+    const fiatCurrency = preferenceManager.get().fiatCurrency || 'USD';
+    const vsCurrency = fiatCurrency === 'BTC' ? 'usd' : fiatCurrency.toLowerCase();
+    const [balance, priceByAssetId] = await Promise.all([
+      this.walletManager.getBalance(),
+      assetPriceService.getUsdPrices(['bitcoin'], vsCurrency),
+    ]);
+    const btcPrice = priceByAssetId.bitcoin ?? 0;
+
     return {
       confirmed: balance.confirmed,
       unconfirmed: balance.unconfirmed,
       confirmedFiat: balance.confirmedUsd,
       unconfirmedFiat: balance.unconfirmedUsd,
-      nativeFiatRate: confirmedBtc > 0 ? balance.confirmedUsd / confirmedBtc : undefined,
+      nativeFiatRate: btcPrice > 0 ? btcPrice : undefined,
     };
   }
 
