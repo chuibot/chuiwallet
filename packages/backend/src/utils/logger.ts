@@ -18,4 +18,4 @@ export class Logger {
   }
 }
 
-export const logger = new Logger(true);
+export const logger = new Logger();
