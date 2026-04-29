@@ -48,7 +48,7 @@ window.addEventListener('message', event => {
           type: 'CHUI_BTC_RPC_RESPONSE',
           payload: rpcResponse,
         },
-        '*',
+        window.location.origin,
       );
     },
   );
