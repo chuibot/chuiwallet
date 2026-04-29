@@ -4,47 +4,37 @@ import { InputField } from '@src/components/InputField';
 import { Button } from '@src/components/Button';
 import { setSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
 import { useWalletContext } from '@src/context/WalletContext';
-import { sendMessage } from '@src/utils/bridge';
+import { usePasswordVerify } from '@src/hooks/usePasswordVerify';
 
 export const PasswordLock: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
   const [password, setPassword] = React.useState('');
-  const [errorMsg, setErrorMsg] = React.useState('');
-  const [loading, setLoading] = React.useState(false);
+  const [emptyError, setEmptyError] = React.useState('');
   const { init } = useWalletContext();
+  const { verify, loading, disabled, errorMsg } = usePasswordVerify();
 
   const params = new URLSearchParams(location.search);
   const next = params.get('next') || '/dashboard';
 
   const handleUnlock = async () => {
-    setErrorMsg('');
+    setEmptyError('');
 
     if (!password) {
-      setErrorMsg('Please enter your password.');
+      setEmptyError('Please enter your password.');
       return;
     }
 
-    setLoading(true);
+    const result = await verify(password);
+    if (result.status !== 'success') return;
 
-    try {
-      const isValid = await sendMessage<boolean>('wallet.verifyPassword', { password });
-      if (!isValid) {
-        setErrorMsg('Incorrect password.');
-        return;
-      }
-
-      await setSessionPassword(password);
-      await init();
-      navigate(next, { replace: true });
-    } catch (err) {
-      console.error(err);
-      setErrorMsg('An error occurred. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+    await setSessionPassword(password);
+    await init();
+    navigate(next, { replace: true });
   };
+
+  const displayError = emptyError || errorMsg;
 
   return (
     <div className="flex flex-col h-screen px-5 pt-12 pb-[19px] bg-dark">
@@ -80,10 +70,12 @@ export const PasswordLock: React.FC = () => {
               }}
             />
 
-            {errorMsg && <span className="mt-1 text-xs font-italic text-primary-red font-light">{errorMsg}</span>}
+            {displayError && (
+              <span className="mt-1 text-xs font-italic text-primary-red font-light">{displayError}</span>
+            )}
           </div>
 
-          <Button onClick={handleUnlock} tabIndex={0} disabled={loading || !password}>
+          <Button onClick={handleUnlock} tabIndex={0} disabled={disabled || !password}>
             {loading ? 'Unlocking...' : 'Unlock'}
           </Button>
         </div>
