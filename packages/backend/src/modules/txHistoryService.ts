@@ -6,6 +6,7 @@ import { getCacheKey } from '../utils/cache';
 import { getBitcoinPrice } from './blockonomics';
 import { scanManager } from '../scanManager';
 import { electrumService } from './electrumService';
+import { assertElectrumTransaction } from '../utils/electrumValidation';
 
 type ScriptPubKey = Readonly<{
   address?: string;
@@ -34,7 +35,9 @@ export class TxHistoryService {
       for (const [txid] of entry.txs) {
         const cached = this.txHistoryCache.get(txid);
         if (!cached || cached.status === 'PENDING') {
-          const tx = (await electrumService.getRawTransaction(txid, true)) as ElectrumTransaction;
+          const raw = await electrumService.getRawTransaction(txid, true);
+          assertElectrumTransaction(raw);
+          const tx: ElectrumTransaction = raw;
           const newEntry = await this.buildTxEntry(
             tx,
             scanManager.addressCacheReceive,
@@ -161,9 +164,10 @@ export class TxHistoryService {
   private async getParentTx(txid: string): Promise<ElectrumTransaction> {
     const cached = this.parentTxCache.get(txid);
     if (cached) return cached;
-    const tx = (await electrumService.getRawTransaction(txid, true)) as ElectrumTransaction;
-    this.parentTxCache.set(txid, tx);
-    return tx;
+    const raw = await electrumService.getRawTransaction(txid, true);
+    assertElectrumTransaction(raw);
+    this.parentTxCache.set(txid, raw);
+    return raw;
   }
 
   private pickSenderReceiverFromOutputs(
