@@ -244,13 +244,6 @@ export class TxHistoryService {
     }
   }
 
-  /**
-   * Insert a synthetic PENDING entry for a tx the wallet just broadcast.
-   * Lets the activity list reflect the send instantly instead of waiting for
-   * the next scan to discover it via mempool. The entry is replaced with the
-   * canonical one on the next get() once the scanner picks the tx up (see the
-   * status === 'PENDING' refresh branch in get()).
-   */
   public addOptimisticPending(args: {
     txid: string;
     toAddress: string;

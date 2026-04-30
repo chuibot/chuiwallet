@@ -88,16 +88,10 @@ browser.runtime.onInstalled.addListener(() => {
 
 function setupAlarms() {
   browser.alarms.create('forwardScan', { periodInMinutes: 3 });
-  // Chrome clamps alarms below 30s, and a 6s period (0.1) was both clamped and
-  // wasteful. Backfill only needs to react within a block (~10 min); 1 min keeps
-  // confirmation status fresh without burning service-worker wakeups.
   browser.alarms.create('backfillScan', { periodInMinutes: 1 });
 }
 
-// 'chui-app' is opened only by the popup (pages/popup/src/hooks/useChuiEvents.ts);
-// reusing the name from a content script would let any page induce a scan.
-// Sibling listener in messaging/port.ts handles the port lifecycle; this one
-// only triggers a scan kickoff. Dedupe lives in scanManager.
+// 'chui-app' must remain popup-only; a content script reusing this name would let any page induce a scan.
 browser.runtime.onConnect.addListener(port => {
   if (port.name !== 'chui-app') return;
   if (accountManager.activeAccountIndex < 0) return;
