@@ -1,4 +1,5 @@
 import { getSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
+import { getEthRpcApiKey } from '@extension/backend/src/utils/ethRpcApiKeyStore';
 import { historyService } from '@extension/backend/src/modules/txHistoryService';
 import { scanManager } from '@extension/backend/src/scanManager';
 import { electrumService } from '@extension/backend/src/modules/electrumService';
@@ -46,7 +47,8 @@ export function ensureChainAdaptersReady(): Promise<void> {
 
       let ethAdapter = chainRegistry.get(ChainType.Ethereum) as EthereumAdapter | undefined;
       if (!ethAdapter) {
-        ethAdapter = new EthereumAdapter({ rpcApiKey: preferenceManager.get().ethRpcApiKey });
+        const rpcApiKey = await getEthRpcApiKey();
+        ethAdapter = new EthereumAdapter({ rpcApiKey });
         chainRegistry.register(ethAdapter);
       }
 

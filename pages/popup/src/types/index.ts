@@ -21,7 +21,6 @@ export interface Preferences {
   activeNetwork: Network;
   activeEvmNetwork: Network;
   isWalletBackedUp: boolean;
-  ethRpcApiKey?: string;
 }
 
 export interface BalanceData {

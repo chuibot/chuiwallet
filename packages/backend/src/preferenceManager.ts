@@ -10,7 +10,6 @@ export interface Preferences {
   activeNetwork: Network;
   activeEvmNetwork: Network;
   isWalletBackedUp: boolean;
-  ethRpcApiKey?: string;
 }
 
 export const defaultPreferences: Preferences = {
@@ -22,7 +21,6 @@ export const defaultPreferences: Preferences = {
   activeNetwork: Network.Mainnet,
   activeEvmNetwork: Network.Mainnet,
   isWalletBackedUp: false,
-  ethRpcApiKey: '',
 };
 
 const STORAGE_KEY = 'preferences';
