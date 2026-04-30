@@ -148,7 +148,7 @@ export async function handle(message: ProviderRpc, sender: Runtime.MessageSender
     const fn = handlers[rpcRequest.method];
     if (!fn) return rpcErrorResponse(rpcRequest.id, -32601, `Method not found: ${rpcRequest.method}`);
 
-    const approved = await requestUserApproval(message.origin || 'unknown', rpcRequest);
+    const approved = await requestUserApproval(originFromSender(sender), rpcRequest);
     if (!approved) {
       return rpcErrorResponse(rpcRequest.id, 4001, 'User rejected the request');
     }
@@ -158,6 +158,15 @@ export async function handle(message: ProviderRpc, sender: Runtime.MessageSender
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
     return rpcErrorResponse(rpcRequest.id, -32603, 'Internal error', errorMessage);
+  }
+}
+
+function originFromSender(sender: Runtime.MessageSender): string {
+  if (!sender.url) return 'unknown';
+  try {
+    return new URL(sender.url).origin;
+  } catch {
+    return 'unknown';
   }
 }
 
