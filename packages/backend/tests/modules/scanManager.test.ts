@@ -94,4 +94,28 @@ describe('ScanManager — concurrent scan dedupe', () => {
     expect(fwdSpy).toHaveBeenCalledTimes(1);
     expect(bfSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('forwardScan clears the inflight slot on rejection so the next call restarts', async () => {
+    const sm = new ScanManager();
+    const spy = jest
+      .spyOn(sm as unknown as { runForwardScan: () => Promise<void> }, 'runForwardScan')
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(sm.forwardScan(ChangeType.External)).rejects.toThrow('boom');
+    await sm.forwardScan(ChangeType.External);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it('backfillScan clears the inflight slot on rejection so the next call restarts', async () => {
+    const sm = new ScanManager();
+    const spy = jest
+      .spyOn(sm as unknown as { runBackfillScan: () => Promise<void> }, 'runBackfillScan')
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(sm.backfillScan(ChangeType.External)).rejects.toThrow('boom');
+    await sm.backfillScan(ChangeType.External);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
 });
