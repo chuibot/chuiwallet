@@ -80,7 +80,7 @@ export class ScanManager {
       const gapLimit = selectByChain(this.config.externalGapLimit, this.config.internalGapLimit, changeType);
       const highestUsed = selectByChain(this.highestUsedReceive, this.highestUsedChange, changeType);
       const highestScanned = selectByChain(this.highestScannedReceive, this.highestScannedChange, changeType);
-      const windowToScan = Math.max(0, highestUsed) + gapLimit - highestScanned - 1;
+      const windowToScan = computeForwardScanWindow(highestUsed, gapLimit, highestScanned);
       if (windowToScan <= 0) {
         this.emitScanEvent({
           type: 'scan',
@@ -521,6 +521,10 @@ export class ScanManager {
       historyChanged,
     });
   }
+}
+
+export function computeForwardScanWindow(highestUsed: number, gapLimit: number, highestScanned: number): number {
+  return Math.max(0, highestUsed) + gapLimit - highestScanned;
 }
 
 export const scanManager = new ScanManager();
