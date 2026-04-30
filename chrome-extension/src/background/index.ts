@@ -88,8 +88,15 @@ browser.runtime.onInstalled.addListener(() => {
 
 function setupAlarms() {
   browser.alarms.create('forwardScan', { periodInMinutes: 3 });
-  browser.alarms.create('backfillScan', { periodInMinutes: 0.1 });
+  browser.alarms.create('backfillScan', { periodInMinutes: 1 });
 }
+
+// 'chui-app' must remain popup-only; a content script reusing this name would let any page induce a scan.
+browser.runtime.onConnect.addListener(port => {
+  if (port.name !== 'chui-app') return;
+  if (accountManager.activeAccountIndex < 0) return;
+  void allScan().catch(err => logger.error('Popup-open scan kickoff failed', err));
+});
 
 browser.alarms.onAlarm.addListener(async alarm => {
   if (alarm.name === 'forwardScan') {

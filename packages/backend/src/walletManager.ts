@@ -268,7 +268,28 @@ export class WalletManager {
       getPrevTxHex: (txid: string) => electrumService.getRawTransaction(txid), // Todo: only used for legacy P2PKH, consider depracation
     });
     const txHex = wallet.signPsbt(selectedUtxo.inputs, psbt);
-    return await electrumService.broadcastTx(txHex!);
+    const txid = await electrumService.broadcastTx(txHex!);
+
+    try {
+      await historyService.addOptimisticPending({
+        txid,
+        toAddress: to,
+        fromAddress: selectedUtxo.inputs[0].address,
+        amountSats,
+        feeSats: selectedUtxo.fee,
+      });
+    } catch (err) {
+      logger.warn('Failed to record optimistic pending tx', err);
+    }
+
+    // Awaited (not fire-and-forget) so the MV3 service worker stays alive long
+    // enough for the canonical entry to replace the optimistic one.
+    await Promise.allSettled([
+      scanManager.forwardScan().catch(err => logger.warn('Post-send forward scan failed', err)),
+      scanManager.forwardScan(ChangeType.Internal).catch(err => logger.warn('Post-send change-chain scan failed', err)),
+    ]);
+
+    return txid;
   }
 
   /**
