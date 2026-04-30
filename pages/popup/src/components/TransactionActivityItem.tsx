@@ -1,6 +1,6 @@
 import type * as React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { formatNumber, formatTimestamp, getStatusMeta } from '@src/utils';
+import { formatNumber, formatTime, getStatusMeta } from '@src/utils';
 import type { TxStatus, TxType } from '@extension/backend/src/types/cache';
 import { useWalletContext } from '@src/context/WalletContext';
 
@@ -47,7 +47,7 @@ export const TransactionActivityItem: React.FC<TransactionActivityItemProps> = p
   const txnStatus =
     props.status === 'FAILED' ? 'failed' : props.status === 'PENDING' ? 'pending' : isSent ? 'sent' : 'received';
   const { icon, label } = getStatusMeta(txnStatus);
-  const formattedTime = formatTimestamp(props.timestamp);
+  const formattedTime = formatTime(props.timestamp);
 
   const handleClick = () => {
     navigate(`${props.transactionHash}/detail`, {

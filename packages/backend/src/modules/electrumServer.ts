@@ -9,6 +9,7 @@ export const availableServerList: ServerConfig[] = [
   { host: 'b.1209k.com', port: DefaultPort.TLS, useTls: true, network: Network.Mainnet },
   { host: 'testnet4.electrs.btcscan.net', port: 443, useTls: true, network: Network.Testnet },
   { host: 'testnet4.electrum.blockonomics.co', port: 443, useTls: true, network: Network.Testnet },
+  x,
 ];
 
 export async function selectBestServer(network: Network): Promise<ExtendedServerConfig> {
