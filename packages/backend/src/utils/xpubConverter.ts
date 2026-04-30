@@ -35,8 +35,8 @@ export function convertToSlip0132(xpub: string, scriptType: ScriptType, network:
   try {
     const bitcoinNetwork = network === Network.Mainnet ? bitcoin.networks.bitcoin : bitcoin.networks.testnet;
 
-    // Parse the xpub using the standard network
-    const node = bip32.fromBase58(xpub, bitcoinNetwork);
+    // Validate the xpub by parsing it once.
+    bip32.fromBase58(xpub, bitcoinNetwork);
 
     const version = VERSION_BYTES[network][scriptType];
     if (!version) {
@@ -53,12 +53,12 @@ export function convertToSlip0132(xpub: string, scriptType: ScriptType, network:
       },
     };
 
-    // Temporarily assign the custom network to the node to encode with the new version
-    // Casting to 'any' because strict types might prevent writing to 'network'
+    // Re-parse into a fresh, isolated node so the network reassignment below
+    // cannot leak to any other holder of the original parse result.
+    const clone = bip32.fromBase58(xpub, bitcoinNetwork);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (node as any).network = customNetwork;
-
-    return node.toBase58();
+    (clone as any).network = customNetwork;
+    return clone.toBase58();
   } catch (error) {
     console.error('Failed to convert xpub to SLIP-0132:', error);
     return xpub;
