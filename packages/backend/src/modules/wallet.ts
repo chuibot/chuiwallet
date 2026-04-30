@@ -126,6 +126,9 @@ export class Wallet {
       case ScriptType.P2WPKH:
         return bitcoin.payments.p2wpkh({ pubkey: publicKey, network } as bitcoin.Payment).address;
       case ScriptType.P2TR:
+        if (publicKey.length !== 33) {
+          throw new Error('Invalid compressed pubkey for P2TR');
+        }
         return bitcoin.payments.p2tr({ internalPubkey: publicKey.slice(1), network } as bitcoin.Payment).address; // Taproot uses x-only pubkey
       default:
         throw new Error('Unsupported script type');
