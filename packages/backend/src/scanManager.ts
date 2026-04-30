@@ -43,9 +43,8 @@ export class ScanManager {
   public nextChangeIndex = 0;
   public readonly onStatus = createEmitter<ScanEvent>();
   private epoch = 0;
-  // Coalesce concurrent scan requests so alarm + popup-open + post-send triggers
-  // share one Electrum round-trip per (kind, changeType) instead of stacking up
-  // and tripping rate limits. See issue #15.
+  // Coalesce concurrent scans so triggers share one Electrum round-trip per
+  // (kind, changeType). See #15.
   private forwardInflight = new Map<ChangeType, Promise<void>>();
   private backfillInflight = new Map<ChangeType, Promise<void>>();
 
@@ -77,9 +76,8 @@ export class ScanManager {
    * Forward scan the address chain by deriving to gapLimit
    * @param changeType
    */
-  // Not async: returning the cached promise directly (rather than via an async
-  // wrapper that would re-wrap it in a fresh Promise) preserves identity, which
-  // matters for callers that need to know "am I joining the same scan?".
+  // Not async: an async wrapper would re-wrap the cached promise in a fresh
+  // one (per spec), breaking the identity check the dedupe test relies on.
   public forwardScan(changeType: ChangeType = ChangeType.External): Promise<void> {
     const existing = this.forwardInflight.get(changeType);
     if (existing) return existing;

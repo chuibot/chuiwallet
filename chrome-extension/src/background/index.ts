@@ -94,11 +94,10 @@ function setupAlarms() {
   browser.alarms.create('backfillScan', { periodInMinutes: 1 });
 }
 
-// Kick a scan whenever the popup opens so users see fresh state on open instead
-// of waiting for the next alarm. Concurrent kickoffs and overlapping alarms are
-// coalesced inside scanManager (per-changeType inflight promise), so re-opening
-// the popup while an alarm-triggered scan is mid-flight does not start a second
-// Electrum round trip.
+// 'chui-app' is opened only by the popup (pages/popup/src/hooks/useChuiEvents.ts);
+// reusing the name from a content script would let any page induce a scan.
+// Sibling listener in messaging/port.ts handles the port lifecycle; this one
+// only triggers a scan kickoff. Dedupe lives in scanManager.
 browser.runtime.onConnect.addListener(port => {
   if (port.name !== 'chui-app') return;
   if (accountManager.activeAccountIndex < 0) return;

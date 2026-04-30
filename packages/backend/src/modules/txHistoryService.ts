@@ -25,8 +25,21 @@ type OutPart = { address: string; valueSat: bigint; mine: boolean };
 export class TxHistoryService {
   private txHistoryCache = new Map<string, TxEntry>();
   private parentTxCache = new Map<string, ElectrumTransaction>();
+  // Serialises load->mutate->save: loadTxHistory() clears the in-memory cache,
+  // so concurrent writers would clobber each other.
+  private writeQueue: Promise<unknown> = Promise.resolve();
+
+  private withLock<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.writeQueue.then(fn, fn);
+    this.writeQueue = next.catch(() => undefined);
+    return next;
+  }
 
   public async get(): Promise<TxEntry[]> {
+    return this.withLock(() => this.runGet());
+  }
+
+  private async runGet(): Promise<TxEntry[]> {
     await this.loadTxHistory();
     const histories = [...scanManager['historyCacheReceive'].values(), ...scanManager['historyCacheChange'].values()];
     const bitcoinPrice = await getBitcoinPrice();
@@ -238,34 +251,36 @@ export class TxHistoryService {
    * canonical one on the next get() once the scanner picks the tx up (see the
    * status === 'PENDING' refresh branch in get()).
    */
-  public async addOptimisticPending(args: {
+  public addOptimisticPending(args: {
     txid: string;
     toAddress: string;
     fromAddress: string;
     amountSats: number;
     feeSats: number;
   }): Promise<void> {
-    await this.loadTxHistory();
-    if (this.txHistoryCache.has(args.txid)) return;
+    return this.withLock(async () => {
+      await this.loadTxHistory();
+      if (this.txHistoryCache.has(args.txid)) return;
 
-    const btcUsdRate = await getBitcoinPrice().catch(() => undefined);
-    const amountBtc = args.amountSats / 1e8;
-    const feeBtc = args.feeSats / 1e8;
-    const entry: TxEntry = {
-      type: 'SEND',
-      status: 'PENDING',
-      amountBtc,
-      amountUsd: typeof btcUsdRate === 'number' ? amountBtc * btcUsdRate : undefined,
-      feeBtc,
-      feeUsd: typeof btcUsdRate === 'number' ? feeBtc * btcUsdRate : undefined,
-      timestamp: Date.now(),
-      confirmations: 0,
-      transactionHash: args.txid,
-      sender: args.fromAddress,
-      receiver: args.toAddress,
-    };
-    this.txHistoryCache.set(args.txid, entry);
-    await this.saveTxHistory();
+      const btcUsdRate = await getBitcoinPrice().catch(() => undefined);
+      const amountBtc = args.amountSats / 1e8;
+      const feeBtc = args.feeSats / 1e8;
+      const entry: TxEntry = {
+        type: 'SEND',
+        status: 'PENDING',
+        amountBtc,
+        amountUsd: btcUsdRate ? amountBtc * btcUsdRate : 0,
+        feeBtc,
+        feeUsd: btcUsdRate ? feeBtc * btcUsdRate : 0,
+        timestamp: Date.now(),
+        confirmations: 0,
+        transactionHash: args.txid,
+        sender: args.fromAddress,
+        receiver: args.toAddress,
+      };
+      this.txHistoryCache.set(args.txid, entry);
+      await this.saveTxHistory();
+    });
   }
 
   public async clearCache(): Promise<void> {
