@@ -217,4 +217,61 @@ describe('TxHistoryService.get', () => {
     const txKey = Object.keys(all).find(k => k.startsWith('tx_'));
     expect(txKey).toBeDefined();
   });
+
+  it('addOptimisticPending() inserts a SEND/PENDING entry surfaced by get()', async () => {
+    const svc = new TxHistoryService();
+    await svc.addOptimisticPending({
+      txid: 'pendingtx1',
+      toAddress: 'bc1qrecipient',
+      fromAddress: MY_RECEIVE,
+      amountSats: 100_000,
+      feeSats: 1_000,
+    });
+    const txs = await svc.get();
+    const pending = txs.find(t => t.transactionHash === 'pendingtx1')!;
+    expect(pending.type).toBe('SEND');
+    expect(pending.status).toBe('PENDING');
+    expect(pending.amountBtc).toBeCloseTo(0.001, 8);
+    expect(pending.feeBtc).toBeCloseTo(0.00001, 8);
+    expect(pending.receiver).toBe('bc1qrecipient');
+    expect(pending.sender).toBe(MY_RECEIVE);
+    expect(pending.amountUsd).toBeCloseTo(0.001 * 60_000, 5);
+  });
+
+  it('addOptimisticPending() is a no-op when an entry for the txid already exists', async () => {
+    setReceiveHistory(['recvtx1']);
+    mockAllTxs();
+    const svc = new TxHistoryService();
+    await svc.get(); // populates cache with the canonical recvtx1 entry
+    await svc.addOptimisticPending({
+      txid: 'recvtx1',
+      toAddress: 'bc1qsomeoneelse',
+      fromAddress: MY_RECEIVE,
+      amountSats: 999,
+      feeSats: 1,
+    });
+    const txs = await svc.get();
+    const recv = txs.find(t => t.transactionHash === 'recvtx1')!;
+    expect(recv.type).toBe('RECEIVE');
+    expect(recv.receiver).not.toBe('bc1qsomeoneelse');
+  });
+
+  it('addOptimisticPending() is replaced by the canonical entry once the scanner picks the tx up', async () => {
+    const svc = new TxHistoryService();
+    await svc.addOptimisticPending({
+      txid: 'recvtx1',
+      toAddress: MY_RECEIVE,
+      fromAddress: '',
+      amountSats: 50_000,
+      feeSats: 500,
+    });
+    expect((await svc.get()).find(t => t.transactionHash === 'recvtx1')!.status).toBe('PENDING');
+
+    setReceiveHistory(['recvtx1']);
+    mockAllTxs();
+    const txs = await svc.get();
+    const tx = txs.find(t => t.transactionHash === 'recvtx1')!;
+    expect(tx.status).toBe('CONFIRMED');
+    expect(tx.type).toBe('RECEIVE');
+  });
 });

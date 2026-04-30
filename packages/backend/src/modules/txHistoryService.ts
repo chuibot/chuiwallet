@@ -231,6 +231,43 @@ export class TxHistoryService {
     }
   }
 
+  /**
+   * Insert a synthetic PENDING entry for a tx the wallet just broadcast.
+   * Lets the activity list reflect the send instantly instead of waiting for
+   * the next scan to discover it via mempool. The entry is replaced with the
+   * canonical one on the next get() once the scanner picks the tx up (see the
+   * status === 'PENDING' refresh branch in get()).
+   */
+  public async addOptimisticPending(args: {
+    txid: string;
+    toAddress: string;
+    fromAddress: string;
+    amountSats: number;
+    feeSats: number;
+  }): Promise<void> {
+    await this.loadTxHistory();
+    if (this.txHistoryCache.has(args.txid)) return;
+
+    const btcUsdRate = await getBitcoinPrice().catch(() => undefined);
+    const amountBtc = args.amountSats / 1e8;
+    const feeBtc = args.feeSats / 1e8;
+    const entry: TxEntry = {
+      type: 'SEND',
+      status: 'PENDING',
+      amountBtc,
+      amountUsd: typeof btcUsdRate === 'number' ? amountBtc * btcUsdRate : undefined,
+      feeBtc,
+      feeUsd: typeof btcUsdRate === 'number' ? feeBtc * btcUsdRate : undefined,
+      timestamp: Date.now(),
+      confirmations: 0,
+      transactionHash: args.txid,
+      sender: args.fromAddress,
+      receiver: args.toAddress,
+    };
+    this.txHistoryCache.set(args.txid, entry);
+    await this.saveTxHistory();
+  }
+
   public async clearCache(): Promise<void> {
     try {
       await browser.storage.local.remove(getCacheKey(CacheType.Tx, ChangeType.External));

@@ -268,7 +268,29 @@ export class WalletManager {
       getPrevTxHex: (txid: string) => electrumService.getRawTransaction(txid), // Todo: only used for legacy P2PKH, consider depracation
     });
     const txHex = wallet.signPsbt(selectedUtxo.inputs, psbt);
-    return await electrumService.broadcastTx(txHex!);
+    const txid = await electrumService.broadcastTx(txHex!);
+
+    // Show the send in the activity list immediately. The next scan that picks
+    // up the tx in mempool will overwrite this with the canonical entry.
+    try {
+      await historyService.addOptimisticPending({
+        txid,
+        toAddress: to,
+        fromAddress: selectedUtxo.inputs[0]?.address ?? '',
+        amountSats,
+        feeSats: selectedUtxo.fee,
+      });
+    } catch (err) {
+      logger.warn('Failed to record optimistic pending tx', err);
+    }
+
+    // Trigger a forward scan so the new tx is picked up before the next alarm.
+    void scanManager.forwardScan().catch(err => logger.warn('Post-send forward scan failed', err));
+    void scanManager
+      .forwardScan(ChangeType.Internal)
+      .catch(err => logger.warn('Post-send change-chain scan failed', err));
+
+    return txid;
   }
 
   /**
