@@ -77,7 +77,10 @@ export class ScanManager {
    * Forward scan the address chain by deriving to gapLimit
    * @param changeType
    */
-  public async forwardScan(changeType: ChangeType = ChangeType.External): Promise<void> {
+  // Not async: returning the cached promise directly (rather than via an async
+  // wrapper that would re-wrap it in a fresh Promise) preserves identity, which
+  // matters for callers that need to know "am I joining the same scan?".
+  public forwardScan(changeType: ChangeType = ChangeType.External): Promise<void> {
     const existing = this.forwardInflight.get(changeType);
     if (existing) return existing;
     const p = this.runForwardScan(changeType).finally(() => this.forwardInflight.delete(changeType));
@@ -124,7 +127,7 @@ export class ScanManager {
    * Backfill scan continuously scan unused derived addresses within threshold limit (days) order by staleness, in batch of staleBatchSize
    * @param changeType
    */
-  public async backfillScan(changeType: ChangeType = ChangeType.External): Promise<void> {
+  public backfillScan(changeType: ChangeType = ChangeType.External): Promise<void> {
     const existing = this.backfillInflight.get(changeType);
     if (existing) return existing;
     const p = this.runBackfillScan(changeType).finally(() => this.backfillInflight.delete(changeType));
