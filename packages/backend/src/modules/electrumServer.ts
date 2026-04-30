@@ -8,17 +8,7 @@ export const availableServerList: ServerConfig[] = [
   { host: 'us11.einfachmalnettsein.de', port: DefaultPort.TLS, useTls: true, network: Network.Mainnet },
   { host: 'b.1209k.com', port: DefaultPort.TLS, useTls: true, network: Network.Mainnet },
   { host: 'testnet4.electrs.btcscan.net', port: 443, useTls: true, network: Network.Testnet },
-  // { host: 'blackie.c3-soft.com', port: 60004, useTls: true, network: Network.Testnet },
-  // { host: 'testnet1.bauerj.eu', port: DefaultPort.TLS, useTls: true, network: Network.Testnet },
-  // { host: '14.3.140.101', port: DefaultPort.TLS, useTls: true, network: Network.Testnet },
-  // { host: 'testnet.hsmiths.com', port: 53012, useTls: true, network: Network.Testnet },
-  // { host: 'testnet.qtornado.com', port: 51002, useTls: true, network: Network.Testnet },
-  // { host: 'testnet.blockstream.info', port: 993, useTls: true, network: Network.Testnet },
-  // { host: 'testnet.blockstream.info', port: 993, useTls: true, network: Network.Testnet },
-  // { host: 'testnet.aranguren.org', port: 51002, useTls: true, network: Network.Testnet },
-  // { host: 'testnetnode.arihanc.com', port: 51002, useTls: true, network: Network.Testnet },
-  // { host: 'electrum.akinbo.org', port: 51002, useTls: true, network: Network.Testnet },
-  // { host: 'ELEX05.blackpole.online', port: 52011, useTls: true, network: Network.Testnet },
+  { host: 'testnet4.electrum.blockonomics.co', port: 443, useTls: true, network: Network.Testnet },
 ];
 
 export async function selectBestServer(network: Network): Promise<ExtendedServerConfig> {
