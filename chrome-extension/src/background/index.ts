@@ -94,30 +94,15 @@ function setupAlarms() {
   browser.alarms.create('backfillScan', { periodInMinutes: 1 });
 }
 
-// Kick a scan whenever the popup opens. The popup connects via the 'chui-app'
-// port (see registerMessagePort), and that connection keeps the SW alive while
-// the popup is in use, so the scan completes on the same wakeup. The inflight
-// promise dedupes rapid reconnects (e.g. popup re-open while a scan is running).
-let scanKickoffInflight: Promise<void> | null = null;
-async function kickoffScan() {
-  if (scanKickoffInflight) return scanKickoffInflight;
-  if (accountManager.activeAccountIndex < 0) return;
-  scanKickoffInflight = (async () => {
-    try {
-      await forwardScan();
-      await backfillScan();
-    } catch (err) {
-      logger.error('Popup-open scan kickoff failed', err);
-    } finally {
-      scanKickoffInflight = null;
-    }
-  })();
-  return scanKickoffInflight;
-}
-
+// Kick a scan whenever the popup opens so users see fresh state on open instead
+// of waiting for the next alarm. Concurrent kickoffs and overlapping alarms are
+// coalesced inside scanManager (per-changeType inflight promise), so re-opening
+// the popup while an alarm-triggered scan is mid-flight does not start a second
+// Electrum round trip.
 browser.runtime.onConnect.addListener(port => {
   if (port.name !== 'chui-app') return;
-  void kickoffScan();
+  if (accountManager.activeAccountIndex < 0) return;
+  void allScan().catch(err => logger.error('Popup-open scan kickoff failed', err));
 });
 
 browser.alarms.onAlarm.addListener(async alarm => {

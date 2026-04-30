@@ -1,4 +1,5 @@
-import { computeForwardScanWindow } from '../../src/scanManager';
+import { computeForwardScanWindow, ScanManager } from '../../src/scanManager';
+import { ChangeType } from '../../src/types/cache';
 
 describe('computeForwardScanWindow', () => {
   it('returns gap+1 from a fresh wallet (no usage, nothing scanned)', () => {
@@ -24,5 +25,73 @@ describe('computeForwardScanWindow', () => {
   it('handles a small gap limit', () => {
     expect(computeForwardScanWindow(0, 1, 0)).toBe(1);
     expect(computeForwardScanWindow(0, 1, 1)).toBe(0);
+  });
+});
+
+describe('ScanManager — concurrent scan dedupe', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('forwardScan returns the same in-flight promise for concurrent calls on the same chain', async () => {
+    const sm = new ScanManager();
+    const spy = jest
+      .spyOn(sm as unknown as { runForwardScan: () => Promise<void> }, 'runForwardScan')
+      .mockImplementation(() => new Promise(resolve => setTimeout(resolve, 30)));
+
+    const a = sm.forwardScan(ChangeType.External);
+    const b = sm.forwardScan(ChangeType.External);
+    expect(a).toBe(b);
+    await a;
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwardScan runs External and Internal in parallel (different inflight slots)', async () => {
+    const sm = new ScanManager();
+    const spy = jest
+      .spyOn(sm as unknown as { runForwardScan: () => Promise<void> }, 'runForwardScan')
+      .mockImplementation(() => new Promise(resolve => setTimeout(resolve, 30)));
+
+    const ext = sm.forwardScan(ChangeType.External);
+    const int = sm.forwardScan(ChangeType.Internal);
+    expect(ext).not.toBe(int);
+    await Promise.all([ext, int]);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it('forwardScan starts a fresh scan after the previous one resolves', async () => {
+    const sm = new ScanManager();
+    const spy = jest
+      .spyOn(sm as unknown as { runForwardScan: () => Promise<void> }, 'runForwardScan')
+      .mockImplementation(() => new Promise(resolve => setTimeout(resolve, 5)));
+
+    await sm.forwardScan(ChangeType.External);
+    await sm.forwardScan(ChangeType.External);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it('backfillScan dedupes concurrent calls on the same chain', async () => {
+    const sm = new ScanManager();
+    const spy = jest
+      .spyOn(sm as unknown as { runBackfillScan: () => Promise<void> }, 'runBackfillScan')
+      .mockImplementation(() => new Promise(resolve => setTimeout(resolve, 30)));
+
+    const a = sm.backfillScan(ChangeType.External);
+    const b = sm.backfillScan(ChangeType.External);
+    expect(a).toBe(b);
+    await a;
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwardScan and backfillScan can run in parallel (independent inflight maps)', async () => {
+    const sm = new ScanManager();
+    const fwdSpy = jest
+      .spyOn(sm as unknown as { runForwardScan: () => Promise<void> }, 'runForwardScan')
+      .mockImplementation(() => new Promise(resolve => setTimeout(resolve, 30)));
+    const bfSpy = jest
+      .spyOn(sm as unknown as { runBackfillScan: () => Promise<void> }, 'runBackfillScan')
+      .mockImplementation(() => new Promise(resolve => setTimeout(resolve, 30)));
+
+    await Promise.all([sm.forwardScan(ChangeType.External), sm.backfillScan(ChangeType.External)]);
+    expect(fwdSpy).toHaveBeenCalledTimes(1);
+    expect(bfSpy).toHaveBeenCalledTimes(1);
   });
 });

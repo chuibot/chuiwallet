@@ -43,6 +43,11 @@ export class ScanManager {
   public nextChangeIndex = 0;
   public readonly onStatus = createEmitter<ScanEvent>();
   private epoch = 0;
+  // Coalesce concurrent scan requests so alarm + popup-open + post-send triggers
+  // share one Electrum round-trip per (kind, changeType) instead of stacking up
+  // and tripping rate limits. See issue #15.
+  private forwardInflight = new Map<ChangeType, Promise<void>>();
+  private backfillInflight = new Map<ChangeType, Promise<void>>();
 
   constructor(config: ScanManagerConfig = defaultScanConfig) {
     this.config = { ...config };
@@ -72,7 +77,15 @@ export class ScanManager {
    * Forward scan the address chain by deriving to gapLimit
    * @param changeType
    */
-  public async forwardScan(changeType: ChangeType = ChangeType.External) {
+  public async forwardScan(changeType: ChangeType = ChangeType.External): Promise<void> {
+    const existing = this.forwardInflight.get(changeType);
+    if (existing) return existing;
+    const p = this.runForwardScan(changeType).finally(() => this.forwardInflight.delete(changeType));
+    this.forwardInflight.set(changeType, p);
+    return p;
+  }
+
+  private async runForwardScan(changeType: ChangeType): Promise<void> {
     const startEpoch = this.epoch;
     let passes = 0;
     while (passes < this.config.forwardExtendMaxPasses) {
@@ -111,7 +124,15 @@ export class ScanManager {
    * Backfill scan continuously scan unused derived addresses within threshold limit (days) order by staleness, in batch of staleBatchSize
    * @param changeType
    */
-  public async backfillScan(changeType: ChangeType = ChangeType.External) {
+  public async backfillScan(changeType: ChangeType = ChangeType.External): Promise<void> {
+    const existing = this.backfillInflight.get(changeType);
+    if (existing) return existing;
+    const p = this.runBackfillScan(changeType).finally(() => this.backfillInflight.delete(changeType));
+    this.backfillInflight.set(changeType, p);
+    return p;
+  }
+
+  private async runBackfillScan(changeType: ChangeType): Promise<void> {
     const startEpoch = this.epoch;
     const gapLimit = selectByChain(this.config.externalGapLimit, this.config.internalGapLimit, changeType);
     const highestUsed = selectByChain(this.highestUsedReceive, this.highestUsedChange, changeType);
