@@ -12,7 +12,7 @@ type RpcRequest = {
 };
 
 type ApprovalData = {
-  id: number;
+  id: string;
   origin: string;
   rpc: RpcRequest;
 };
@@ -29,15 +29,14 @@ const METHOD_COPY: Record<string, string> = {
 export const ProviderApproval: React.FC = () => {
   const location = useLocation();
   const search = new URLSearchParams(location.search);
-  const idParam = search.get('id');
-  const approvalId = idParam ? Number(idParam) : NaN;
+  const approvalId = search.get('id') ?? '';
 
   const [loading, setLoading] = useState(true);
   const [approval, setApproval] = useState<ApprovalData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!Number.isFinite(approvalId)) {
+    if (!approvalId) {
       setError('Invalid approval id');
       setLoading(false);
       return;

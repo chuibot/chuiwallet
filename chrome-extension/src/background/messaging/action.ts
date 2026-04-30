@@ -367,19 +367,19 @@ const handlers: Record<string, Handler> = {
   },
   'provider.getApproval': async params => {
     const payload = expectObjectParams('provider.getApproval', params);
-    const id = expectNumberParam('provider.getApproval', payload, 'id', { integer: true, min: 0 });
+    const id = expectStringParam('provider.getApproval', payload, 'id');
     return getApprovalRequest(id);
   },
   'provider.resolveApproval': async params => {
     const payload = expectObjectParams('provider.resolveApproval', params);
-    const id = expectNumberParam('provider.resolveApproval', payload, 'id', { integer: true, min: 0 });
+    const id = expectStringParam('provider.resolveApproval', payload, 'id');
     const approved = expectBooleanParam('provider.resolveApproval', payload, 'approved');
     resolveApproval(id, approved);
     return true;
   },
   'provider.rejectApproval': async params => {
     const payload = expectObjectParams('provider.rejectApproval', params);
-    const id = expectNumberParam('provider.rejectApproval', payload, 'id', { integer: true, min: 0 });
+    const id = expectStringParam('provider.rejectApproval', payload, 'id');
     const reason = expectStringParam('provider.rejectApproval', payload, 'reason');
     rejectApproval(id, reason);
     return true;

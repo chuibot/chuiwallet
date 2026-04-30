@@ -33,7 +33,7 @@ export type RpcErrorResponse = {
 export type RpcResponse = RpcSuccessResponse | RpcErrorResponse;
 
 type PendingApproval = {
-  id: number;
+  id: string;
   origin: string;
   rpc: RpcRequest;
   windowId?: number;
@@ -55,7 +55,7 @@ type ProviderAddresses = {
 };
 
 const rpcVersion = '2.0';
-const pendingApprovals = new Map<number, PendingApproval>();
+const pendingApprovals = new Map<string, PendingApproval>();
 
 const handlers: Record<string, Handler> = {
   getXpub: () => {
@@ -76,7 +76,11 @@ const handlers: Record<string, Handler> = {
   },
 };
 
-let nextApprovalId = 1;
+function generateApprovalId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
 
 chrome.windows.onRemoved.addListener(windowId => {
   for (const [approvalId, item] of pendingApprovals.entries()) {
@@ -87,7 +91,7 @@ chrome.windows.onRemoved.addListener(windowId => {
   }
 });
 
-export function getApprovalRequest(approvalId: number) {
+export function getApprovalRequest(approvalId: string) {
   const item = pendingApprovals.get(approvalId);
   if (!item) throw new Error('Approval not found');
   return {
@@ -97,14 +101,14 @@ export function getApprovalRequest(approvalId: number) {
   };
 }
 
-export function resolveApproval(approvalId: number, approved: boolean) {
+export function resolveApproval(approvalId: string, approved: boolean) {
   const item = pendingApprovals.get(approvalId);
   if (!item) return;
   pendingApprovals.delete(approvalId);
   item.resolve(approved);
 }
 
-export function rejectApproval(approvalId: number, reason: string) {
+export function rejectApproval(approvalId: string, reason: string) {
   const item = pendingApprovals.get(approvalId);
   if (!item) return;
   void reason;
@@ -113,7 +117,7 @@ export function rejectApproval(approvalId: number, reason: string) {
 }
 
 async function requestUserApproval(origin: string, rpc: RpcRequest): Promise<boolean> {
-  const approvalId = nextApprovalId++;
+  const approvalId = generateApprovalId();
 
   return await new Promise<boolean>((resolve, reject) => {
     pendingApprovals.set(approvalId, {
