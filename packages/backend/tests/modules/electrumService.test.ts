@@ -66,7 +66,7 @@ describe('ElectrumService', () => {
     const p = svc.getRawTransaction('txid', true);
     const sent = JSON.parse(ws().sent[ws().sent.length - 1]);
     ws().triggerMessage(JSON.stringify({ id: sent.id, result: { malformed: true } }));
-    await expect(p).rejects.toThrow(/Unexpected response/);
+    await expect(p).rejects.toThrow(/Electrum response/);
   });
 
   it('broadcastTx validates hex format', async () => {

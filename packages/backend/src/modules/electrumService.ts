@@ -10,6 +10,12 @@ import { Network } from '../types/electrum';
 import { ElectrumRpcClient } from './electrumRpcClient';
 import { selectBestServer } from './electrumServer';
 import { createEmitter } from '../utils/emitter';
+import {
+  assertElectrumHistoryBatch,
+  assertElectrumTipHeader,
+  assertElectrumTransaction,
+  assertElectrumUtxoBatch,
+} from '../utils/electrumValidation';
 
 export class ElectrumService {
   private network: Network = Network.Mainnet;
@@ -51,27 +57,26 @@ export class ElectrumService {
 
     if (!verbose && typeof response === 'string') return response;
 
-    if (verbose && response && typeof response === 'object' && 'hex' in response) {
-      return response as ElectrumTransaction;
+    if (verbose) {
+      assertElectrumTransaction(response);
+      return response;
     }
 
     throw new Error(`Unexpected response for transaction ${txid}`);
   }
 
-  public async getHistoryBatch(scriptHashes: string[][]) {
+  public async getHistoryBatch(scriptHashes: string[][]): Promise<ElectrumHistory[]> {
     if (!this.rpcClient) throw new Error('Electrum not connected');
-    return (await this.rpcClient.sendBatchRequest(
-      'blockchain.scripthash.get_history',
-      scriptHashes,
-    )) as ElectrumHistory[];
+    const response = await this.rpcClient.sendBatchRequest('blockchain.scripthash.get_history', scriptHashes);
+    assertElectrumHistoryBatch(response);
+    return response;
   }
 
   public async getUtxoBatch(scriptHashes: string[][]): Promise<ElectrumUtxo[][]> {
     if (!this.rpcClient) throw new Error('Electrum not connected');
-    return (await this.rpcClient.sendBatchRequest(
-      'blockchain.scripthash.listunspent',
-      scriptHashes,
-    )) as ElectrumUtxo[][];
+    const response = await this.rpcClient.sendBatchRequest('blockchain.scripthash.listunspent', scriptHashes);
+    assertElectrumUtxoBatch(response);
+    return response;
   }
 
   /**
@@ -104,9 +109,10 @@ export class ElectrumService {
    * Uses `blockchain.headers.subscribe` which immediately returns the latest header.
    */
   async getTipHeight(): Promise<number> {
-    type Header = { height: number; hex?: string; header?: string };
-    const header = (await this.rpcClient?.sendRequest('blockchain.headers.subscribe')) as Header | undefined;
-    return typeof header?.height === 'number' ? header.height : 0;
+    const header = await this.rpcClient?.sendRequest('blockchain.headers.subscribe');
+    if (header === null || header === undefined) return 0;
+    assertElectrumTipHeader(header);
+    return header.height;
   }
 
   public async sendRequest(methodName: string, params: unknown[]) {

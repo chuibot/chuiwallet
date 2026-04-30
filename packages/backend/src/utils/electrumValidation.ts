@@ -1,6 +1,7 @@
-import type { ElectrumTransaction } from '../types/electrum';
+import type { ElectrumHistory, ElectrumTransaction, ElectrumUtxo } from '../types/electrum';
 
 const MAX_BTC_SUPPLY = 21_000_000;
+const MAX_SATS_SUPPLY = 21_000_000 * 100_000_000;
 
 export function assertElectrumTransaction(value: unknown): asserts value is ElectrumTransaction {
   if (!isObject(value)) throw new Error('Electrum response: expected object');
@@ -47,4 +48,61 @@ function assertVoutEntry(entry: unknown, index: number): void {
 
 function isObject(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null && !Array.isArray(x);
+}
+
+export function assertElectrumHistoryBatch(value: unknown): asserts value is ElectrumHistory[] {
+  if (!Array.isArray(value)) throw new Error('Electrum response: history batch must be array');
+  value.forEach((entries, batchIndex) => {
+    if (!Array.isArray(entries)) {
+      throw new Error(`Electrum response: history[${batchIndex}] must be array`);
+    }
+    entries.forEach((item, i) => {
+      if (!isObject(item)) throw new Error(`Electrum response: history[${batchIndex}][${i}] not object`);
+      if (typeof item.tx_hash !== 'string' || item.tx_hash.length === 0) {
+        throw new Error(`Electrum response: history[${batchIndex}][${i}].tx_hash invalid`);
+      }
+      if (typeof item.height !== 'number' || !Number.isFinite(item.height)) {
+        throw new Error(`Electrum response: history[${batchIndex}][${i}].height invalid`);
+      }
+      if (item.fee !== undefined && (typeof item.fee !== 'number' || item.fee < 0)) {
+        throw new Error(`Electrum response: history[${batchIndex}][${i}].fee invalid`);
+      }
+    });
+  });
+}
+
+export function assertElectrumUtxoBatch(value: unknown): asserts value is ElectrumUtxo[][] {
+  if (!Array.isArray(value)) throw new Error('Electrum response: utxo batch must be array');
+  value.forEach((entries, batchIndex) => {
+    if (!Array.isArray(entries)) {
+      throw new Error(`Electrum response: utxo[${batchIndex}] must be array`);
+    }
+    entries.forEach((item, i) => {
+      if (!isObject(item)) throw new Error(`Electrum response: utxo[${batchIndex}][${i}] not object`);
+      if (typeof item.tx_hash !== 'string' || item.tx_hash.length === 0) {
+        throw new Error(`Electrum response: utxo[${batchIndex}][${i}].tx_hash invalid`);
+      }
+      if (typeof item.tx_pos !== 'number' || !Number.isInteger(item.tx_pos) || item.tx_pos < 0) {
+        throw new Error(`Electrum response: utxo[${batchIndex}][${i}].tx_pos invalid`);
+      }
+      if (typeof item.height !== 'number' || !Number.isFinite(item.height)) {
+        throw new Error(`Electrum response: utxo[${batchIndex}][${i}].height invalid`);
+      }
+      if (
+        typeof item.value !== 'number' ||
+        !Number.isFinite(item.value) ||
+        item.value < 0 ||
+        item.value > MAX_SATS_SUPPLY
+      ) {
+        throw new Error(`Electrum response: utxo[${batchIndex}][${i}].value out of range`);
+      }
+    });
+  });
+}
+
+export function assertElectrumTipHeader(value: unknown): asserts value is { height: number } {
+  if (!isObject(value)) throw new Error('Electrum response: header must be object');
+  if (typeof value.height !== 'number' || !Number.isFinite(value.height) || value.height < 0) {
+    throw new Error('Electrum response: header.height invalid');
+  }
 }
