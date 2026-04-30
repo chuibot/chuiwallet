@@ -55,15 +55,20 @@ function chainTxToTxEntry(
   assetFiatRate: number,
   feeFiatRate: number,
 ): TxEntry {
-  const isSend = tx.from.toLowerCase() === userAddress.toLowerCase();
+  const normalizedUser = userAddress.toLowerCase();
+  const fromMine = tx.from.toLowerCase() === normalizedUser;
+  const toMine = tx.to.toLowerCase() === normalizedUser;
+  const isSelfTransfer = fromMine && toMine;
+  const isSend = fromMine;
+  const displayAmount = isSelfTransfer ? 0 : tx.amount;
   const hasAssetFiatRate = Number.isFinite(assetFiatRate) && assetFiatRate > 0;
   const hasFeeFiatRate = Number.isFinite(feeFiatRate) && feeFiatRate > 0;
 
   return {
     type: isSend ? 'SEND' : 'RECEIVE',
     status: mapChainTransactionStatus(tx.status),
-    amountBtc: tx.amount,
-    amountUsd: hasAssetFiatRate ? tx.amount * assetFiatRate : undefined,
+    amountBtc: displayAmount,
+    amountUsd: hasAssetFiatRate ? displayAmount * assetFiatRate : undefined,
     feeBtc: tx.fee,
     feeUsd: hasFeeFiatRate ? tx.fee * feeFiatRate : undefined,
     timestamp: tx.timestamp * 1000, // TxEntry expects ms, ChainTransaction has seconds
