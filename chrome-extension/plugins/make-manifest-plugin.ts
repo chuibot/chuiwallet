@@ -70,5 +70,6 @@ function addWalletProviderContentScript(manifest: Manifest) {
   manifest.content_scripts.push({
     matches: ['http://*/*', 'https://*/*', '<all_urls>'],
     js: ['content/index.js'],
+    run_at: 'document_start',
   });
 }

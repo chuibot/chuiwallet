@@ -14,10 +14,8 @@ declare global {
 }
 
 (function () {
-  if (window.ChuiWalletProvider) return;
-
   let nextId = 1;
-  window.ChuiWalletProvider = {
+  const provider: ChuiWalletProvider = {
     isChui: true,
     metadata: providerInfo,
     request<T = unknown>(method: string, params?: unknown): Promise<T> {
@@ -66,18 +64,37 @@ declare global {
     },
   };
 
-  // Backward mapping to window.btc
-  if (!window.btc) {
-    window.btc = {
-      request: window.ChuiWalletProvider.request.bind(window.ChuiWalletProvider),
-    };
+  const frozenProvider = Object.freeze(provider);
+
+  try {
+    Object.defineProperty(window, 'ChuiWalletProvider', {
+      value: frozenProvider,
+      writable: false,
+      configurable: false,
+      enumerable: true,
+    });
+  } catch {
+    return;
   }
 
-  if (!window.btc_providers) {
+  const btcShim = Object.freeze({
+    request: frozenProvider.request.bind(frozenProvider),
+  });
+  try {
+    Object.defineProperty(window, 'btc', {
+      value: btcShim,
+      writable: false,
+      configurable: false,
+      enumerable: true,
+    });
+  } catch {
+    /* noop */
+  }
+
+  if (!Array.isArray(window.btc_providers)) {
     window.btc_providers = [];
   }
-
-  if (!window.btc_providers.some(p => p.id === providerInfo.id)) {
-    window.btc_providers.push(providerInfo);
-  }
+  const filtered = window.btc_providers.filter(p => !p || p.id !== providerInfo.id);
+  filtered.push(providerInfo);
+  window.btc_providers = filtered;
 })();

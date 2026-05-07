@@ -4,10 +4,12 @@ function addChuiToPage() {
   const inpage = document.createElement('script');
   inpage.src = chrome.runtime.getURL('inpage/chuiProvider.js');
   inpage.id = 'chui-provider';
-  document.body.appendChild(inpage);
+  const parent = document.head || document.documentElement;
+  parent.insertBefore(inpage, parent.firstChild);
+  inpage.remove();
 }
 
-requestAnimationFrame(() => addChuiToPage());
+addChuiToPage();
 
 window.addEventListener('message', event => {
   if (
