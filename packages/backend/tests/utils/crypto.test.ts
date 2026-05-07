@@ -12,6 +12,7 @@ import {
   scriptTypeFromAddress,
   toBitcoinNetwork,
   toHdSigner,
+  toTaprootSigner,
 } from '../../src/utils/crypto';
 import { Network } from '../../src/types/electrum';
 import { ScriptType } from '../../src/types/wallet';
@@ -152,5 +153,36 @@ describe('asBuffer + toHdSigner', () => {
     >;
     const signer = toHdSigner(noSigner);
     expect(() => signer.sign(Buffer.alloc(32))).toThrow('Node cannot sign');
+  });
+});
+
+describe('toTaprootSigner', () => {
+  const seed = Buffer.from('11'.repeat(32), 'hex');
+  const node = bip32.fromSeed(seed, bitcoin.networks.bitcoin);
+
+  it('returns a signer with x-only tweaked publicKey matching BIP-86 derivation', () => {
+    const signer = toTaprootSigner(node);
+    expect(signer.publicKey.length).toBe(32);
+
+    const internalXOnly = Buffer.from(node.publicKey).subarray(1);
+    const tweak = bitcoin.crypto.taggedHash('TapTweak', internalXOnly);
+    const expected = secp256k1.xOnlyPointAddTweak(internalXOnly, tweak);
+    expect(expected).not.toBeNull();
+    expect(Buffer.from(expected!.xOnlyPubkey)).toEqual(signer.publicKey);
+  });
+
+  it('signSchnorr produces a 64-byte signature that verifies under the tweaked output key', () => {
+    const signer = toTaprootSigner(node);
+    expect(signer.signSchnorr).toBeDefined();
+    const msg = Buffer.alloc(32, 0xab);
+    const sig = signer.signSchnorr!(msg);
+    expect(Buffer.isBuffer(sig)).toBe(true);
+    expect(sig.length).toBe(64);
+    expect(secp256k1.verifySchnorr(msg, signer.publicKey, sig)).toBe(true);
+  });
+
+  it('throws when the node has no private key', () => {
+    const neutered = node.neutered();
+    expect(() => toTaprootSigner(neutered)).toThrow('Node missing private key');
   });
 });
