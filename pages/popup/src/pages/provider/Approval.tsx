@@ -97,7 +97,9 @@ export const ProviderApproval: React.FC = () => {
       <div className="mt-6">
         <div className="text-sm text-white mb-6">
           <div className="font-medium text-white mb-1">Website</div>
-          <div className="break-all font-bold">{origin}</div>
+          <div className="break-all font-bold">
+            <bdi dir="ltr">{origin}</bdi>
+          </div>
         </div>
 
         <div className="text-sm text-white mb-6">
