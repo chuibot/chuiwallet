@@ -1,5 +1,7 @@
 import { computeForwardScanWindow, ScanManager } from '../../src/scanManager';
 import { ChangeType } from '../../src/types/cache';
+import { Network } from '../../src/types/electrum';
+import { defaultPreferences, preferenceManager } from '../../src/preferenceManager';
 
 describe('computeForwardScanWindow', () => {
   it('returns gap+1 from a fresh wallet (no usage, nothing scanned)', () => {
@@ -116,6 +118,64 @@ describe('ScanManager — concurrent scan dedupe', () => {
 
     await expect(sm.backfillScan(ChangeType.External)).rejects.toThrow('boom');
     await sm.backfillScan(ChangeType.External);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('ScanManager — inflight isolation across context switches', () => {
+  type PrefsState = { activeNetwork: Network; activeAccountIndex: number };
+  let prefsState: PrefsState;
+  let getSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    prefsState = { activeNetwork: Network.Mainnet, activeAccountIndex: 0 };
+    getSpy = jest.spyOn(preferenceManager, 'get').mockImplementation(() => ({ ...defaultPreferences, ...prefsState }));
+  });
+
+  afterEach(() => {
+    getSpy.mockRestore();
+    jest.restoreAllMocks();
+  });
+
+  it('uses separate inflight slots when activeAccountIndex changes mid-flight', async () => {
+    const sm = new ScanManager();
+    const spy = jest
+      .spyOn(sm as unknown as { runForwardScan: () => Promise<void> }, 'runForwardScan')
+      .mockImplementation(() => new Promise(resolve => setTimeout(resolve, 30)));
+
+    const accountA = sm.forwardScan(ChangeType.External);
+    prefsState.activeAccountIndex = 1;
+    const accountB = sm.forwardScan(ChangeType.External);
+    expect(accountA).not.toBe(accountB);
+    await Promise.all([accountA, accountB]);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses separate inflight slots when activeNetwork changes mid-flight', async () => {
+    const sm = new ScanManager();
+    const spy = jest
+      .spyOn(sm as unknown as { runForwardScan: () => Promise<void> }, 'runForwardScan')
+      .mockImplementation(() => new Promise(resolve => setTimeout(resolve, 30)));
+
+    const mainnet = sm.forwardScan(ChangeType.External);
+    prefsState.activeNetwork = Network.Testnet;
+    const testnet = sm.forwardScan(ChangeType.External);
+    expect(mainnet).not.toBe(testnet);
+    await Promise.all([mainnet, testnet]);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it('clear() drops inflight entries so a fresh scan starts after switch', async () => {
+    const sm = new ScanManager();
+    const spy = jest
+      .spyOn(sm as unknown as { runForwardScan: () => Promise<void> }, 'runForwardScan')
+      .mockImplementation(() => new Promise(resolve => setTimeout(resolve, 30)));
+
+    const before = sm.forwardScan(ChangeType.External);
+    sm.clear();
+    const after = sm.forwardScan(ChangeType.External);
+    expect(before).not.toBe(after);
+    await Promise.all([before, after]);
     expect(spy).toHaveBeenCalledTimes(2);
   });
 });

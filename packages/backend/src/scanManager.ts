@@ -44,9 +44,10 @@ export class ScanManager {
   public readonly onStatus = createEmitter<ScanEvent>();
   private epoch = 0;
   // Coalesce concurrent scans so triggers share one Electrum round-trip per
-  // (kind, changeType). See #15.
-  private forwardInflight = new Map<ChangeType, Promise<void>>();
-  private backfillInflight = new Map<ChangeType, Promise<void>>();
+  // (network, accountIndex, changeType). Account/network in the key prevents
+  // a scan started under one context from being reused after a switch.
+  private forwardInflight = new Map<string, Promise<void>>();
+  private backfillInflight = new Map<string, Promise<void>>();
 
   constructor(config: ScanManagerConfig = defaultScanConfig) {
     this.config = { ...config };
@@ -79,10 +80,11 @@ export class ScanManager {
   // Not async: an async wrapper would re-wrap the cached promise in a fresh
   // one (per spec), breaking the identity check the dedupe test relies on.
   public forwardScan(changeType: ChangeType = ChangeType.External): Promise<void> {
-    const existing = this.forwardInflight.get(changeType);
+    const key = this.inflightKey(changeType);
+    const existing = this.forwardInflight.get(key);
     if (existing) return existing;
-    const p = this.runForwardScan(changeType).finally(() => this.forwardInflight.delete(changeType));
-    this.forwardInflight.set(changeType, p);
+    const p = this.runForwardScan(changeType).finally(() => this.forwardInflight.delete(key));
+    this.forwardInflight.set(key, p);
     return p;
   }
 
@@ -126,11 +128,21 @@ export class ScanManager {
    * @param changeType
    */
   public backfillScan(changeType: ChangeType = ChangeType.External): Promise<void> {
-    const existing = this.backfillInflight.get(changeType);
+    const key = this.inflightKey(changeType);
+    const existing = this.backfillInflight.get(key);
     if (existing) return existing;
-    const p = this.runBackfillScan(changeType).finally(() => this.backfillInflight.delete(changeType));
-    this.backfillInflight.set(changeType, p);
+    const p = this.runBackfillScan(changeType).finally(() => this.backfillInflight.delete(key));
+    this.backfillInflight.set(key, p);
     return p;
+  }
+
+  private inflightKey(changeType: ChangeType): string {
+    try {
+      const prefs = preferenceManager.get();
+      return `${prefs.activeNetwork}:${prefs.activeAccountIndex}:${changeType}`;
+    } catch {
+      return `default:${changeType}`;
+    }
   }
 
   private async runBackfillScan(changeType: ChangeType): Promise<void> {
@@ -190,6 +202,7 @@ export class ScanManager {
 
   private async derive(startIndex: number, endIndex: number, changeType: ChangeType = ChangeType.External) {
     logger.log(`Scanning from ${startIndex} to ${endIndex} (${endIndex - startIndex} Indexes)`);
+    const startEpoch = this.epoch;
     const addressCache = changeType === ChangeType.External ? this.addressCacheReceive : this.addressCacheChange;
     for (let index = startIndex; index <= endIndex; index++) {
       if (!addressCache.has(index)) {
@@ -207,6 +220,7 @@ export class ScanManager {
         addressCache.set(index, entry);
       }
     }
+    if (startEpoch !== this.epoch) return;
     this.bumpHighestScanned(endIndex, changeType);
     await this.saveAddress();
   }
@@ -251,6 +265,7 @@ export class ScanManager {
 
       // Scan Histories
       const histories = await electrumService.getHistoryBatch(scriptHashes);
+      if (startEpoch !== this.epoch) return;
       for (let batchIndex = 0; batchIndex < batch.length; batchIndex++) {
         const hdIndex = batch[batchIndex]; // map back from batch pos -> HD index
         const entry = addressCache.get(hdIndex);
@@ -265,10 +280,12 @@ export class ScanManager {
           this.bumpHighestUsed(hdIndex, changeType);
         }
       }
+      if (startEpoch !== this.epoch) return;
       await this.saveHistory();
 
       // Scan Utxo
       const utxosByIndex = await electrumService.getUtxoBatch(scriptHashes);
+      if (startEpoch !== this.epoch) return;
       for (let batchIndex = 0; batchIndex < batch.length; batchIndex++) {
         const hdIndex = batch[batchIndex];
         const entry = addressCache.get(hdIndex);
@@ -284,7 +301,9 @@ export class ScanManager {
           utxoTouched.add(hdIndex);
         }
       }
+      if (startEpoch !== this.epoch) return;
       await this.saveUtxo();
+      if (startEpoch !== this.epoch) return;
       await this.saveAddress();
     }
 
@@ -520,6 +539,8 @@ export class ScanManager {
 
   public clear() {
     this.epoch++;
+    this.forwardInflight.clear();
+    this.backfillInflight.clear();
     this.addressCacheReceive.clear();
     this.addressCacheChange.clear();
     this.historyCacheReceive.clear();
