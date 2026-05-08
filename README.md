@@ -104,11 +104,13 @@ pnpm install
 - **`pnpm zip:firefox`**  
   Zips the Firefox-specific build for submission to the Firefox Add-ons Marketplace.
 - **Publishing Steps:**
+  - **Release artifact must come from green CI.** Do not upload a locally built zip. Push a `v*` tag to trigger `.github/workflows/release.yaml`; that workflow runs lint, type-check, tests, build, and source-map check, then publishes the zip as a build artifact for download.
   - **Chrome Web Store:**  
-    1. Run `pnpm zip` to create a zip file of your production build.
-    2. Log in to the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/developer/dashboard).
-    3. Click **Add a new item** and upload your zip file.
-    4. Follow the on-screen instructions to complete your extension listing (provide descriptions, screenshots, etc.).
+    1. Push a `v*` tag and wait for the `Release` workflow to complete on GitHub Actions.
+    2. Download the zip artifact from the workflow run.
+    3. Log in to the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/developer/dashboard).
+    4. Click **Add a new item** and upload the artifact zip.
+    5. Follow the on-screen instructions to complete your extension listing (provide descriptions, screenshots, etc.).
   - **Firefox Add-ons:**  
     1. Run `pnpm zip:firefox` to generate the Firefox build zip.
     2. Log in to the [Firefox Developer Hub](https://addons.mozilla.org/en-US/developers/).
