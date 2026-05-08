@@ -104,7 +104,7 @@ pnpm install
 - **`pnpm zip:firefox`**  
   Zips the Firefox-specific build for submission to the Firefox Add-ons Marketplace.
 - **Publishing Steps:**
-  - **Release artifact must come from green CI.** Do not upload a locally built zip. Push a `v*` tag to trigger `.github/workflows/release.yaml`; that workflow runs audit, lint, type-check, tests, build, and source-map check, then publishes the zip as a build artifact for download.
+  - **Release artifact must come from green CI.** Do not upload a locally built zip. Push a `v*` tag to trigger `.github/workflows/release.yaml`; that workflow runs lint, type-check, tests, build, and source-map check, then publishes the zip as a build artifact for download.
   - **Chrome Web Store:**  
     1. Push a `v*` tag and wait for the `Release` workflow to complete on GitHub Actions.
     2. Download the zip artifact from the workflow run.

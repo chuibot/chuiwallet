@@ -29,8 +29,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare generated workspace artifacts
+        run: pnpm turbo ready
+
       - name: Lint
-        run: pnpm lint
+        run: pnpm lint:check
 
       - name: Type-check
         run: pnpm type-check

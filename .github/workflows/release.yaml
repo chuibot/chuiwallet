@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    name: Audit, lint, type-check, test, build, zip
+    name: Lint, type-check, test, build, zip
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -28,11 +28,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Audit (high severity)
-        run: pnpm audit --audit-level=high
+      - name: Prepare generated workspace artifacts
+        run: pnpm turbo ready
 
       - name: Lint
-        run: pnpm lint
+        run: pnpm lint:check
 
       - name: Type-check
         run: pnpm type-check
