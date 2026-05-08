@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Audit, lint, type-check, test, build, zip
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit (high severity)
+        run: pnpm audit --audit-level=high
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type-check
+        run: pnpm type-check
+
+      - name: Run backend tests
+        run: pnpm --filter @extension/backend test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Verify no source maps in dist
+        run: |
+          if find dist -name '*.map' -print -quit | grep -q .; then
+            echo "Source maps found in dist/ — refusing to release"
+            find dist -name '*.map'
+            exit 1
+          fi
+
+      - name: Zip
+        run: pnpm -F zipper zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chuiwallet-${{ github.ref_name }}
+          path: dist-zip/*.zip
+          if-no-files-found: error
