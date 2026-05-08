@@ -77,24 +77,30 @@ declare global {
     return;
   }
 
-  const btcShim = Object.freeze({
-    request: frozenProvider.request.bind(frozenProvider),
-  });
-  try {
-    Object.defineProperty(window, 'btc', {
-      value: btcShim,
-      writable: false,
-      configurable: false,
-      enumerable: true,
+  if (window.btc == null) {
+    const btcShim = Object.freeze({
+      request: frozenProvider.request.bind(frozenProvider),
     });
-  } catch {
-    /* noop */
+    try {
+      Object.defineProperty(window, 'btc', {
+        value: btcShim,
+        writable: false,
+        configurable: false,
+        enumerable: true,
+      });
+    } catch {
+      /* noop */
+    }
   }
 
-  if (!Array.isArray(window.btc_providers)) {
-    window.btc_providers = [];
+  const providers = Array.isArray(window.btc_providers) ? window.btc_providers : [];
+  const existingIndex = providers.findIndex(p => p?.id === providerInfo.id);
+  if (existingIndex >= 0) {
+    providers[existingIndex] = providerInfo;
+  } else {
+    providers.push(providerInfo);
   }
-  const filtered = window.btc_providers.filter(p => !p || p.id !== providerInfo.id);
-  filtered.push(providerInfo);
-  window.btc_providers = filtered;
+  if (window.btc_providers !== providers) {
+    window.btc_providers = providers;
+  }
 })();

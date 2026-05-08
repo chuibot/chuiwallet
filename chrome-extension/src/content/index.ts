@@ -1,16 +1,5 @@
 import type { RpcErrorResponse, RpcRequest, RpcResponse } from '@src/background/messaging/rpc';
 
-function addChuiToPage() {
-  const inpage = document.createElement('script');
-  inpage.src = chrome.runtime.getURL('inpage/chuiProvider.js');
-  inpage.id = 'chui-provider';
-  const parent = document.head || document.documentElement;
-  parent.insertBefore(inpage, parent.firstChild);
-  inpage.remove();
-}
-
-addChuiToPage();
-
 window.addEventListener('message', event => {
   if (
     event.source !== window ||

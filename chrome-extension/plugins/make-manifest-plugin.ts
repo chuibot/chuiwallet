@@ -66,9 +66,16 @@ function addRefreshContentScript(manifest: Manifest) {
 }
 
 function addWalletProviderContentScript(manifest: Manifest) {
+  const matches = ['http://*/*', 'https://*/*', '<all_urls>'];
   manifest.content_scripts = manifest.content_scripts || [];
   manifest.content_scripts.push({
-    matches: ['http://*/*', 'https://*/*', '<all_urls>'],
+    matches,
+    js: ['inpage/chuiProvider.js'],
+    run_at: 'document_start',
+    world: 'MAIN',
+  });
+  manifest.content_scripts.push({
+    matches,
     js: ['content/index.js'],
     run_at: 'document_start',
   });
