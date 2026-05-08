@@ -42,13 +42,35 @@ describe('Wallet — creation & restoration', () => {
     ).rejects.toThrow('Invalid mnemonic');
   });
 
-  it('throws "Wallet already exist" on second create()', async () => {
+  it('throws WALLET_ALREADY_EXISTS on second create() with the same instance', async () => {
     const w = new Wallet();
     await w.init();
     await w.create({ password: PASSWORD, network: Network.Mainnet, mnemonic: MNEMONIC });
     await expect(w.create({ password: PASSWORD, network: Network.Mainnet, mnemonic: MNEMONIC })).rejects.toThrow(
-      'Wallet already exist',
+      'WALLET_ALREADY_EXISTS',
     );
+  });
+
+  it('throws WALLET_ALREADY_EXISTS on create() after SW restart (root is null but vault is on disk)', async () => {
+    // Simulate initial wallet creation
+    const first = new Wallet();
+    await first.init();
+    await first.create({ password: PASSWORD, network: Network.Mainnet, mnemonic: MNEMONIC });
+    const originalMnemonic = await first.getMnemonic(PASSWORD);
+
+    // Simulate SW restart: new instance loads encryptedVault from storage but root is null
+    const restarted = new Wallet();
+    await restarted.init();
+    expect(restarted.root).toBeNull();
+    expect(restarted.isRestorable()).toBe(true);
+
+    await expect(restarted.create({ password: PASSWORD, network: Network.Mainnet })).rejects.toThrow(
+      'WALLET_ALREADY_EXISTS',
+    );
+
+    // Vault must be unchanged — original mnemonic still decryptable
+    await restarted.restore(Network.Mainnet, PASSWORD);
+    expect(await restarted.getMnemonic(PASSWORD)).toBe(originalMnemonic);
   });
 
   it('persists encrypted vault to chrome.storage.local under "wallet"', async () => {
