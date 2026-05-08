@@ -10,6 +10,18 @@ const rootDir = resolve(__dirname);
 const srcDir = resolve(rootDir, 'src');
 const outDir = resolve(rootDir, '..', 'dist');
 const publicDir = resolve(rootDir, 'public');
+
+function wrapInpageMainWorldScript(): PluginOption {
+  return {
+    name: 'wrap-inpage-main-world-script',
+    enforce: 'post',
+    renderChunk(code, chunk) {
+      if (chunk.name !== 'inpage') return null;
+      return { code: `(() => {\n${code}\n})();\n`, map: null };
+    },
+  };
+}
+
 export default defineConfig({
   resolve: {
     alias: {
@@ -19,6 +31,7 @@ export default defineConfig({
     },
   },
   plugins: [
+    wrapInpageMainWorldScript(),
     libAssetsPlugin({
       outputPath: outDir,
     }) as PluginOption,
