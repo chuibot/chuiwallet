@@ -1,3 +1,4 @@
+import * as bitcoin from 'bitcoinjs-lib';
 import { resetChromeStorage } from '../helpers/chromeMock';
 import { installFetchMock, jsonResponse, mockFetch, resetFetchMock, restoreFetch } from '../helpers/fetchMock';
 import { walletManager } from '../../src/walletManager';
@@ -7,6 +8,7 @@ import { preferenceManager, defaultPreferences } from '../../src/preferenceManag
 import { scanManager } from '../../src/scanManager';
 import { historyService } from '../../src/modules/txHistoryService';
 import { electrumService } from '../../src/modules/electrumService';
+import { logger } from '../../src/utils/logger';
 import { Network } from '../../src/types/electrum';
 import { ScriptType } from '../../src/types/wallet';
 import { CacheType, ChangeType } from '../../src/types/cache';
@@ -224,5 +226,66 @@ describe('WalletManager — full lifecycle (integration)', () => {
     const change = walletManager.getAddress(ChangeType.Internal);
     expect(change).toMatch(/^bc1q/);
     expect(addr).not.toEqual(change);
+  });
+
+  describe('sendPayment() — local-txid trust boundary', () => {
+    const TO_ADDR = 'bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3';
+
+    async function setupSpendableUtxo() {
+      await walletManager.createWallet(MNEMONIC, PASSWORD);
+      const ownAddr = walletManager.deriveAddress(0, 0)!;
+      const utxoKey = getCacheKey(CacheType.Utxo, ChangeType.External);
+      const addrKey = getCacheKey(CacheType.Address, ChangeType.External);
+      await chrome.storage.local.set({
+        [addrKey]: [[0, { address: ownAddr, firstSeen: 0, lastChecked: 0, everUsed: true }]],
+        [utxoKey]: [
+          [0, { lastChecked: 0, utxos: [{ txid: 'a'.repeat(64), vout: 0, value: 1_000_000, height: 800_000 }] }],
+        ],
+      });
+    }
+
+    it('uses the locally-computed txid (not the server reply) for addOptimisticPending and the return value', async () => {
+      await setupSpendableUtxo();
+
+      const ATTACKER_TXID = 'd'.repeat(64);
+      let computedLocalTxid: string | undefined;
+      jest.spyOn(electrumService, 'broadcastTx').mockImplementation(async (hex: string) => {
+        computedLocalTxid = bitcoin.Transaction.fromHex(hex).getId();
+        return ATTACKER_TXID;
+      });
+      const addPendingSpy = jest.spyOn(historyService, 'addOptimisticPending').mockResolvedValue();
+      jest.spyOn(scanManager, 'forwardScan').mockResolvedValue();
+      const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+
+      const returned = await walletManager.sendPayment(TO_ADDR, 50_000, 1);
+
+      expect(computedLocalTxid).toMatch(/^[0-9a-f]{64}$/);
+      expect(returned).toBe(computedLocalTxid);
+      expect(returned).not.toBe(ATTACKER_TXID);
+      expect(addPendingSpy).toHaveBeenCalledWith(expect.objectContaining({ txid: computedLocalTxid }));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/divergent txid/));
+
+      jest.restoreAllMocks();
+    });
+
+    it('does not warn when the server-returned txid matches the local one', async () => {
+      await setupSpendableUtxo();
+
+      jest
+        .spyOn(electrumService, 'broadcastTx')
+        .mockImplementation(async (hex: string) => bitcoin.Transaction.fromHex(hex).getId());
+      jest.spyOn(historyService, 'addOptimisticPending').mockResolvedValue();
+      jest.spyOn(scanManager, 'forwardScan').mockResolvedValue();
+      const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+
+      await walletManager.sendPayment(TO_ADDR, 50_000, 1);
+
+      const divergentWarnings = warnSpy.mock.calls.filter(
+        args => typeof args[0] === 'string' && args[0].includes('divergent txid'),
+      );
+      expect(divergentWarnings).toHaveLength(0);
+
+      jest.restoreAllMocks();
+    });
   });
 });
