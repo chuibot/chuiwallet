@@ -94,7 +94,7 @@
     ],
     "overrides": {
       "base-x@4": "4.0.1",
-      "valibot": "^1.0.0"
+      "sha.js": "^2.4.12"
     }
   },
   "packageManager": "pnpm@9.15.1",
