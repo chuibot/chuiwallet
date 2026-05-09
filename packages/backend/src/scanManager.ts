@@ -1,13 +1,22 @@
 import type { AddressEntry, HistoryEntry, ScanEvent, ScanEventInput, UtxoEntry } from './types/cache';
 import { CacheType, ChangeType } from './types/cache';
+import type { Network } from './types/electrum';
 import browser from 'webextension-polyfill';
 import { addressToScriptHash, toBitcoinNetwork } from './utils/crypto';
 import { getCacheKey, selectByChain } from './utils/cache';
 import { createEmitter } from './utils/emitter';
 import { walletManager } from './walletManager';
+import { accountManager } from './accountManager';
 import { preferenceManager } from './preferenceManager';
 import { electrumService } from './modules/electrumService';
 import { logger } from './utils/logger';
+
+type ScanContext = {
+  epoch: number;
+  network: Network;
+  accountListIndex: number;
+  accountIndex: number;
+};
 
 export interface ScanManagerConfig {
   externalGapLimit: number;
@@ -44,9 +53,10 @@ export class ScanManager {
   public readonly onStatus = createEmitter<ScanEvent>();
   private epoch = 0;
   // Coalesce concurrent scans so triggers share one Electrum round-trip per
-  // (kind, changeType). See #15.
-  private forwardInflight = new Map<ChangeType, Promise<void>>();
-  private backfillInflight = new Map<ChangeType, Promise<void>>();
+  // (network, accountIndex, changeType). Account/network in the key prevents
+  // a scan started under one context from being reused after a switch.
+  private forwardInflight = new Map<string, Promise<void>>();
+  private backfillInflight = new Map<string, Promise<void>>();
 
   constructor(config: ScanManagerConfig = defaultScanConfig) {
     this.config = { ...config };
@@ -79,18 +89,22 @@ export class ScanManager {
   // Not async: an async wrapper would re-wrap the cached promise in a fresh
   // one (per spec), breaking the identity check the dedupe test relies on.
   public forwardScan(changeType: ChangeType = ChangeType.External): Promise<void> {
-    const existing = this.forwardInflight.get(changeType);
+    const ctx = this.currentContext();
+    if (!ctx) return Promise.resolve();
+    const key = this.contextKey(ctx, changeType);
+    const existing = this.forwardInflight.get(key);
     if (existing) return existing;
-    const p = this.runForwardScan(changeType).finally(() => this.forwardInflight.delete(changeType));
-    this.forwardInflight.set(changeType, p);
+    const p: Promise<void> = this.runForwardScan(changeType, ctx).finally(() => {
+      if (this.forwardInflight.get(key) === p) this.forwardInflight.delete(key);
+    });
+    this.forwardInflight.set(key, p);
     return p;
   }
 
-  private async runForwardScan(changeType: ChangeType): Promise<void> {
-    const startEpoch = this.epoch;
+  private async runForwardScan(changeType: ChangeType, ctx: ScanContext): Promise<void> {
     let passes = 0;
     while (passes < this.config.forwardExtendMaxPasses) {
-      if (startEpoch !== this.epoch) return;
+      if (!this.isCurrentContext(ctx)) return;
       const gapLimit = selectByChain(this.config.externalGapLimit, this.config.internalGapLimit, changeType);
       const highestUsed = selectByChain(this.highestUsedReceive, this.highestUsedChange, changeType);
       const highestScanned = selectByChain(this.highestScannedReceive, this.highestScannedChange, changeType);
@@ -109,14 +123,15 @@ export class ScanManager {
       const endIndex = startIndex + windowToScan - 1;
 
       // derive missing first
-      await this.derive(startIndex, endIndex, changeType);
+      await this.derive(startIndex, endIndex, changeType, ctx);
+      if (!this.isCurrentContext(ctx)) return;
 
       // Build indices to scan
       const indices = [];
       for (let i = startIndex; i <= endIndex; i++) {
         indices.push(i);
       }
-      await this.scan(indices, changeType);
+      await this.scan(indices, changeType, ctx);
       passes++;
     }
   }
@@ -126,15 +141,52 @@ export class ScanManager {
    * @param changeType
    */
   public backfillScan(changeType: ChangeType = ChangeType.External): Promise<void> {
-    const existing = this.backfillInflight.get(changeType);
+    const ctx = this.currentContext();
+    if (!ctx) return Promise.resolve();
+    const key = this.contextKey(ctx, changeType);
+    const existing = this.backfillInflight.get(key);
     if (existing) return existing;
-    const p = this.runBackfillScan(changeType).finally(() => this.backfillInflight.delete(changeType));
-    this.backfillInflight.set(changeType, p);
+    const p: Promise<void> = this.runBackfillScan(changeType, ctx).finally(() => {
+      if (this.backfillInflight.get(key) === p) this.backfillInflight.delete(key);
+    });
+    this.backfillInflight.set(key, p);
     return p;
   }
 
-  private async runBackfillScan(changeType: ChangeType): Promise<void> {
-    const startEpoch = this.epoch;
+  private contextKey(ctx: ScanContext, changeType: ChangeType): string {
+    return `${ctx.network}:${ctx.accountIndex}:${changeType}`;
+  }
+
+  private currentContext(): ScanContext | null {
+    try {
+      const prefs = preferenceManager.get();
+      const account = accountManager.getActiveAccount();
+      if (prefs.activeAccountIndex !== accountManager.activeAccountIndex || prefs.activeNetwork !== account.network) {
+        return null;
+      }
+      return {
+        epoch: this.epoch,
+        network: account.network,
+        accountListIndex: prefs.activeAccountIndex,
+        accountIndex: account.index,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private isCurrentContext(ctx: ScanContext): boolean {
+    const current = this.currentContext();
+    return (
+      current !== null &&
+      current.epoch === ctx.epoch &&
+      current.network === ctx.network &&
+      current.accountListIndex === ctx.accountListIndex &&
+      current.accountIndex === ctx.accountIndex
+    );
+  }
+
+  private async runBackfillScan(changeType: ChangeType, ctx: ScanContext): Promise<void> {
     const gapLimit = selectByChain(this.config.externalGapLimit, this.config.internalGapLimit, changeType);
     const highestUsed = selectByChain(this.highestUsedReceive, this.highestUsedChange, changeType);
     const highestScanned = selectByChain(this.highestScannedReceive, this.highestScannedChange, changeType);
@@ -170,7 +222,7 @@ export class ScanManager {
     const pickUnused = staleUnused.slice(0, room).map(x => x.index);
     const indicesToScan = Array.from(new Set([...usedPending, ...pickUnused]));
     if (indicesToScan.length === 0) return;
-    if (startEpoch !== this.epoch) return;
+    if (!this.isCurrentContext(ctx)) return;
 
     const MAX_LOG = 100;
     const preview =
@@ -185,10 +237,10 @@ export class ScanManager {
       indices: indicesToScan,
       data: { scanType: 'backfill' },
     });
-    await this.scan(indicesToScan, changeType);
+    await this.scan(indicesToScan, changeType, ctx);
   }
 
-  private async derive(startIndex: number, endIndex: number, changeType: ChangeType = ChangeType.External) {
+  private async derive(startIndex: number, endIndex: number, changeType: ChangeType, ctx: ScanContext) {
     logger.log(`Scanning from ${startIndex} to ${endIndex} (${endIndex - startIndex} Indexes)`);
     const addressCache = changeType === ChangeType.External ? this.addressCacheReceive : this.addressCacheChange;
     for (let index = startIndex; index <= endIndex; index++) {
@@ -207,17 +259,17 @@ export class ScanManager {
         addressCache.set(index, entry);
       }
     }
+    if (!this.isCurrentContext(ctx)) return;
     this.bumpHighestScanned(endIndex, changeType);
     await this.saveAddress();
   }
 
-  private async scan(indices: number[], changeType: ChangeType = ChangeType.External) {
+  private async scan(indices: number[], changeType: ChangeType, ctx: ScanContext) {
     if (electrumService.status !== 'connected') {
       return;
     }
 
-    const startEpoch = this.epoch;
-    const bitcoinNetwork = toBitcoinNetwork(preferenceManager.get().activeNetwork);
+    const bitcoinNetwork = toBitcoinNetwork(ctx.network);
     const addressCache = changeType === ChangeType.External ? this.addressCacheReceive : this.addressCacheChange;
     const historyCache = changeType === ChangeType.External ? this.historyCacheReceive : this.historyCacheChange;
     const utxoCache = changeType === ChangeType.External ? this.utxoCacheReceive : this.utxoCacheChange; // Assume added
@@ -228,7 +280,7 @@ export class ScanManager {
 
     // Batch in groups for concurrency (adjust based on Electrum limits)
     for (let i = 0; i < indices.length; i += this.config.electrumBatchSize) {
-      if (startEpoch !== this.epoch) return;
+      if (!this.isCurrentContext(ctx)) return;
       // Bootstrap for batch scanning
       const batchTimestamp = Date.now();
       const batch = indices.slice(i, i + this.config.electrumBatchSize);
@@ -251,6 +303,7 @@ export class ScanManager {
 
       // Scan Histories
       const histories = await electrumService.getHistoryBatch(scriptHashes);
+      if (!this.isCurrentContext(ctx)) return;
       for (let batchIndex = 0; batchIndex < batch.length; batchIndex++) {
         const hdIndex = batch[batchIndex]; // map back from batch pos -> HD index
         const entry = addressCache.get(hdIndex);
@@ -265,10 +318,13 @@ export class ScanManager {
           this.bumpHighestUsed(hdIndex, changeType);
         }
       }
+      if (!this.isCurrentContext(ctx)) return;
       await this.saveHistory();
+      if (!this.isCurrentContext(ctx)) return;
 
       // Scan Utxo
       const utxosByIndex = await electrumService.getUtxoBatch(scriptHashes);
+      if (!this.isCurrentContext(ctx)) return;
       for (let batchIndex = 0; batchIndex < batch.length; batchIndex++) {
         const hdIndex = batch[batchIndex];
         const entry = addressCache.get(hdIndex);
@@ -284,8 +340,11 @@ export class ScanManager {
           utxoTouched.add(hdIndex);
         }
       }
+      if (!this.isCurrentContext(ctx)) return;
       await this.saveUtxo();
+      if (!this.isCurrentContext(ctx)) return;
       await this.saveAddress();
+      if (!this.isCurrentContext(ctx)) return;
     }
 
     const affectedIndices = Array.from(new Set([...historyTouched, ...utxoTouched]));
@@ -520,6 +579,8 @@ export class ScanManager {
 
   public clear() {
     this.epoch++;
+    this.forwardInflight.clear();
+    this.backfillInflight.clear();
     this.addressCacheReceive.clear();
     this.addressCacheChange.clear();
     this.historyCacheReceive.clear();
