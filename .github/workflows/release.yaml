@@ -64,7 +64,7 @@ jobs:
       - name: Zip
         run: pnpm -F zipper zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: chuiwallet-${{ github.ref_name }}
           path: dist-zip/*.zip
