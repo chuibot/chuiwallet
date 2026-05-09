@@ -16,7 +16,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@bitcoinerlab/secp256k1": "^1.2.0",
+    "@bitcoinerlab/secp256k1": "1.2.0",
     "@extension/backend": "workspace:*",
     "@extension/shared": "workspace:*",
     "@extension/storage": "workspace:*",
