@@ -9,9 +9,11 @@ export async function setSessionPassword(pwd: string): Promise<void> {
   await chrome.storage.session.set({ [SESSION_PASSWORD_KEY]: data });
 }
 
+type SessionPasswordEntry = { value: string; expiry: number };
+
 export async function getSessionPassword(): Promise<string | null> {
   const result = await chrome.storage.session.get([SESSION_PASSWORD_KEY]);
-  const data = result[SESSION_PASSWORD_KEY];
+  const data = result[SESSION_PASSWORD_KEY] as SessionPasswordEntry | undefined;
   if (!data) return null;
   if (Date.now() > data.expiry) {
     await chrome.storage.session.remove([SESSION_PASSWORD_KEY]);
