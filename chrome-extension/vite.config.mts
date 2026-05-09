@@ -39,13 +39,11 @@ export default defineConfig({
     makeManifestPlugin({ outDir }),
     isDev && watchRebuildPlugin({ reload: true, id: 'chrome-extension-hmr' }),
     nodePolyfills({
-      exclude: [],
+      include: ['buffer'],
       globals: {
         Buffer: true,
-        global: true,
-        process: true,
       },
-      protocolImports: true,
+      protocolImports: false,
     }) as PluginOption,
   ],
   publicDir,
