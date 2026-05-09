@@ -1,10 +1,21 @@
 import { computeForwardScanWindow, ScanManager } from '../../src/scanManager';
 import { ChangeType } from '../../src/types/cache';
+import type { AddressEntry, ScanEvent } from '../../src/types/cache';
 import { Network } from '../../src/types/electrum';
 import type { Account } from '../../src/types/wallet';
 import { ScriptType } from '../../src/types/wallet';
 import { defaultPreferences, preferenceManager } from '../../src/preferenceManager';
 import { accountManager } from '../../src/accountManager';
+import { electrumService } from '../../src/modules/electrumService';
+
+type ScanInternals = {
+  addressCacheReceive: Map<number, AddressEntry>;
+  saveHistory: () => Promise<void>;
+  saveAddress: () => Promise<void>;
+  saveUtxo: () => Promise<void>;
+  scan: (indices: number[], changeType: ChangeType, ctx: unknown) => Promise<void>;
+  currentContext: () => unknown;
+};
 
 type CtxState = {
   network: Network;
@@ -255,5 +266,35 @@ describe('ScanManager — context isolation and stale-fence', () => {
     const same = sm.forwardScan(ChangeType.External);
     expect(same).toBe(fresh);
     await fresh;
+  });
+
+  it('aborts after a context flip during saveHistory: no further Electrum work, no final emit', async () => {
+    const sm = new ScanManager();
+    const internal = sm as unknown as ScanInternals;
+
+    internal.addressCacheReceive.set(0, {
+      address: 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+      firstSeen: 0,
+      lastChecked: 0,
+      everUsed: false,
+    });
+
+    Object.defineProperty(electrumService, 'status', { value: 'connected', configurable: true });
+    jest.spyOn(electrumService, 'getHistoryBatch').mockResolvedValue([[{ tx_hash: 'a', height: 1 }]]);
+    const utxoSpy = jest.spyOn(electrumService, 'getUtxoBatch').mockResolvedValue([[]]);
+
+    const events: ScanEvent[] = [];
+    sm.onStatus.on(e => events.push(e));
+
+    jest.spyOn(internal, 'saveHistory').mockImplementation(async () => {
+      sm.clear();
+    });
+
+    const ctx = internal.currentContext();
+    expect(ctx).not.toBeNull();
+    await internal.scan([0], ChangeType.External, ctx);
+
+    expect(utxoSpy).not.toHaveBeenCalled();
+    expect(events.some(e => e.utxoChanged || e.historyChanged)).toBe(false);
   });
 });

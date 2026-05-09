@@ -320,6 +320,7 @@ export class ScanManager {
       }
       if (!this.isCurrentContext(ctx)) return;
       await this.saveHistory();
+      if (!this.isCurrentContext(ctx)) return;
 
       // Scan Utxo
       const utxosByIndex = await electrumService.getUtxoBatch(scriptHashes);
@@ -343,6 +344,7 @@ export class ScanManager {
       await this.saveUtxo();
       if (!this.isCurrentContext(ctx)) return;
       await this.saveAddress();
+      if (!this.isCurrentContext(ctx)) return;
     }
 
     const affectedIndices = Array.from(new Set([...historyTouched, ...utxoTouched]));
