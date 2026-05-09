@@ -304,10 +304,7 @@ export class Wallet {
    * @private
    */
   private async load(): Promise<void> {
-    const payload = await new Promise<{ [key: string]: WalletMeta | undefined }>(resolve => {
-      chrome.storage.local.get(WALLET_KEY, resolve);
-    });
-
+    const payload = (await chrome.storage.local.get(WALLET_KEY)) as { [key: string]: WalletMeta | undefined };
     const wallet = payload[WALLET_KEY] ?? null;
     if (wallet) {
       this.encryptedVault = wallet.vault;
@@ -320,18 +317,8 @@ export class Wallet {
    * @private
    */
   private async save(): Promise<void> {
-    await new Promise<void>(resolve => {
-      const wallet: WalletMeta = {
-        vault: this.encryptedVault,
-      };
-
-      chrome.storage.local.set(
-        {
-          [WALLET_KEY]: wallet,
-        },
-        () => resolve(),
-      );
-    });
+    const wallet: WalletMeta = { vault: this.encryptedVault };
+    await chrome.storage.local.set({ [WALLET_KEY]: wallet });
   }
 
   /**
