@@ -81,8 +81,8 @@ export class Wallet {
    * @throws {Error} If a wallet already exists, no valid key is provided, or the mnemonic is invalid.
    */
   public async create(options: CreateWalletOptions): Promise<void> {
-    if (this.root) {
-      throw new Error('Wallet already exist');
+    if (this.encryptedVault !== null) {
+      throw new Error('WALLET_ALREADY_EXISTS');
     }
 
     this.network = options.network === Network.Testnet ? bitcoin.networks.testnet : bitcoin.networks.bitcoin;
