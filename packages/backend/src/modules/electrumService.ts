@@ -4,15 +4,15 @@ import type {
   ElectrumHistory,
   ElectrumTransaction,
   ElectrumUtxo,
+  ExtendedServerConfig,
 } from '../types/electrum';
 import { logger } from '../utils/logger';
 import { Network } from '../types/electrum';
 import { ElectrumRpcClient } from './electrumRpcClient';
-import { selectBestServer } from './electrumServer';
+import { getConsensusTipHeight, selectBestServer } from './electrumServer';
 import { createEmitter } from '../utils/emitter';
 import {
   assertElectrumHistoryBatch,
-  assertElectrumTipHeader,
   assertElectrumTransaction,
   assertElectrumUtxoBatch,
 } from '../utils/electrumValidation';
@@ -20,12 +20,14 @@ import {
 export class ElectrumService {
   private network: Network = Network.Mainnet;
   private rpcClient: ElectrumRpcClient | undefined;
+  private healthyServers: ExtendedServerConfig[] = [];
   public status: ConnectionStatus = 'disconnected';
   public readonly onStatus = createEmitter<ConnectionUpdate>();
 
   public async init(network: Network) {
     this.network = network;
-    const server = await selectBestServer(this.network);
+    const { server, healthyServers } = await selectBestServer(this.network);
+    this.healthyServers = healthyServers;
     this.rpcClient = new ElectrumRpcClient(server);
     this.rpcClient.onStatus.on(status => {
       this.setStatus(status.status, status.detail);
@@ -104,15 +106,8 @@ export class ElectrumService {
     }
   }
 
-  /**
-   * Returns current chain tip height from the Electrum server.
-   * Uses `blockchain.headers.subscribe` which immediately returns the latest header.
-   */
   async getTipHeight(): Promise<number> {
-    const header = await this.rpcClient?.sendRequest('blockchain.headers.subscribe');
-    if (header === null || header === undefined) return 0;
-    assertElectrumTipHeader(header);
-    return header.height;
+    return getConsensusTipHeight(this.healthyServers);
   }
 
   public async sendRequest(methodName: string, params: unknown[]) {
