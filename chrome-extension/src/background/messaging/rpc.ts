@@ -5,16 +5,18 @@ import { ChainType } from '@extension/backend/src/adapters/IChainAdapter';
 import { ChangeType } from '@extension/backend/src/types/cache';
 import { walletManager } from '@extension/backend/src/walletManager';
 
+export type RpcId = string | number;
+
 export type RpcRequest = {
   jsonrpc: string;
-  id: number;
+  id: RpcId;
   method: string;
   params?: unknown;
 };
 
 export type RpcSuccessResponse = {
   jsonrpc: '2.0';
-  id: number;
+  id: RpcId;
   result: unknown;
 };
 
@@ -26,7 +28,7 @@ export type RpcErrorObject = {
 
 export type RpcErrorResponse = {
   jsonrpc: '2.0';
-  id: number;
+  id: RpcId;
   error: RpcErrorObject;
 };
 
@@ -216,7 +218,7 @@ function getEvmAddress(): string | null {
   }
 }
 
-function rpcSuccessResponse(id: number, result: unknown): RpcSuccessResponse {
+function rpcSuccessResponse(id: RpcId, result: unknown): RpcSuccessResponse {
   return {
     jsonrpc: rpcVersion,
     id,
@@ -224,7 +226,7 @@ function rpcSuccessResponse(id: number, result: unknown): RpcSuccessResponse {
   };
 }
 
-function rpcErrorResponse(id: number, errorCode: number, message: string, data?: unknown): RpcErrorResponse {
+function rpcErrorResponse(id: RpcId, errorCode: number, message: string, data?: unknown): RpcErrorResponse {
   const error: RpcErrorObject = {
     code: errorCode,
     message,

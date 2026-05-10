@@ -1,5 +1,6 @@
 import type { BIP32Interface } from 'bip32';
 import * as bitcoin from 'bitcoinjs-lib';
+import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import { Network } from '../types/electrum';
 import { Buffer } from 'buffer';
 import { ScriptType } from '../types/wallet';
@@ -114,8 +115,39 @@ export function toHdSigner(node: BIP32Interface): bitcoin.Signer & HDSigner {
       const sig = node.sign(hash); // may return Uint8Array
       return asBuffer(sig); // ensure Buffer
     },
-    // (Add signSchnorr for Taproot if needed)
   } as unknown as bitcoin.Signer & { publicKey: Buffer } as HDSigner;
+}
+
+export function toTaprootSigner(node: BIP32Interface): bitcoin.Signer {
+  if (!node.privateKey) throw new Error('Node missing private key');
+  const internalPubkey = asBuffer(node.publicKey);
+  if (internalPubkey.length !== 33) throw new Error('Invalid compressed pubkey');
+
+  let privKey = asBuffer(node.privateKey);
+  if (internalPubkey[0] === 0x03) {
+    const negated = secp256k1.privateNegate(privKey);
+    if (!negated) throw new Error('Invalid private key negation');
+    privKey = asBuffer(negated);
+  }
+
+  const xOnly = internalPubkey.subarray(1);
+  const tweak = bitcoin.crypto.taggedHash('TapTweak', xOnly);
+  const tweakedPrivArr = secp256k1.privateAdd(privKey, tweak);
+  if (!tweakedPrivArr) throw new Error('Invalid tweaked private key');
+  const tweakedPriv = asBuffer(tweakedPrivArr);
+
+  const tweakedPubArr = secp256k1.pointFromScalar(tweakedPriv, true);
+  if (!tweakedPubArr) throw new Error('Invalid tweaked pubkey');
+  const tweakedPub = asBuffer(tweakedPubArr);
+  const tweakedXOnly = tweakedPub.subarray(1);
+
+  return {
+    publicKey: tweakedXOnly,
+    sign: (): Buffer => {
+      throw new Error('Use signSchnorr for taproot');
+    },
+    signSchnorr: (hash: Buffer): Buffer => asBuffer(secp256k1.signSchnorr(hash, tweakedPriv)),
+  } as unknown as bitcoin.Signer;
 }
 
 export function asBuffer(x: Buffer | Uint8Array) {

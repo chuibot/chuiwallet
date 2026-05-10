@@ -1,10 +1,36 @@
 import type * as React from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@src/components/Button';
+import { sendMessage } from '@src/utils/bridge';
+import { getSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
+import { useWalletContext } from '@src/context/WalletContext';
 
 export const GenerateSeed: React.FC = () => {
   const navigate = useNavigate();
+  const { init } = useWalletContext();
+  const [error, setError] = useState<string | null>(null);
   const infoLines = ['Back up your wallet.', 'Never lose it.', 'Never share it with anyone.'];
+
+  const handleReveal = async () => {
+    try {
+      setError(null);
+      const password = await getSessionPassword();
+      if (!password) {
+        setError('Password not found. Please go back and set a password.');
+        return;
+      }
+      try {
+        await sendMessage('wallet.create', { password });
+      } catch (createErr) {
+        if (!String(createErr).includes('WALLET_ALREADY_EXISTS')) throw createErr;
+      }
+      await init();
+      navigate('/onboard/backup-seed');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create wallet');
+    }
+  };
 
   return (
     <div className="flex h-full w-full overflow-hidden flex-col px-5 pb-[19px] bg-dark">
@@ -32,8 +58,9 @@ export const GenerateSeed: React.FC = () => {
               <li key={index}>{line}</li>
             ))}
           </ul>
+          {error && <p className="mt-4 text-sm text-primary-red">{error}</p>}
         </div>
-        <Button className="absolute w-full bottom-[19px]" onClick={() => navigate('/onboard/backup-seed')}>
+        <Button className="absolute w-full bottom-[19px]" onClick={handleReveal}>
           Reveal seed phrase
         </Button>
       </div>

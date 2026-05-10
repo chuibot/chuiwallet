@@ -1,66 +1,56 @@
 import { ScriptType } from '../types/wallet';
 import { Network } from '../types/electrum';
-import * as bitcoin from 'bitcoinjs-lib';
-import BIP32Factory from 'bip32';
-import * as secp256k1 from '@bitcoinerlab/secp256k1';
+import bs58check from 'bs58check';
 
-const bip32 = BIP32Factory(secp256k1);
-
-// SLIP-0132 version bytes (Big Endian)
+// SLIP-0132 version bytes (big-endian, 4 bytes).
 // https://github.com/satoshilabs/slips/blob/master/slip-0132.md
-
-const VERSION_BYTES = {
+const SLIP0132_VERSIONS: Record<Network, Partial<Record<ScriptType, number>>> = {
   [Network.Mainnet]: {
     [ScriptType.P2PKH]: 0x0488b21e, // xpub
     [ScriptType.P2SH_P2WPKH]: 0x049d7cb2, // ypub
     [ScriptType.P2WPKH]: 0x04b24746, // zpub
-    [ScriptType.P2TR]: 0x0488b21e, // xpub (No widespread standard for P2TR xpub yet, defaulting to standard)
   },
   [Network.Testnet]: {
     [ScriptType.P2PKH]: 0x043587cf, // tpub
     [ScriptType.P2SH_P2WPKH]: 0x044a5262, // upub
     [ScriptType.P2WPKH]: 0x045f1cf6, // vpub
-    [ScriptType.P2TR]: 0x043587cf, // tpub
   },
 };
 
-/**
- * Converts a standard xpub/tpub to SLIP-0132 compliant format based on script type.
- * @param xpub The standard xpub string.
- * @param scriptType The script type of the account.
- * @param network The network (mainnet/testnet).
- * @returns The converted SLIP-0132 xpub string.
- */
+const STANDARD_PUBLIC_VERSION: Record<Network, number> = {
+  [Network.Mainnet]: 0x0488b21e, // xpub
+  [Network.Testnet]: 0x043587cf, // tpub
+};
+
+const EXT_KEY_LEN = 78;
+
 export function convertToSlip0132(xpub: string, scriptType: ScriptType, network: Network): string {
-  try {
-    const bitcoinNetwork = network === Network.Mainnet ? bitcoin.networks.bitcoin : bitcoin.networks.testnet;
+  if (scriptType === ScriptType.P2TR) {
+    throw new Error('P2TR xpub export is not standardized; use a descriptor like tr([fp/86h/0h/0h]xpub...) instead');
+  }
 
-    // Validate the xpub by parsing it once.
-    bip32.fromBase58(xpub, bitcoinNetwork);
+  const targetVersion = SLIP0132_VERSIONS[network][scriptType];
+  if (targetVersion === undefined) {
+    throw new Error(`Unsupported scriptType ${scriptType} for SLIP-0132 conversion on ${network}`);
+  }
 
-    const version = VERSION_BYTES[network][scriptType];
-    if (!version) {
-      console.warn(`No SLIP-0132 version found for ${scriptType} on ${network}, returning original xpub.`);
-      return xpub;
-    }
+  const decoded = bs58check.decode(xpub);
+  if (decoded.length !== EXT_KEY_LEN) {
+    throw new Error(`Invalid extended key length: ${decoded.length}`);
+  }
 
-    const customNetwork = {
-      ...bitcoinNetwork,
-      bip32: {
-        ...bitcoinNetwork.bip32,
-        public: version,
-        private: bitcoinNetwork.bip32.private, // Not used for xpub but required by type
-      },
-    };
+  const view = new DataView(decoded.buffer, decoded.byteOffset, decoded.byteLength);
+  const actualVersion = view.getUint32(0, false);
+  if (actualVersion !== STANDARD_PUBLIC_VERSION[network]) {
+    throw new Error(`Unexpected xpub version 0x${actualVersion.toString(16)} for ${network}`);
+  }
 
-    // Re-parse into a fresh, isolated node so the network reassignment below
-    // cannot leak to any other holder of the original parse result.
-    const clone = bip32.fromBase58(xpub, bitcoinNetwork);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (clone as any).network = customNetwork;
-    return clone.toBase58();
-  } catch (error) {
-    console.error('Failed to convert xpub to SLIP-0132:', error);
+  if (targetVersion === actualVersion) {
     return xpub;
   }
+
+  const out = new Uint8Array(EXT_KEY_LEN);
+  out.set(decoded);
+  new DataView(out.buffer).setUint32(0, targetVersion, false);
+  return bs58check.encode(out);
 }

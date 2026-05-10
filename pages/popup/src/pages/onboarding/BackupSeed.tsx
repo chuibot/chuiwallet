@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import { SeedColumn } from '@src/components/SeedColumn';
 import { Button } from '@src/components/Button';
 import { sendMessage } from '@src/utils/bridge';
-import { getSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
 
 export const BackupSeed: React.FC = () => {
   const navigate = useNavigate();
@@ -15,8 +14,6 @@ export const BackupSeed: React.FC = () => {
   useEffect(() => {
     (async () => {
       try {
-        const password = await getSessionPassword();
-        await sendMessage('wallet.create', { password });
         const seed: string = await sendMessage('wallet.getMnemonic');
         if (!seed) {
           console.error('Failed to recover seed');

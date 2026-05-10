@@ -28,7 +28,7 @@ function convertToFirefoxCompatibleManifest(manifest: Manifest) {
   manifestCopy.browser_specific_settings = {
     gecko: {
       id: 'example@example.com',
-      strict_min_version: '109.0',
+      strict_min_version: '128.0',
     },
   };
   delete manifestCopy.options_page;

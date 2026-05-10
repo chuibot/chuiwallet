@@ -1,17 +1,11 @@
 import type { RpcErrorResponse, RpcRequest, RpcResponse } from '@src/background/messaging/rpc';
 
-function addChuiToPage() {
-  const inpage = document.createElement('script');
-  inpage.src = chrome.runtime.getURL('inpage/chuiProvider.js');
-  inpage.id = 'chui-provider';
-  document.body.appendChild(inpage);
-}
-
-requestAnimationFrame(() => addChuiToPage());
+const pageOrigin = window.location.origin;
 
 window.addEventListener('message', event => {
   if (
     event.source !== window ||
+    event.origin !== pageOrigin ||
     !event.data ||
     event.data.source !== 'chui-inpage' ||
     event.data.type !== 'CHUI_BTC_RPC_REQUEST'
@@ -24,7 +18,7 @@ window.addEventListener('message', event => {
     {
       type: 'PROVIDER_RPC',
       params: rpcRequest,
-      origin: window.location.origin,
+      origin: pageOrigin,
     },
     response => {
       let rpcResponse: RpcResponse;
@@ -48,7 +42,7 @@ window.addEventListener('message', event => {
           type: 'CHUI_BTC_RPC_RESPONSE',
           payload: rpcResponse,
         },
-        window.location.origin,
+        pageOrigin,
       );
     },
   );

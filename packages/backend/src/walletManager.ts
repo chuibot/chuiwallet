@@ -268,11 +268,15 @@ export class WalletManager {
       getPrevTxHex: (txid: string) => electrumService.getRawTransaction(txid), // Todo: only used for legacy P2PKH, consider depracation
     });
     const txHex = wallet.signPsbt(selectedUtxo.inputs, psbt);
-    const txid = await electrumService.broadcastTx(txHex!);
+    const localTxid = bitcoin.Transaction.fromHex(txHex!).getId();
+    const serverTxid = await electrumService.broadcastTx(txHex!);
+    if (serverTxid !== localTxid) {
+      logger.warn(`Electrum returned a divergent txid: server=${serverTxid} local=${localTxid}`);
+    }
 
     try {
       await historyService.addOptimisticPending({
-        txid,
+        txid: localTxid,
         toAddress: to,
         fromAddress: selectedUtxo.inputs[0].address,
         amountSats,
@@ -289,7 +293,7 @@ export class WalletManager {
       scanManager.forwardScan(ChangeType.Internal).catch(err => logger.warn('Post-send change-chain scan failed', err)),
     ]);
 
-    return txid;
+    return localTxid;
   }
 
   /**

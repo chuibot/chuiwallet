@@ -50,12 +50,10 @@ const NetworkSelector: React.FC<NetworkSelectorProps> = ({
     setSelectedNetwork(initialNetwork);
   }, [initialNetwork]);
 
-  // Auto-hide error after 5 seconds
   useEffect(() => {
-    if (error) {
-      const timer = setTimeout(() => setError(null), 5000);
-      return () => clearTimeout(timer);
-    }
+    if (!error) return undefined;
+    const timer = setTimeout(() => setError(null), 5000);
+    return () => clearTimeout(timer);
   }, [error]);
 
   return (
