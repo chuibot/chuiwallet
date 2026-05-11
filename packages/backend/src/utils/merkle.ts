@@ -13,7 +13,7 @@ export function verifyMerkleProof(txid: string, pos: number, merkle: string[], m
   for (const sibling of merkle) {
     const siblingBuf = Buffer.from(sibling, 'hex').reverse();
     const pair = p % 2 === 0 ? Buffer.concat([hash, siblingBuf]) : Buffer.concat([siblingBuf, hash]);
-    hash = bitcoin.crypto.hash256(pair);
+    hash = Buffer.from(bitcoin.crypto.hash256(pair)) as Buffer<ArrayBuffer>;
     p = Math.floor(p / 2);
   }
   return hash.toString('hex') === merkleRoot;
