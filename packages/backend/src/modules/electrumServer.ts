@@ -80,12 +80,13 @@ export async function queryTipHeight(server: ExtendedServerConfig, timeout = 500
 }
 
 export async function getConsensusTipHeight(servers: ExtendedServerConfig[]): Promise<number> {
-  if (servers.length === 0) return 0;
   const results = await Promise.allSettled(servers.map(s => queryTipHeight(s)));
   const heights = results
     .filter((r): r is PromiseFulfilledResult<number> => r.status === 'fulfilled' && r.value > 0)
     .map(r => r.value);
-  if (heights.length === 0) return 0;
+  if (heights.length < 2) {
+    throw new Error(`Insufficient server responses for consensus (got ${heights.length}, need ≥2)`);
+  }
   const med = median(heights);
   const outliers = heights.filter(h => Math.abs(h - med) > 6);
   if (outliers.length > 0) {

@@ -105,7 +105,7 @@ describe('ElectrumService', () => {
     await expect(p).rejects.toThrow(/Unexpected broadcast result/);
   });
 
-  it('getTipHeight returns 0 when all healthy servers return null', async () => {
+  it('getTipHeight throws when all healthy servers return null (quorum not met)', async () => {
     const { svc } = await bootElectrumService();
     const prevCount = FakeWebSocket.instances.length;
     const p = svc.getTipHeight();
@@ -115,7 +115,7 @@ describe('ElectrumService', () => {
       inst.triggerOpen();
       inst.triggerMessage(JSON.stringify({ id: 1, result: null }));
     }
-    expect(await p).toBe(0);
+    await expect(p).rejects.toThrow(/Insufficient server responses/);
   });
 
   it('getTipHeight returns the consensus height when servers agree', async () => {

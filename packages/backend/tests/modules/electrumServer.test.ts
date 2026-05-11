@@ -94,8 +94,8 @@ describe('WebSocket-backed server functions', () => {
   });
 
   describe('getConsensusTipHeight', () => {
-    it('returns 0 for empty server list', async () => {
-      expect(await getConsensusTipHeight([])).toBe(0);
+    it('throws for empty server list (quorum not met)', async () => {
+      await expect(getConsensusTipHeight([])).rejects.toThrow(/Insufficient server responses/);
     });
 
     it('returns median when servers agree', async () => {
@@ -106,10 +106,20 @@ describe('WebSocket-backed server functions', () => {
       expect(await promise).toBe(850_000);
     });
 
-    it('returns 0 when all servers fail', async () => {
+    it('throws when fewer than 2 servers respond (quorum not met)', async () => {
       const promise = getConsensusTipHeight(['a', 'b'].map(mkServer));
       setTimeout(() => FakeWebSocket.instances.forEach(ws => ws.triggerError('refused')), 5);
-      expect(await promise).toBe(0);
+      await expect(promise).rejects.toThrow(/Insufficient server responses/);
+    });
+
+    it('throws when only 1 of 3 servers responds', async () => {
+      const promise = getConsensusTipHeight(['a', 'b', 'c'].map(mkServer));
+      setTimeout(() => {
+        respond(FakeWebSocket.instances[0]!, 850_000);
+        FakeWebSocket.instances[1]?.triggerError('refused');
+        FakeWebSocket.instances[2]?.triggerError('refused');
+      }, 5);
+      await expect(promise).rejects.toThrow(/Insufficient server responses/);
     });
 
     it('throws when a server deviates more than 6 blocks from median', async () => {
