@@ -154,7 +154,11 @@ export async function handle(message: ProviderRpc, sender: Runtime.MessageSender
     const fn = handlers[rpcRequest.method];
     if (!fn) return rpcErrorResponse(rpcRequest.id, -32601, `Method not found: ${rpcRequest.method}`);
 
-    const approved = await requestUserApproval(originFromSender(sender), rpcRequest);
+    const origin = originFromSender(sender);
+    if (origin === 'unknown') {
+      return rpcErrorResponse(rpcRequest.id, 4001, 'Request from non-web origin rejected');
+    }
+    const approved = await requestUserApproval(origin, rpcRequest);
     if (!approved) {
       return rpcErrorResponse(rpcRequest.id, 4001, 'User rejected the request');
     }
@@ -167,10 +171,19 @@ export async function handle(message: ProviderRpc, sender: Runtime.MessageSender
   }
 }
 
+// Bidi control codepoints that can visually reorder text to spoof domains.
+const BIDI_CONTROLS = /[‎‏‪-‮⁦-⁩]/;
+
 function originFromSender(sender: Runtime.MessageSender): string {
   if (!sender.url) return 'unknown';
   try {
-    return new URL(sender.url).origin;
+    const parsed = new URL(sender.url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return 'unknown';
+    const hostname = parsed.hostname;
+    // Reject empty, bidi-containing, or non-ASCII hostnames (IDN already punycode via WHATWG URL).
+    if (!hostname || BIDI_CONTROLS.test(hostname) || /[^ -~]/.test(hostname)) return 'unknown';
+    const port = parsed.port ? `:${parsed.port}` : '';
+    return `${parsed.protocol}//${hostname}${port}`;
   } catch {
     return 'unknown';
   }
