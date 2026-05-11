@@ -154,7 +154,11 @@ export async function handle(message: ProviderRpc, sender: Runtime.MessageSender
     const fn = handlers[rpcRequest.method];
     if (!fn) return rpcErrorResponse(rpcRequest.id, -32601, `Method not found: ${rpcRequest.method}`);
 
-    const approved = await requestUserApproval(originFromSender(sender), rpcRequest);
+    const origin = originFromSender(sender);
+    if (origin === 'unknown') {
+      return rpcErrorResponse(rpcRequest.id, 4001, 'Request from non-web origin rejected');
+    }
+    const approved = await requestUserApproval(origin, rpcRequest);
     if (!approved) {
       return rpcErrorResponse(rpcRequest.id, 4001, 'User rejected the request');
     }
