@@ -172,16 +172,16 @@ export async function handle(message: ProviderRpc, sender: Runtime.MessageSender
 }
 
 // Bidi control codepoints that can visually reorder text to spoof domains.
-const BIDI_CONTROLS = /[‎‏‪-‮⁦-⁩]/g;
+const BIDI_CONTROLS = /[‎‏‪-‮⁦-⁩]/;
 
 function originFromSender(sender: Runtime.MessageSender): string {
   if (!sender.url) return 'unknown';
   try {
     const parsed = new URL(sender.url);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return 'unknown';
-    const hostname = parsed.hostname.replace(BIDI_CONTROLS, '');
-    // Reject empty or non-ASCII hostnames (IDN should already be punycode via WHATWG URL parsing).
-    if (!hostname || /[^\x00-\x7F]/.test(hostname)) return 'unknown';
+    const hostname = parsed.hostname;
+    // Reject empty, bidi-containing, or non-ASCII hostnames (IDN already punycode via WHATWG URL).
+    if (!hostname || BIDI_CONTROLS.test(hostname) || /[^ -~]/.test(hostname)) return 'unknown';
     const port = parsed.port ? `:${parsed.port}` : '';
     return `${parsed.protocol}//${hostname}${port}`;
   } catch {
