@@ -75,6 +75,17 @@ export interface FeeOptionSetting {
   usdAmount: number;
 }
 
+export type TipHeader = {
+  height: number;
+  merkle_root: string;
+};
+
+export type ElectrumMerkleProof = {
+  block_height: number;
+  pos: number;
+  merkle: string[];
+};
+
 export type ConnectionStatus = 'connected' | 'disconnected' | 'error';
 
 export interface ConnectionUpdate {

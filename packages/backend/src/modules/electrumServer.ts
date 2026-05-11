@@ -1,5 +1,6 @@
-import type { ExtendedServerConfig, ServerConfig } from '../types/electrum';
+import type { ExtendedServerConfig, ServerConfig, TipHeader } from '../types/electrum';
 import { DefaultPort, Network } from '../types/electrum';
+import { parseMerkleRoot } from '../utils/merkle';
 
 export const availableServerList: ServerConfig[] = [
   { host: 'bitcoinserver.nl', port: 50004, useTls: true, network: Network.Mainnet },
@@ -17,15 +18,17 @@ function median(vals: number[]): number {
   return sorted.length % 2 === 0 ? Math.floor((sorted[mid - 1] + sorted[mid]) / 2) : sorted[mid];
 }
 
-export async function queryTipHeight(server: ExtendedServerConfig, timeout = 5000): Promise<number> {
+type RawTipHeader = { height: number; hex: string };
+
+export async function queryTipHeader(server: ExtendedServerConfig, timeout = 5000): Promise<RawTipHeader | null> {
   const protocol = server.useTls ? 'wss://' : 'ws://';
   const url = `${protocol}${server.host}:${server.port}`;
-  return new Promise<number>((resolve, reject) => {
+  return new Promise<RawTipHeader | null>((resolve, reject) => {
     const socket = new WebSocket(url);
     let buffer = '';
     const timer = setTimeout(() => {
       socket.close();
-      reject(new Error(`Tip height query timed out: ${server.host}`));
+      reject(new Error(`Tip header query timed out: ${server.host}`));
     }, timeout);
 
     // Returns 'done' (resolved), 'skip' (valid JSON but not our id), 'incomplete' (partial JSON).
@@ -37,11 +40,17 @@ export async function queryTipHeight(server: ExtendedServerConfig, timeout = 500
         if (parsed.id !== 1) return 'skip';
         clearTimeout(timer);
         socket.close();
-        const result = parsed.result as { height?: unknown } | null | undefined;
-        if (result != null && typeof result.height === 'number' && result.height > 0) {
-          resolve(result.height);
+        const result = parsed.result as { height?: unknown; hex?: unknown } | null | undefined;
+        if (
+          result != null &&
+          typeof result.height === 'number' &&
+          result.height > 0 &&
+          typeof result.hex === 'string' &&
+          result.hex.length === 160
+        ) {
+          resolve({ height: result.height, hex: result.hex });
         } else {
-          resolve(0);
+          resolve(null);
         }
         return 'done';
       } catch {
@@ -79,19 +88,26 @@ export async function queryTipHeight(server: ExtendedServerConfig, timeout = 500
   });
 }
 
-export async function getConsensusTipHeight(servers: ExtendedServerConfig[]): Promise<number> {
-  if (servers.length === 0) return 0;
-  const results = await Promise.allSettled(servers.map(s => queryTipHeight(s)));
-  const heights = results
-    .filter((r): r is PromiseFulfilledResult<number> => r.status === 'fulfilled' && r.value > 0)
+export async function getConsensusTip(servers: ExtendedServerConfig[]): Promise<TipHeader> {
+  if (servers.length === 0) throw new Error('No servers to query for tip header');
+  const results = await Promise.allSettled(servers.map(s => queryTipHeader(s)));
+  const headers = results
+    .filter((r): r is PromiseFulfilledResult<RawTipHeader> => r.status === 'fulfilled' && r.value !== null)
     .map(r => r.value);
-  if (heights.length === 0) return 0;
+
+  if (headers.length === 0) throw new Error('No healthy servers returned a tip header');
+
+  const heights = headers.map(h => h.height);
   const med = median(heights);
   const outliers = heights.filter(h => Math.abs(h - med) > 6);
   if (outliers.length > 0) {
     throw new Error(`Tip height consensus failed: ${outliers.length} server(s) deviate >6 blocks from median ${med}`);
   }
-  return med;
+
+  const trustworthy = headers.reduce((best, curr) =>
+    Math.abs(curr.height - med) < Math.abs(best.height - med) ? curr : best,
+  );
+  return { height: med, merkle_root: parseMerkleRoot(trustworthy.hex) };
 }
 
 export async function selectBestServer(

@@ -105,41 +105,52 @@ describe('ElectrumService', () => {
     await expect(p).rejects.toThrow(/Unexpected broadcast result/);
   });
 
-  it('getTipHeight returns 0 when all healthy servers return null', async () => {
-    const { svc } = await bootElectrumService();
-    const prevCount = FakeWebSocket.instances.length;
-    const p = svc.getTipHeight();
-    await new Promise<void>(resolve => setTimeout(resolve, 5));
-    const newInsts = FakeWebSocket.instances.slice(prevCount);
-    for (const inst of newInsts) {
-      inst.triggerOpen();
-      inst.triggerMessage(JSON.stringify({ id: 1, result: null }));
-    }
-    expect(await p).toBe(0);
-  });
+  const FAKE_HEX = '00'.repeat(80);
 
-  it('getTipHeight returns the consensus height when servers agree', async () => {
-    const { svc } = await bootElectrumService();
+  const bootAndFireTipHeader = async (svc: ElectrumService, heights: (number | null)[]) => {
     const prevCount = FakeWebSocket.instances.length;
-    const p = svc.getTipHeight();
-    await new Promise<void>(resolve => setTimeout(resolve, 5));
-    const newInsts = FakeWebSocket.instances.slice(prevCount);
-    for (const inst of newInsts) {
-      inst.triggerOpen();
-      inst.triggerMessage(JSON.stringify({ id: 1, result: { height: 800_123 } }));
-    }
-    expect(await p).toBe(800_123);
-  });
-
-  it('getTipHeight throws when servers disagree by more than 6 blocks', async () => {
-    const { svc } = await bootElectrumService();
-    const prevCount = FakeWebSocket.instances.length;
-    const p = svc.getTipHeight();
+    const p = svc.getTipHeader();
     await new Promise<void>(resolve => setTimeout(resolve, 5));
     const newInsts = FakeWebSocket.instances.slice(prevCount);
     newInsts.forEach((inst, i) => {
       inst.triggerOpen();
-      inst.triggerMessage(JSON.stringify({ id: 1, result: { height: i === 0 ? 800_000 : 800_100 } }));
+      const h = heights[i % heights.length];
+      inst.triggerMessage(JSON.stringify({ id: 1, result: h === null ? null : { height: h, hex: FAKE_HEX } }));
+    });
+    return p;
+  };
+
+  it('getTipHeader throws when all servers return null', async () => {
+    const { svc } = await bootElectrumService();
+    await expect(bootAndFireTipHeader(svc, [null])).rejects.toThrow(/No healthy servers/);
+  });
+
+  it('getTipHeader returns consensus height and merkle_root when servers agree', async () => {
+    const { svc } = await bootElectrumService();
+    const tip = await bootAndFireTipHeader(svc, [800_123]);
+    expect(tip.height).toBe(800_123);
+    expect(tip.merkle_root).toBe('00'.repeat(32));
+  });
+
+  it('getTipHeight returns the consensus height', async () => {
+    const { svc } = await bootElectrumService();
+    const p = svc.getTipHeight();
+    await new Promise<void>(resolve => setTimeout(resolve, 5));
+    FakeWebSocket.instances.slice(FakeWebSocket.instances.length - 5).forEach(inst => {
+      inst.triggerOpen();
+      inst.triggerMessage(JSON.stringify({ id: 1, result: { height: 800_123, hex: FAKE_HEX } }));
+    });
+    expect(await p).toBe(800_123);
+  });
+
+  it('getTipHeader throws when servers disagree by more than 6 blocks', async () => {
+    const { svc } = await bootElectrumService();
+    const prevCount = FakeWebSocket.instances.length;
+    const p = svc.getTipHeader();
+    await new Promise<void>(resolve => setTimeout(resolve, 5));
+    FakeWebSocket.instances.slice(prevCount).forEach((inst, i) => {
+      inst.triggerOpen();
+      inst.triggerMessage(JSON.stringify({ id: 1, result: { height: i === 0 ? 800_000 : 800_100, hex: FAKE_HEX } }));
     });
     await expect(p).rejects.toThrow(/consensus failed/);
   });
