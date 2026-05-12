@@ -115,18 +115,23 @@ export class TxHistoryService {
 
     const { sender, receiver } = this.pickSenderReceiverFromOutputs(type, inputs, tx, myChangeSet);
 
-    const status: TxStatus = tx.confirmations && tx.confirmations > 0 ? 'CONFIRMED' : 'PENDING';
+    let status: TxStatus = tx.confirmations && tx.confirmations > 0 ? 'CONFIRMED' : 'PENDING';
 
     if (status === 'CONFIRMED' && blockHeight > 0) {
+      let verified = false;
       try {
         const headerHex = await electrumService.getBlockHeader(blockHeight);
         const merkleRoot = parseMerkleRoot(headerHex);
         const proof = await electrumService.getMerkleProof(tx.txid, blockHeight);
-        if (!verifyMerkleProof(tx.txid, proof.pos, proof.merkle, merkleRoot)) {
-          logger.warn(`Merkle proof mismatch for tx ${tx.txid} at height ${blockHeight}`);
+        verified = verifyMerkleProof(tx.txid, proof.pos, proof.merkle, merkleRoot);
+        if (!verified) {
+          logger.error(`Merkle proof MISMATCH for tx ${tx.txid} at height ${blockHeight} — possible attack`);
         }
       } catch (e) {
-        logger.warn(`Merkle verification skipped for ${tx.txid}:`, e);
+        logger.warn(`Merkle verification unavailable for ${tx.txid}:`, e);
+      }
+      if (!verified) {
+        status = 'PENDING';
       }
     }
 

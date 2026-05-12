@@ -153,6 +153,10 @@ describe('TxHistoryService.get', () => {
       parent2: fakeParentForSend(),
     };
     jest.spyOn(electrumService, 'getRawTransaction').mockImplementation(async (txid: string) => txMap[txid]);
+    // getBlockHeader throws (no rpcClient in tests) → verified=false → confirmed txs stay PENDING.
+    // Tests that need a CONFIRMED result use VALID_TXID fixtures with explicit mocks.
+    jest.spyOn(electrumService, 'getBlockHeader').mockRejectedValue(new Error('Electrum not connected'));
+    jest.spyOn(logger, 'warn').mockImplementation(() => {});
   }
 
   afterEach(() => jest.restoreAllMocks());
@@ -167,7 +171,8 @@ describe('TxHistoryService.get', () => {
     expect(recv.amountBtc).toBeCloseTo(0.5, 8);
     expect(recv.feeBtc).toBeCloseTo(0.0001, 8);
     expect(recv.amountUsd).toBeCloseTo(0.5 * 60_000, 5);
-    expect(recv.status).toBe('CONFIRMED');
+    // Merkle proof unavailable in unit tests (no rpcClient) — tx stays PENDING until proof verified
+    expect(recv.status).toBe('PENDING');
   });
 
   it('classifies a self-spend with change as SEND with the external amount', async () => {
@@ -298,34 +303,34 @@ describe('TxHistoryService.get', () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it('logs warn and still returns tx when merkle proof does not match', async () => {
+  it('holds tx as PENDING when merkle proof does not match (hard block, not soft fail)', async () => {
     const map = (scanManager as unknown as { historyCacheReceive: Map<number, HistoryEntry> }).historyCacheReceive;
     map.set(0, { lastChecked: 0, txs: [[VALID_TXID, 800_000]] });
     jest
       .spyOn(electrumService, 'getRawTransaction')
       .mockResolvedValue(fakeConfirmedTxWithValidId() as unknown as string);
-    // Header with all-zero merkle root — won't match VALID_TXID proof
+    // Header with all-zero merkle root — won't match VALID_TXID single-tx proof
     jest.spyOn(electrumService, 'getBlockHeader').mockResolvedValue('00'.repeat(80));
     jest.spyOn(electrumService, 'getMerkleProof').mockResolvedValue({ block_height: 800_000, pos: 0, merkle: [] });
-    const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+    const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => {});
     const svc = new TxHistoryService();
     const txs = await svc.get();
-    // tx still returned despite mismatch (soft fail)
-    expect(txs.find(t => t.transactionHash === VALID_TXID)?.status).toBe('CONFIRMED');
-    expect(warnSpy).toHaveBeenCalled();
+    expect(txs.find(t => t.transactionHash === VALID_TXID)?.status).toBe('PENDING');
+    expect(errorSpy).toHaveBeenCalled();
   });
 
-  it('skips merkle verification and still returns tx when getBlockHeader throws', async () => {
+  it('holds tx as PENDING when getMerkleProof throws (server refuses proof)', async () => {
     const map = (scanManager as unknown as { historyCacheReceive: Map<number, HistoryEntry> }).historyCacheReceive;
     map.set(0, { lastChecked: 0, txs: [[VALID_TXID, 800_000]] });
     jest
       .spyOn(electrumService, 'getRawTransaction')
       .mockResolvedValue(fakeConfirmedTxWithValidId() as unknown as string);
-    jest.spyOn(electrumService, 'getBlockHeader').mockRejectedValue(new Error('Electrum not connected'));
+    jest.spyOn(electrumService, 'getBlockHeader').mockResolvedValue(VALID_HEADER_HEX);
+    jest.spyOn(electrumService, 'getMerkleProof').mockRejectedValue(new Error('Electrum not connected'));
     const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
     const svc = new TxHistoryService();
     const txs = await svc.get();
-    expect(txs.find(t => t.transactionHash === VALID_TXID)?.status).toBe('CONFIRMED');
+    expect(txs.find(t => t.transactionHash === VALID_TXID)?.status).toBe('PENDING');
     expect(warnSpy).toHaveBeenCalled();
   });
 
@@ -355,7 +360,8 @@ describe('TxHistoryService.get', () => {
     mockAllTxs();
     const txs = await svc.get();
     const tx = txs.find(t => t.transactionHash === 'recvtx1')!;
-    expect(tx.status).toBe('CONFIRMED');
+    // Merkle proof unavailable in unit tests — tx stays PENDING, but canonical fields replace the optimistic entry
+    expect(tx.status).toBe('PENDING');
     expect(tx.type).toBe('RECEIVE');
   });
 });
