@@ -76,6 +76,7 @@ export const ProviderApproval: React.FC = () => {
 
   const { origin, rpc } = approval;
   const methodDescription = METHOD_COPY[rpc.method];
+  const isUnknownOrigin = origin === 'unknown';
 
   return (
     <div className="flex flex-col justify-start items-start text-white bg-dark h-[600px] px-4 pt-12">
@@ -97,7 +98,14 @@ export const ProviderApproval: React.FC = () => {
       <div className="mt-6">
         <div className="text-sm text-white mb-6">
           <div className="font-medium text-white mb-1">Website</div>
-          <div className="break-all font-bold">{origin}</div>
+          <div className="break-all font-bold">
+            <bdi dir="ltr">{origin}</bdi>
+          </div>
+          {isUnknownOrigin && (
+            <div className="mt-1 text-xs text-red-400">
+              Request from an unverified or non-web origin. Approval is blocked.
+            </div>
+          )}
         </div>
 
         <div className="text-sm text-white mb-6">
@@ -112,7 +120,7 @@ export const ProviderApproval: React.FC = () => {
         <Button className="flex justify-center gap-2 w-full bg-opacity-0 text-white" onClick={handleReject}>
           Reject
         </Button>
-        <Button className="flex justify-center gap-2 w-full" onClick={handleApprove}>
+        <Button className="flex justify-center gap-2 w-full" onClick={handleApprove} disabled={isUnknownOrigin}>
           Approve
         </Button>
       </div>

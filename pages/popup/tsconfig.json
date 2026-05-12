@@ -6,7 +6,7 @@
     "paths": {
       "@src/*": ["src/*"]
     },
-    "types": ["chrome", "../../vite-env.d.ts"],
+    "types": ["chrome"],
     "lib": ["ES2015", "DOM"]
   },
   "include": ["src"]

@@ -38,8 +38,8 @@ export type StorageConfig<D = string> = {
      */
     serialize: (value: D) => string;
     /**
-     * convert string value from storage to non-native values
+     * convert raw value from storage; storage returns unknown at runtime
      */
-    deserialize: (text: string) => D;
+    deserialize: (value: unknown) => D;
   };
 };

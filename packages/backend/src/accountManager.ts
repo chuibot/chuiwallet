@@ -57,9 +57,7 @@ export class AccountManager {
    * @private load all accounts from chrome.storage.local
    */
   private async load() {
-    const payload = await new Promise<{ [key: string]: Account[] | undefined }>(resolve => {
-      chrome.storage.local.get(ACCOUNTS_KEY, resolve);
-    });
+    const payload = (await chrome.storage.local.get(ACCOUNTS_KEY)) as { [key: string]: Account[] | undefined };
     const stored = payload[ACCOUNTS_KEY] ?? [];
     const deduped: Account[] = [];
     const seen = new Set<string>();
@@ -79,9 +77,7 @@ export class AccountManager {
    * @private persist all accounts to chrome.storage.local
    */
   private async save() {
-    await new Promise<void>(resolve => {
-      chrome.storage.local.set({ [ACCOUNTS_KEY]: this.accounts }, () => resolve());
-    });
+    await chrome.storage.local.set({ [ACCOUNTS_KEY]: this.accounts });
   }
 
   public async destroy(): Promise<void> {

@@ -8,7 +8,7 @@ import * as bip39 from 'bip39';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import * as bitcoin from 'bitcoinjs-lib';
 import { Network } from '../types/electrum';
-import { fingerprintBuffer, purposeFromScriptType, toHdSigner } from '../utils/crypto';
+import { asBuffer, fingerprintBuffer, purposeFromScriptType, toHdSigner, toTaprootSigner } from '../utils/crypto';
 import { accountManager } from '../accountManager';
 import { ChangeType } from '../types/cache';
 import { zeroBuffer } from '../utils/secureMemory';
@@ -81,8 +81,8 @@ export class Wallet {
    * @throws {Error} If a wallet already exists, no valid key is provided, or the mnemonic is invalid.
    */
   public async create(options: CreateWalletOptions): Promise<void> {
-    if (this.root) {
-      throw new Error('Wallet already exist');
+    if (this.encryptedVault !== null) {
+      throw new Error('WALLET_ALREADY_EXISTS');
     }
 
     this.network = options.network === Network.Testnet ? bitcoin.networks.testnet : bitcoin.networks.bitcoin;
@@ -199,8 +199,9 @@ export class Wallet {
     try {
       if (!this.root) throw new Error('Wallet is not ready');
       const masterFingerprint = fingerprintBuffer(this.root);
+      const account = accountManager.getActiveAccount();
+      const isTaproot = account.scriptType === ScriptType.P2TR;
       for (let i = 0; i < utxos.length; i++) {
-        const account = accountManager.getActiveAccount();
         const purpose = purposeFromScriptType(account.scriptType);
         const coin = account.network === Network.Testnet ? 1 : 0;
         const chainNum = utxos[i].chain === ChangeType.External ? 0 : 1;
@@ -209,7 +210,16 @@ export class Wallet {
 
         const accountNode = this.root.deriveHardened(purpose).deriveHardened(coin).deriveHardened(account.index);
         const childNode = accountNode.derive(chainNum).derive(utxos[i].index);
-        psbt.signInput(i, toHdSigner(childNode));
+        psbt.signInput(i, isTaproot ? toTaprootSigner(childNode) : toHdSigner(childNode));
+      }
+
+      const validator = isTaproot
+        ? (pubkey: Buffer, msghash: Buffer, signature: Buffer) =>
+            secp256k1.verifySchnorr(asBuffer(msghash), asBuffer(pubkey), asBuffer(signature))
+        : (pubkey: Buffer, msghash: Buffer, signature: Buffer) =>
+            secp256k1.verify(asBuffer(msghash), asBuffer(pubkey), asBuffer(signature));
+      if (!psbt.validateSignaturesOfAllInputs(validator)) {
+        throw new Error('PSBT signature validation failed');
       }
 
       psbt.finalizeAllInputs();
@@ -294,10 +304,7 @@ export class Wallet {
    * @private
    */
   private async load(): Promise<void> {
-    const payload = await new Promise<{ [key: string]: WalletMeta | undefined }>(resolve => {
-      chrome.storage.local.get(WALLET_KEY, resolve);
-    });
-
+    const payload = (await chrome.storage.local.get(WALLET_KEY)) as { [key: string]: WalletMeta | undefined };
     const wallet = payload[WALLET_KEY] ?? null;
     if (wallet) {
       this.encryptedVault = wallet.vault;
@@ -310,18 +317,8 @@ export class Wallet {
    * @private
    */
   private async save(): Promise<void> {
-    await new Promise<void>(resolve => {
-      const wallet: WalletMeta = {
-        vault: this.encryptedVault,
-      };
-
-      chrome.storage.local.set(
-        {
-          [WALLET_KEY]: wallet,
-        },
-        () => resolve(),
-      );
-    });
+    const wallet: WalletMeta = { vault: this.encryptedVault };
+    await chrome.storage.local.set({ [WALLET_KEY]: wallet });
   }
 
   /**

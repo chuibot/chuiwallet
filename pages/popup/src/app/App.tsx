@@ -87,7 +87,14 @@ export const App: React.FC = () => {
         <Route path="/onboard/choose-method" element={<ChooseMethod />} />
         <Route path="/onboard/restore-seed" element={<RestoreSeed />} />
         <Route path="/onboard/generate-seed" element={<GenerateSeed />} />
-        <Route path="/onboard/backup-seed" element={<BackupSeed />} />
+        <Route
+          path="/onboard/backup-seed"
+          element={
+            <RequireUnlocked>
+              <BackupSeed />
+            </RequireUnlocked>
+          }
+        />
         <Route path="/onboard/verify-seed" element={<VerifySeed />} />
         <Route path="/onboard/complete" element={<Complete />} />
         <Route path="/dashboard" element={<Dashboard />} />

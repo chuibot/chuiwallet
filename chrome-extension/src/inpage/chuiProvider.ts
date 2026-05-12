@@ -14,14 +14,13 @@ declare global {
 }
 
 (function () {
-  if (window.ChuiWalletProvider) return;
+  const pageOrigin = window.location.origin;
 
-  let nextId = 1;
-  window.ChuiWalletProvider = {
+  const provider: ChuiWalletProvider = {
     isChui: true,
     metadata: providerInfo,
     request<T = unknown>(method: string, params?: unknown): Promise<T> {
-      const id = nextId++;
+      const id = crypto.randomUUID();
       const rpcRequest: RpcRequest = {
         jsonrpc: '2.0',
         id,
@@ -32,6 +31,7 @@ declare global {
         function listener(event: MessageEvent) {
           if (
             event.source !== window ||
+            event.origin !== pageOrigin ||
             !event.data ||
             event.data.source !== 'chui-content-script' ||
             event.data.type !== 'CHUI_BTC_RPC_RESPONSE'
@@ -60,24 +60,49 @@ declare global {
             type: 'CHUI_BTC_RPC_REQUEST',
             payload: rpcRequest,
           },
-          '*',
+          pageOrigin,
         );
       });
     },
   };
 
-  // Backward mapping to window.btc
-  if (!window.btc) {
-    window.btc = {
-      request: window.ChuiWalletProvider.request.bind(window.ChuiWalletProvider),
-    };
+  const frozenProvider = Object.freeze(provider);
+
+  try {
+    Object.defineProperty(window, 'ChuiWalletProvider', {
+      value: frozenProvider,
+      writable: false,
+      configurable: false,
+      enumerable: true,
+    });
+  } catch {
+    return;
   }
 
-  if (!window.btc_providers) {
-    window.btc_providers = [];
+  if (window.btc == null) {
+    const btcShim = Object.freeze({
+      request: frozenProvider.request.bind(frozenProvider),
+    });
+    try {
+      Object.defineProperty(window, 'btc', {
+        value: btcShim,
+        writable: false,
+        configurable: false,
+        enumerable: true,
+      });
+    } catch {
+      /* noop */
+    }
   }
 
-  if (!window.btc_providers.some(p => p.id === providerInfo.id)) {
-    window.btc_providers.push(providerInfo);
+  const providers = Array.isArray(window.btc_providers) ? window.btc_providers : [];
+  const existingIndex = providers.findIndex(p => p?.id === providerInfo.id);
+  if (existingIndex >= 0) {
+    providers[existingIndex] = providerInfo;
+  } else {
+    providers.push(providerInfo);
+  }
+  if (window.btc_providers !== providers) {
+    window.btc_providers = providers;
   }
 })();

@@ -42,13 +42,35 @@ describe('Wallet — creation & restoration', () => {
     ).rejects.toThrow('Invalid mnemonic');
   });
 
-  it('throws "Wallet already exist" on second create()', async () => {
+  it('throws WALLET_ALREADY_EXISTS on second create() with the same instance', async () => {
     const w = new Wallet();
     await w.init();
     await w.create({ password: PASSWORD, network: Network.Mainnet, mnemonic: MNEMONIC });
     await expect(w.create({ password: PASSWORD, network: Network.Mainnet, mnemonic: MNEMONIC })).rejects.toThrow(
-      'Wallet already exist',
+      'WALLET_ALREADY_EXISTS',
     );
+  });
+
+  it('throws WALLET_ALREADY_EXISTS on create() after SW restart (root is null but vault is on disk)', async () => {
+    // Simulate initial wallet creation
+    const first = new Wallet();
+    await first.init();
+    await first.create({ password: PASSWORD, network: Network.Mainnet, mnemonic: MNEMONIC });
+    const originalMnemonic = await first.getMnemonic(PASSWORD);
+
+    // Simulate SW restart: new instance loads encryptedVault from storage but root is null
+    const restarted = new Wallet();
+    await restarted.init();
+    expect(restarted.root).toBeNull();
+    expect(restarted.isRestorable()).toBe(true);
+
+    await expect(restarted.create({ password: PASSWORD, network: Network.Mainnet })).rejects.toThrow(
+      'WALLET_ALREADY_EXISTS',
+    );
+
+    // Vault must be unchanged — original mnemonic still decryptable
+    await restarted.restore(Network.Mainnet, PASSWORD);
+    expect(await restarted.getMnemonic(PASSWORD)).toBe(originalMnemonic);
   });
 
   it('persists encrypted vault to chrome.storage.local under "wallet"', async () => {
@@ -175,31 +197,49 @@ describe('Wallet — derivation', () => {
     expect(addr).toBe('bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu');
   });
 
-  it('deriveAddress for P2TR returns a bech32m address', async () => {
+  it('deriveAddress for P2TR matches the canonical BIP86 vector', async () => {
     const w = new Wallet();
     await w.init();
     await w.create({ password: PASSWORD, network: Network.Mainnet, mnemonic: MNEMONIC });
     const account = w.deriveAccount(0, ScriptType.P2TR);
     const addr = w.deriveAddress(account, 0, 0)!;
-    expect(addr.startsWith('bc1p')).toBe(true);
+    expect(addr).toBe('bc1p5cyxnuxmeuwuvkwfem96lqzszd02n6xdcjrs20cac6yqjjwudpxqkedrcr');
   });
 
-  it('deriveAddress for P2SH_P2WPKH returns a base58 P2SH address (starts with 3)', async () => {
+  it('deriveAddress for P2SH_P2WPKH matches the canonical BIP49 vector', async () => {
     const w = new Wallet();
     await w.init();
     await w.create({ password: PASSWORD, network: Network.Mainnet, mnemonic: MNEMONIC });
     const account = w.deriveAccount(0, ScriptType.P2SH_P2WPKH);
     const addr = w.deriveAddress(account, 0, 0)!;
-    expect(addr.startsWith('3')).toBe(true);
+    expect(addr).toBe('37VucYSaXLCAsxYyAPfbSi9eh4iEcbShgf');
   });
 
-  it('deriveAddress for P2PKH returns a base58 1-prefixed mainnet address', async () => {
+  it('deriveAddress for P2PKH matches the canonical BIP44 vector', async () => {
     const w = new Wallet();
     await w.init();
     await w.create({ password: PASSWORD, network: Network.Mainnet, mnemonic: MNEMONIC });
     const account = w.deriveAccount(0, ScriptType.P2PKH);
     const addr = w.deriveAddress(account, 0, 0)!;
-    expect(addr.startsWith('1')).toBe(true);
+    expect(addr).toBe('1LqBGSKuX5yYUonjxT5qGfpUsXKYYWeabA');
+  });
+
+  it('deriveAccount xpubs match canonical BIP44/49/84/86 vectors for all script types', async () => {
+    const w = new Wallet();
+    await w.init();
+    await w.create({ password: PASSWORD, network: Network.Mainnet, mnemonic: MNEMONIC });
+    expect(w.deriveAccount(0, ScriptType.P2PKH).xpub).toBe(
+      'xpub6BosfCnifzxcFwrSzQiqu2DBVTshkCXacvNsWGYJVVhhawA7d4R5WSWGFNbi8Aw6ZRc1brxMyWMzG3DSSSSoekkudhUd9yLb6qx39T9nMdj',
+    );
+    expect(w.deriveAccount(0, ScriptType.P2SH_P2WPKH).xpub).toBe(
+      'xpub6C6nQwHaWbSrzs5tZ1q7m5R9cPK9eYpNMFesiXsYrgc1P8bvLLAet9JfHjYXKjToD8cBRswJXXbbFpXgwsswVPAZzKMa1jUp2kVkGVUaJa7',
+    );
+    expect(w.deriveAccount(0, ScriptType.P2WPKH).xpub).toBe(
+      'xpub6CatWdiZiodmUeTDp8LT5or8nmbKNcuyvz7WyksVFkKB4RHwCD3XyuvPEbvqAQY3rAPshWcMLoP2fMFMKHPJ4ZeZXYVUhLv1VMrjPC7PW6V',
+    );
+    expect(w.deriveAccount(0, ScriptType.P2TR).xpub).toBe(
+      'xpub6BgBgsespWvERF3LHQu6CnqdvfEvtMcQjYrcRzx53QJjSxarj2afYWcLteoGVky7D3UKDP9QyrLprQ3VCECoY49yfdDEHGCtMMj92pReUsQ',
+    );
   });
 
   it('deriveAddress throws when account.xpub is missing', async () => {

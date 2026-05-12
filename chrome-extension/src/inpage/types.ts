@@ -18,7 +18,7 @@ export interface BtcProviderInfo {
   icon?: string;
   webUrl?: string;
   chromeWebStoreUrl?: string;
-  methods: ChuiProviderMethod[];
+  methods: readonly ChuiProviderMethod[];
 }
 
 export interface ChuiProviderAddresses {

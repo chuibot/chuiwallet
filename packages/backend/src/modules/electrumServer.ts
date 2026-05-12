@@ -26,9 +26,16 @@ export async function queryTipHeader(server: ExtendedServerConfig, timeout = 500
   return new Promise<RawTipHeader | null>((resolve, reject) => {
     const socket = new WebSocket(url);
     let buffer = '';
+    let settled = false;
+    const settle = (fn: () => void) => {
+      if (!settled) {
+        settled = true;
+        fn();
+      }
+    };
     const timer = setTimeout(() => {
       socket.close();
-      reject(new Error(`Tip header query timed out: ${server.host}`));
+      settle(() => reject(new Error(`Tip height query timed out: ${server.host}`)));
     }, timeout);
 
     // Returns 'done' (resolved), 'skip' (valid JSON but not our id), 'incomplete' (partial JSON).
@@ -40,18 +47,9 @@ export async function queryTipHeader(server: ExtendedServerConfig, timeout = 500
         if (parsed.id !== 1) return 'skip';
         clearTimeout(timer);
         socket.close();
-        const result = parsed.result as { height?: unknown; hex?: unknown } | null | undefined;
-        if (
-          result != null &&
-          typeof result.height === 'number' &&
-          result.height > 0 &&
-          typeof result.hex === 'string' &&
-          result.hex.length === 160
-        ) {
-          resolve({ height: result.height, hex: result.hex });
-        } else {
-          resolve(null);
-        }
+        const result = parsed.result as { height?: unknown } | null | undefined;
+        const height = result != null && typeof result.height === 'number' && result.height > 0 ? result.height : 0;
+        settle(() => resolve(height));
         return 'done';
       } catch {
         // incomplete JSON, keep buffering
@@ -79,25 +77,24 @@ export async function queryTipHeader(server: ExtendedServerConfig, timeout = 500
     socket.onerror = () => {
       clearTimeout(timer);
       socket.close();
-      reject(new Error(`WebSocket error querying tip: ${server.host}`));
+      settle(() => reject(new Error(`WebSocket error querying tip: ${server.host}`)));
     };
 
     socket.onclose = () => {
       clearTimeout(timer);
+      settle(() => reject(new Error(`WebSocket closed before response: ${server.host}`)));
     };
   });
 }
 
-export async function getConsensusTip(servers: ExtendedServerConfig[]): Promise<TipHeader> {
-  if (servers.length === 0) throw new Error('No servers to query for tip header');
-  const results = await Promise.allSettled(servers.map(s => queryTipHeader(s)));
-  const headers = results
-    .filter((r): r is PromiseFulfilledResult<RawTipHeader> => r.status === 'fulfilled' && r.value !== null)
+export async function getConsensusTipHeight(servers: ExtendedServerConfig[]): Promise<number> {
+  const results = await Promise.allSettled(servers.map(s => queryTipHeight(s)));
+  const heights = results
+    .filter((r): r is PromiseFulfilledResult<number> => r.status === 'fulfilled' && r.value > 0)
     .map(r => r.value);
-
-  if (headers.length === 0) throw new Error('No healthy servers returned a tip header');
-
-  const heights = headers.map(h => h.height);
+  if (heights.length < 2) {
+    throw new Error(`Insufficient server responses for consensus (got ${heights.length}, need ≥2)`);
+  }
   const med = median(heights);
   const outliers = heights.filter(h => Math.abs(h - med) > 6);
   if (outliers.length > 0) {

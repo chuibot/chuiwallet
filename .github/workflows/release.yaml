@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Lint, type-check, test, build, zip
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Verify release tag is on main
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 9.15.1
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit production dependencies (high severity)
+        run: pnpm audit --prod --audit-level=high
+
+      - name: Prepare generated workspace artifacts
+        run: pnpm turbo ready
+
+      - name: Lint
+        run: pnpm lint:check
+
+      - name: Type-check
+        run: pnpm type-check
+
+      - name: Run backend tests
+        run: pnpm --filter @extension/backend test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Verify no source maps in dist
+        run: |
+          if find dist -name '*.map' -print -quit | grep -q .; then
+            echo "Source maps found in dist/ — refusing to release"
+            find dist -name '*.map'
+            exit 1
+          fi
+
+      - name: Zip
+        run: pnpm -F zipper zip
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chuiwallet-${{ github.ref_name }}
+          path: dist-zip/*.zip
+          if-no-files-found: error

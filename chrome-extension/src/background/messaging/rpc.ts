@@ -5,16 +5,18 @@ import { ChainType } from '@extension/backend/src/adapters/IChainAdapter';
 import { ChangeType } from '@extension/backend/src/types/cache';
 import { walletManager } from '@extension/backend/src/walletManager';
 
+export type RpcId = string | number;
+
 export type RpcRequest = {
   jsonrpc: string;
-  id: number;
+  id: RpcId;
   method: string;
   params?: unknown;
 };
 
 export type RpcSuccessResponse = {
   jsonrpc: '2.0';
-  id: number;
+  id: RpcId;
   result: unknown;
 };
 
@@ -26,7 +28,7 @@ export type RpcErrorObject = {
 
 export type RpcErrorResponse = {
   jsonrpc: '2.0';
-  id: number;
+  id: RpcId;
   error: RpcErrorObject;
 };
 
@@ -152,7 +154,11 @@ export async function handle(message: ProviderRpc, sender: Runtime.MessageSender
     const fn = handlers[rpcRequest.method];
     if (!fn) return rpcErrorResponse(rpcRequest.id, -32601, `Method not found: ${rpcRequest.method}`);
 
-    const approved = await requestUserApproval(originFromSender(sender), rpcRequest);
+    const origin = originFromSender(sender);
+    if (origin === 'unknown') {
+      return rpcErrorResponse(rpcRequest.id, 4001, 'Request from non-web origin rejected');
+    }
+    const approved = await requestUserApproval(origin, rpcRequest);
     if (!approved) {
       return rpcErrorResponse(rpcRequest.id, 4001, 'User rejected the request');
     }
@@ -165,10 +171,19 @@ export async function handle(message: ProviderRpc, sender: Runtime.MessageSender
   }
 }
 
+// Bidi control codepoints that can visually reorder text to spoof domains.
+const BIDI_CONTROLS = /[‎‏‪-‮⁦-⁩]/;
+
 function originFromSender(sender: Runtime.MessageSender): string {
   if (!sender.url) return 'unknown';
   try {
-    return new URL(sender.url).origin;
+    const parsed = new URL(sender.url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return 'unknown';
+    const hostname = parsed.hostname;
+    // Reject empty, bidi-containing, or non-ASCII hostnames (IDN already punycode via WHATWG URL).
+    if (!hostname || BIDI_CONTROLS.test(hostname) || /[^ -~]/.test(hostname)) return 'unknown';
+    const port = parsed.port ? `:${parsed.port}` : '';
+    return `${parsed.protocol}//${hostname}${port}`;
   } catch {
     return 'unknown';
   }
@@ -207,7 +222,7 @@ function getEvmAddress(): string | null {
   }
 }
 
-function rpcSuccessResponse(id: number, result: unknown): RpcSuccessResponse {
+function rpcSuccessResponse(id: RpcId, result: unknown): RpcSuccessResponse {
   return {
     jsonrpc: rpcVersion,
     id,
@@ -215,7 +230,7 @@ function rpcSuccessResponse(id: number, result: unknown): RpcSuccessResponse {
   };
 }
 
-function rpcErrorResponse(id: number, errorCode: number, message: string, data?: unknown): RpcErrorResponse {
+function rpcErrorResponse(id: RpcId, errorCode: number, message: string, data?: unknown): RpcErrorResponse {
   const error: RpcErrorObject = {
     code: errorCode,
     message,

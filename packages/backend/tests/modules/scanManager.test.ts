@@ -1,5 +1,49 @@
 import { computeForwardScanWindow, ScanManager } from '../../src/scanManager';
 import { ChangeType } from '../../src/types/cache';
+import type { AddressEntry, ScanEvent } from '../../src/types/cache';
+import { Network } from '../../src/types/electrum';
+import type { Account } from '../../src/types/wallet';
+import { ScriptType } from '../../src/types/wallet';
+import { defaultPreferences, preferenceManager } from '../../src/preferenceManager';
+import { accountManager } from '../../src/accountManager';
+import { electrumService } from '../../src/modules/electrumService';
+
+type ScanInternals = {
+  addressCacheReceive: Map<number, AddressEntry>;
+  saveHistory: () => Promise<void>;
+  saveAddress: () => Promise<void>;
+  saveUtxo: () => Promise<void>;
+  scan: (indices: number[], changeType: ChangeType, ctx: unknown) => Promise<void>;
+  currentContext: () => unknown;
+};
+
+type CtxState = {
+  network: Network;
+  activeAccountIndex: number;
+  hdAccountIndex: number;
+};
+
+function makeAccount(network: Network, hdIndex: number): Account {
+  return {
+    name: `Account #${hdIndex + 1}`,
+    index: hdIndex,
+    network,
+    xpub: '',
+    scriptType: ScriptType.P2WPKH,
+  };
+}
+
+function installContext(state: CtxState) {
+  jest.spyOn(preferenceManager, 'get').mockImplementation(() => ({
+    ...defaultPreferences,
+    activeNetwork: state.network,
+    activeAccountIndex: state.activeAccountIndex,
+  }));
+  jest
+    .spyOn(accountManager, 'getActiveAccount')
+    .mockImplementation(() => makeAccount(state.network, state.hdAccountIndex));
+  accountManager.activeAccountIndex = state.activeAccountIndex;
+}
 
 describe('computeForwardScanWindow', () => {
   it('returns gap+1 from a fresh wallet (no usage, nothing scanned)', () => {
@@ -29,7 +73,17 @@ describe('computeForwardScanWindow', () => {
 });
 
 describe('ScanManager — concurrent scan dedupe', () => {
-  afterEach(() => jest.restoreAllMocks());
+  let ctxState: CtxState;
+
+  beforeEach(() => {
+    ctxState = { network: Network.Mainnet, activeAccountIndex: 0, hdAccountIndex: 0 };
+    installContext(ctxState);
+  });
+
+  afterEach(() => {
+    accountManager.activeAccountIndex = -1;
+    jest.restoreAllMocks();
+  });
 
   it('forwardScan returns the same in-flight promise for concurrent calls on the same chain', async () => {
     const sm = new ScanManager();
@@ -117,5 +171,130 @@ describe('ScanManager — concurrent scan dedupe', () => {
     await expect(sm.backfillScan(ChangeType.External)).rejects.toThrow('boom');
     await sm.backfillScan(ChangeType.External);
     expect(spy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('ScanManager — context isolation and stale-fence', () => {
+  let ctxState: CtxState;
+
+  beforeEach(() => {
+    ctxState = { network: Network.Mainnet, activeAccountIndex: 0, hdAccountIndex: 0 };
+    installContext(ctxState);
+  });
+
+  afterEach(() => {
+    accountManager.activeAccountIndex = -1;
+    jest.restoreAllMocks();
+  });
+
+  it('uses separate inflight slots when activeAccountIndex changes mid-flight', async () => {
+    const sm = new ScanManager();
+    const spy = jest
+      .spyOn(sm as unknown as { runForwardScan: () => Promise<void> }, 'runForwardScan')
+      .mockImplementation(() => new Promise(resolve => setTimeout(resolve, 30)));
+
+    const accountA = sm.forwardScan(ChangeType.External);
+    ctxState.activeAccountIndex = 1;
+    ctxState.hdAccountIndex = 1;
+    accountManager.activeAccountIndex = 1;
+    const accountB = sm.forwardScan(ChangeType.External);
+    expect(accountA).not.toBe(accountB);
+    await Promise.all([accountA, accountB]);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses separate inflight slots when activeNetwork changes mid-flight', async () => {
+    const sm = new ScanManager();
+    const spy = jest
+      .spyOn(sm as unknown as { runForwardScan: () => Promise<void> }, 'runForwardScan')
+      .mockImplementation(() => new Promise(resolve => setTimeout(resolve, 30)));
+
+    const mainnet = sm.forwardScan(ChangeType.External);
+    ctxState.network = Network.Testnet;
+    const testnet = sm.forwardScan(ChangeType.External);
+    expect(mainnet).not.toBe(testnet);
+    await Promise.all([mainnet, testnet]);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it('clear() drops inflight entries so a fresh scan starts after switch', async () => {
+    const sm = new ScanManager();
+    const spy = jest
+      .spyOn(sm as unknown as { runForwardScan: () => Promise<void> }, 'runForwardScan')
+      .mockImplementation(() => new Promise(resolve => setTimeout(resolve, 30)));
+
+    const before = sm.forwardScan(ChangeType.External);
+    sm.clear();
+    const after = sm.forwardScan(ChangeType.External);
+    expect(before).not.toBe(after);
+    await Promise.all([before, after]);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it('forwardScan rejects without scanning when prefs and accountManager disagree on accountListIndex', async () => {
+    const sm = new ScanManager();
+    const spy = jest.spyOn(sm as unknown as { runForwardScan: () => Promise<void> }, 'runForwardScan');
+    accountManager.activeAccountIndex = 99;
+    await sm.forwardScan(ChangeType.External);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('forwardScan rejects without scanning when prefs and active account disagree on network', async () => {
+    const sm = new ScanManager();
+    const spy = jest.spyOn(sm as unknown as { runForwardScan: () => Promise<void> }, 'runForwardScan');
+    jest.spyOn(accountManager, 'getActiveAccount').mockReturnValue(makeAccount(Network.Testnet, 0));
+    await sm.forwardScan(ChangeType.External);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('finally cleanup respects identity: an orphaned old promise does not delete a fresh slot', async () => {
+    const sm = new ScanManager();
+    let resolveFirst!: () => void;
+    let runCount = 0;
+    jest.spyOn(sm as unknown as { runForwardScan: () => Promise<void> }, 'runForwardScan').mockImplementation(() => {
+      runCount++;
+      if (runCount === 1) return new Promise<void>(r => (resolveFirst = r));
+      return new Promise(resolve => setTimeout(resolve, 5));
+    });
+
+    const orphaned = sm.forwardScan(ChangeType.External);
+    sm.clear();
+    const fresh = sm.forwardScan(ChangeType.External);
+    expect(orphaned).not.toBe(fresh);
+    resolveFirst();
+    await orphaned;
+    const same = sm.forwardScan(ChangeType.External);
+    expect(same).toBe(fresh);
+    await fresh;
+  });
+
+  it('aborts after a context flip during saveHistory: no further Electrum work, no final emit', async () => {
+    const sm = new ScanManager();
+    const internal = sm as unknown as ScanInternals;
+
+    internal.addressCacheReceive.set(0, {
+      address: 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+      firstSeen: 0,
+      lastChecked: 0,
+      everUsed: false,
+    });
+
+    Object.defineProperty(electrumService, 'status', { value: 'connected', configurable: true });
+    jest.spyOn(electrumService, 'getHistoryBatch').mockResolvedValue([[{ tx_hash: 'a', height: 1 }]]);
+    const utxoSpy = jest.spyOn(electrumService, 'getUtxoBatch').mockResolvedValue([[]]);
+
+    const events: ScanEvent[] = [];
+    sm.onStatus.on(e => events.push(e));
+
+    jest.spyOn(internal, 'saveHistory').mockImplementation(async () => {
+      sm.clear();
+    });
+
+    const ctx = internal.currentContext();
+    expect(ctx).not.toBeNull();
+    await internal.scan([0], ChangeType.External, ctx);
+
+    expect(utxoSpy).not.toHaveBeenCalled();
+    expect(events.some(e => e.utxoChanged || e.historyChanged)).toBe(false);
   });
 });

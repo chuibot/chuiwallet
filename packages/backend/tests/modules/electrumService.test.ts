@@ -105,8 +105,20 @@ describe('ElectrumService', () => {
     await expect(p).rejects.toThrow(/Unexpected broadcast result/);
   });
 
-  const FAKE_HEX = '00'.repeat(80);
+  it('getTipHeight throws when all healthy servers return null (quorum not met)', async () => {
+    const { svc } = await bootElectrumService();
+    const prevCount = FakeWebSocket.instances.length;
+    const p = svc.getTipHeight();
+    await new Promise<void>(resolve => setTimeout(resolve, 5));
+    const newInsts = FakeWebSocket.instances.slice(prevCount);
+    for (const inst of newInsts) {
+      inst.triggerOpen();
+      inst.triggerMessage(JSON.stringify({ id: 1, result: null }));
+    }
+    await expect(p).rejects.toThrow(/Insufficient server responses/);
+  });
 
+  const FAKE_HEX = '00'.repeat(80);
   const bootAndFireTipHeader = async (svc: ElectrumService, heights: (number | null)[]) => {
     const prevCount = FakeWebSocket.instances.length;
     const p = svc.getTipHeader();
