@@ -23,9 +23,16 @@ export async function queryTipHeight(server: ExtendedServerConfig, timeout = 500
   return new Promise<number>((resolve, reject) => {
     const socket = new WebSocket(url);
     let buffer = '';
+    let settled = false;
+    const settle = (fn: () => void) => {
+      if (!settled) {
+        settled = true;
+        fn();
+      }
+    };
     const timer = setTimeout(() => {
       socket.close();
-      reject(new Error(`Tip height query timed out: ${server.host}`));
+      settle(() => reject(new Error(`Tip height query timed out: ${server.host}`)));
     }, timeout);
 
     // Returns 'done' (resolved), 'skip' (valid JSON but not our id), 'incomplete' (partial JSON).
@@ -38,11 +45,8 @@ export async function queryTipHeight(server: ExtendedServerConfig, timeout = 500
         clearTimeout(timer);
         socket.close();
         const result = parsed.result as { height?: unknown } | null | undefined;
-        if (result != null && typeof result.height === 'number' && result.height > 0) {
-          resolve(result.height);
-        } else {
-          resolve(0);
-        }
+        const height = result != null && typeof result.height === 'number' && result.height > 0 ? result.height : 0;
+        settle(() => resolve(height));
         return 'done';
       } catch {
         // incomplete JSON, keep buffering
@@ -70,11 +74,12 @@ export async function queryTipHeight(server: ExtendedServerConfig, timeout = 500
     socket.onerror = () => {
       clearTimeout(timer);
       socket.close();
-      reject(new Error(`WebSocket error querying tip: ${server.host}`));
+      settle(() => reject(new Error(`WebSocket error querying tip: ${server.host}`)));
     };
 
     socket.onclose = () => {
       clearTimeout(timer);
+      settle(() => reject(new Error(`WebSocket closed before response: ${server.host}`)));
     };
   });
 }
