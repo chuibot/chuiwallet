@@ -1,4 +1,4 @@
-import type { ElectrumHistory, ElectrumTransaction, ElectrumUtxo } from '../types/electrum';
+import type { ElectrumHistory, ElectrumMerkleProof, ElectrumTransaction, ElectrumUtxo } from '../types/electrum';
 
 const MAX_BTC_SUPPLY = 21_000_000;
 const MAX_SATS_SUPPLY = 21_000_000 * 100_000_000;
@@ -104,5 +104,27 @@ export function assertElectrumTipHeader(value: unknown): asserts value is { heig
   if (!isObject(value)) throw new Error('Electrum response: header must be object');
   if (typeof value.height !== 'number' || !Number.isFinite(value.height) || value.height < 0) {
     throw new Error('Electrum response: header.height invalid');
+  }
+}
+
+export function assertBlockHeader(value: unknown): asserts value is string {
+  if (typeof value !== 'string' || !/^[0-9a-f]{160}$/i.test(value)) {
+    throw new Error('Electrum response: block header must be 160-char hex string');
+  }
+}
+
+export function assertElectrumMerkleProof(value: unknown): asserts value is ElectrumMerkleProof {
+  if (!isObject(value)) throw new Error('Electrum response: merkle proof must be object');
+  if (typeof value.block_height !== 'number' || !Number.isFinite(value.block_height) || value.block_height < 0) {
+    throw new Error('Electrum response: merkle proof block_height invalid');
+  }
+  if (typeof value.pos !== 'number' || !Number.isFinite(value.pos) || value.pos < 0) {
+    throw new Error('Electrum response: merkle proof pos invalid');
+  }
+  if (!Array.isArray(value.merkle)) throw new Error('Electrum response: merkle must be array');
+  for (let i = 0; i < value.merkle.length; i++) {
+    if (typeof value.merkle[i] !== 'string' || !/^[0-9a-f]{64}$/i.test(value.merkle[i] as string)) {
+      throw new Error(`Electrum response: merkle[${i}] must be 64-char hex`);
+    }
   }
 }

@@ -192,7 +192,7 @@ describe('WalletManager — full lifecycle (integration)', () => {
         [0, { lastChecked: 0, utxos: [{ txid: 'a'.repeat(64), vout: 0, value: 100_000, height: 800_000 }] }],
       ],
     });
-    jest.spyOn(electrumService, 'getTipHeight').mockResolvedValue(800_010);
+    jest.spyOn(electrumService, 'getTipHeader').mockResolvedValue({ height: 800_010, merkle_root: '00'.repeat(32) });
     const utxos = await walletManager.getUtxos();
     expect(utxos).toHaveLength(1);
     expect(utxos[0].confirmations).toBe(11);

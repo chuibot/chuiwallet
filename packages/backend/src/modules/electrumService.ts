@@ -2,17 +2,21 @@ import type {
   ConnectionStatus,
   ConnectionUpdate,
   ElectrumHistory,
+  ElectrumMerkleProof,
   ElectrumTransaction,
   ElectrumUtxo,
   ExtendedServerConfig,
+  TipHeader,
 } from '../types/electrum';
 import { logger } from '../utils/logger';
 import { Network } from '../types/electrum';
 import { ElectrumRpcClient } from './electrumRpcClient';
-import { getConsensusTipHeight, selectBestServer } from './electrumServer';
+import { getConsensusTip, selectBestServer } from './electrumServer';
 import { createEmitter } from '../utils/emitter';
 import {
+  assertBlockHeader,
   assertElectrumHistoryBatch,
+  assertElectrumMerkleProof,
   assertElectrumTransaction,
   assertElectrumUtxoBatch,
 } from '../utils/electrumValidation';
@@ -21,6 +25,7 @@ export class ElectrumService {
   private network: Network = Network.Mainnet;
   private rpcClient: ElectrumRpcClient | undefined;
   private healthyServers: ExtendedServerConfig[] = [];
+  private headerCache = new Map<number, string>();
   public status: ConnectionStatus = 'disconnected';
   public readonly onStatus = createEmitter<ConnectionUpdate>();
 
@@ -46,6 +51,7 @@ export class ElectrumService {
     logger.log('Disconnecting Electrum server', reason);
     this.setStatus('disconnected', undefined, reason);
     this.rpcClient?.disconnect();
+    this.headerCache.clear();
   }
 
   private setStatus(status: ConnectionStatus, detail?: string, reason?: string) {
@@ -81,10 +87,6 @@ export class ElectrumService {
     return response;
   }
 
-  /**
-   * Broadcast a raw transaction hex via Electrum and return its txid.
-   * @throws if the server rejects the tx or returns an unexpected shape.
-   */
   public async broadcastTx(rawTxHex: string): Promise<string> {
     if (!this.rpcClient) throw new Error('Electrum not connected');
 
@@ -96,9 +98,8 @@ export class ElectrumService {
     try {
       const response = await this.rpcClient.sendRequest('blockchain.transaction.broadcast', [hex]);
       if (typeof response === 'string' && /^[0-9a-f]{64}$/i.test(response)) {
-        return response; // txid from server
+        return response;
       }
-
       throw new Error(`Unexpected broadcast result: ${String(response)}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -106,8 +107,29 @@ export class ElectrumService {
     }
   }
 
+  async getTipHeader(): Promise<TipHeader> {
+    return getConsensusTip(this.healthyServers);
+  }
+
   async getTipHeight(): Promise<number> {
-    return getConsensusTipHeight(this.healthyServers);
+    return (await this.getTipHeader()).height;
+  }
+
+  public async getMerkleProof(txid: string, height: number): Promise<ElectrumMerkleProof> {
+    if (!this.rpcClient) throw new Error('Electrum not connected');
+    const response = await this.rpcClient.sendRequest('blockchain.transaction.get_merkle', [txid, height]);
+    assertElectrumMerkleProof(response);
+    return response;
+  }
+
+  public async getBlockHeader(height: number): Promise<string> {
+    const cached = this.headerCache.get(height);
+    if (cached) return cached;
+    if (!this.rpcClient) throw new Error('Electrum not connected');
+    const response = await this.rpcClient.sendRequest('blockchain.block.header', [height]);
+    assertBlockHeader(response);
+    this.headerCache.set(height, response);
+    return response;
   }
 
   public async sendRequest(methodName: string, params: unknown[]) {

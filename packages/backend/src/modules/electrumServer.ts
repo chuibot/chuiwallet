@@ -1,5 +1,6 @@
-import type { ExtendedServerConfig, ServerConfig } from '../types/electrum';
+import type { ExtendedServerConfig, ServerConfig, TipHeader } from '../types/electrum';
 import { DefaultPort, Network } from '../types/electrum';
+import { parseMerkleRoot } from '../utils/merkle';
 
 export const availableServerList: ServerConfig[] = [
   { host: 'bitcoinserver.nl', port: 50004, useTls: true, network: Network.Mainnet },
@@ -17,10 +18,12 @@ function median(vals: number[]): number {
   return sorted.length % 2 === 0 ? Math.floor((sorted[mid - 1] + sorted[mid]) / 2) : sorted[mid];
 }
 
-export async function queryTipHeight(server: ExtendedServerConfig, timeout = 5000): Promise<number> {
+type RawTipHeader = { height: number; hex: string };
+
+export async function queryTipHeader(server: ExtendedServerConfig, timeout = 5000): Promise<RawTipHeader | null> {
   const protocol = server.useTls ? 'wss://' : 'ws://';
   const url = `${protocol}${server.host}:${server.port}`;
-  return new Promise<number>((resolve, reject) => {
+  return new Promise<RawTipHeader | null>((resolve, reject) => {
     const socket = new WebSocket(url);
     let buffer = '';
     let settled = false;
@@ -44,9 +47,17 @@ export async function queryTipHeight(server: ExtendedServerConfig, timeout = 500
         if (parsed.id !== 1) return 'skip';
         clearTimeout(timer);
         socket.close();
-        const result = parsed.result as { height?: unknown } | null | undefined;
-        const height = result != null && typeof result.height === 'number' && result.height > 0 ? result.height : 0;
-        settle(() => resolve(height));
+        const result = parsed.result as { height?: unknown; hex?: unknown } | null | undefined;
+        if (
+          result != null &&
+          typeof result.height === 'number' &&
+          result.height > 0 &&
+          typeof result.hex === 'string'
+        ) {
+          settle(() => resolve({ height: result.height as number, hex: result.hex as string }));
+        } else {
+          settle(() => resolve(null));
+        }
         return 'done';
       } catch {
         // incomplete JSON, keep buffering
@@ -84,20 +95,48 @@ export async function queryTipHeight(server: ExtendedServerConfig, timeout = 500
   });
 }
 
-export async function getConsensusTipHeight(servers: ExtendedServerConfig[]): Promise<number> {
-  const results = await Promise.allSettled(servers.map(s => queryTipHeight(s)));
-  const heights = results
-    .filter((r): r is PromiseFulfilledResult<number> => r.status === 'fulfilled' && r.value > 0)
+export async function getConsensusTip(servers: ExtendedServerConfig[]): Promise<TipHeader> {
+  const results = await Promise.allSettled(servers.map(s => queryTipHeader(s)));
+  const headers = results
+    .filter((r): r is PromiseFulfilledResult<RawTipHeader> => r.status === 'fulfilled' && r.value !== null)
     .map(r => r.value);
-  if (heights.length < 2) {
-    throw new Error(`Insufficient server responses for consensus (got ${heights.length}, need ≥2)`);
+  if (headers.length < 2) {
+    throw new Error(`Insufficient server responses for consensus (got ${headers.length}, need ≥2)`);
   }
+  const heights = headers.map(h => h.height);
   const med = median(heights);
   const outliers = heights.filter(h => Math.abs(h - med) > 6);
   if (outliers.length > 0) {
     throw new Error(`Tip height consensus failed: ${outliers.length} server(s) deviate >6 blocks from median ${med}`);
   }
-  return med;
+
+  // Cross-validate merkle roots: group by exact height, require ≥2 servers at the same
+  // height to agree on the header bytes before trusting the root.
+  const byHeight = new Map<number, RawTipHeader[]>();
+  for (const h of headers) {
+    const list = byHeight.get(h.height) ?? [];
+    list.push(h);
+    byHeight.set(h.height, list);
+  }
+
+  const groupsWithQuorum = [...byHeight.entries()]
+    .filter(([, g]) => g.length >= 2)
+    .sort((a, b) => Math.abs(a[0] - med) - Math.abs(b[0] - med));
+
+  if (groupsWithQuorum.length > 0) {
+    const [heightKey, group] = groupsWithQuorum[0];
+    const roots = new Set(group.map(h => parseMerkleRoot(h.hex)));
+    if (roots.size > 1) {
+      throw new Error(`Merkle root consensus failed at height ${heightKey}: servers disagree on header content`);
+    }
+    return { height: med, merkle_root: parseMerkleRoot(group[0].hex) };
+  }
+
+  // No height has ≥2 servers — fall back to the server closest to median (no root cross-validation).
+  const trustworthy = headers.reduce((best, curr) =>
+    Math.abs(curr.height - med) < Math.abs(best.height - med) ? curr : best,
+  );
+  return { height: med, merkle_root: parseMerkleRoot(trustworthy.hex) };
 }
 
 export async function selectBestServer(

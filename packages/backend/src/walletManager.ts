@@ -20,6 +20,7 @@ import { getCacheKey, selectByChain } from './utils/cache';
 import { buildSpendPsbt } from './utils/psbt';
 import { getBitcoinPrice } from './modules/blockonomics';
 import { scriptTypeFromAddress } from './utils/crypto';
+import { verifyMerkleProof } from './utils/merkle';
 import { deleteSessionPassword, getSessionPassword } from './utils/sessionStorageHelper';
 import { convertToSlip0132 } from './utils/xpubConverter';
 
@@ -207,10 +208,11 @@ export class WalletManager {
     const rxAddrKey = getCacheKey(CacheType.Address, ChangeType.External);
     const chAddrKey = getCacheKey(CacheType.Address, ChangeType.Internal);
 
-    const [store, tipHeight] = await Promise.all([
+    const [store, tipHeader] = await Promise.all([
       browser.storage.local.get([rxUtxoKey, chUtxoKey, rxAddrKey, chAddrKey]),
-      electrumService.getTipHeight().catch(() => 0),
+      electrumService.getTipHeader().catch(() => null),
     ]);
+    const tipHeight = tipHeader?.height ?? 0;
 
     const toMap = <T>(v: unknown) => new Map<number, T>(Array.isArray(v) ? (v as [number, T][]) : []);
     const rxUtxo = toMap<UtxoEntry>(store[rxUtxoKey]);
@@ -238,7 +240,30 @@ export class WalletManager {
         ),
       );
 
-    return [...flatten(rxUtxo, rxAddr, ChangeType.External), ...flatten(chUtxo, chAddr, ChangeType.Internal)];
+    const allUtxos = [...flatten(rxUtxo, rxAddr, ChangeType.External), ...flatten(chUtxo, chAddr, ChangeType.Internal)];
+
+    if (!tipHeader) return allUtxos;
+
+    const toVerify = allUtxos.filter(u => u.height === tipHeader.height);
+    if (toVerify.length === 0) return allUtxos;
+
+    const verified = new Set<string>();
+    await Promise.allSettled(
+      toVerify.map(async u => {
+        try {
+          const proof = await electrumService.getMerkleProof(u.txid, u.height);
+          if (verifyMerkleProof(u.txid, proof.pos, proof.merkle, tipHeader.merkle_root)) {
+            verified.add(u.txid);
+          } else {
+            logger.warn(`Merkle proof failed for ${u.txid} at height ${u.height} — excluding UTXO`);
+          }
+        } catch {
+          verified.add(u.txid); // server error → include (graceful degradation)
+        }
+      }),
+    );
+
+    return allUtxos.filter(u => u.height !== tipHeader.height || verified.has(u.txid));
   }
 
   /**
