@@ -23,6 +23,8 @@
     "@extension/shared": "workspace:*",
     "@extension/storage": "workspace:*",
     "avvvatars-react": "^0.4.2",
+    "bip39": "3.1.0",
+    "bitcoinjs-lib": "6.1.7",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "react-loading-skeleton": "^3.5.0",
