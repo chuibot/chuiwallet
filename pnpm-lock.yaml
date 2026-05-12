@@ -254,6 +254,9 @@ importers:
       '@extension/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
 
   packages/storage:
     devDependencies:
@@ -280,6 +283,9 @@ importers:
       deepmerge:
         specifier: ^4.3.1
         version: 4.3.1
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
       tsc-alias:
         specifier: ^1.8.10
         version: 1.8.10
