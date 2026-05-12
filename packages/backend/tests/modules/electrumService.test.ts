@@ -134,7 +134,7 @@ describe('ElectrumService', () => {
 
   it('getTipHeader throws when all servers return null', async () => {
     const { svc } = await bootElectrumService();
-    await expect(bootAndFireTipHeader(svc, [null])).rejects.toThrow(/No healthy servers/);
+    await expect(bootAndFireTipHeader(svc, [null])).rejects.toThrow(/Insufficient server responses/);
   });
 
   it('getTipHeader returns consensus height and merkle_root when servers agree', async () => {

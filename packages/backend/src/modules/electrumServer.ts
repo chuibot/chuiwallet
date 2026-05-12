@@ -47,9 +47,17 @@ export async function queryTipHeader(server: ExtendedServerConfig, timeout = 500
         if (parsed.id !== 1) return 'skip';
         clearTimeout(timer);
         socket.close();
-        const result = parsed.result as { height?: unknown } | null | undefined;
-        const height = result != null && typeof result.height === 'number' && result.height > 0 ? result.height : 0;
-        settle(() => resolve(height));
+        const result = parsed.result as { height?: unknown; hex?: unknown } | null | undefined;
+        if (
+          result != null &&
+          typeof result.height === 'number' &&
+          result.height > 0 &&
+          typeof result.hex === 'string'
+        ) {
+          settle(() => resolve({ height: result.height as number, hex: result.hex as string }));
+        } else {
+          settle(() => resolve(null));
+        }
         return 'done';
       } catch {
         // incomplete JSON, keep buffering
@@ -87,14 +95,15 @@ export async function queryTipHeader(server: ExtendedServerConfig, timeout = 500
   });
 }
 
-export async function getConsensusTipHeight(servers: ExtendedServerConfig[]): Promise<number> {
-  const results = await Promise.allSettled(servers.map(s => queryTipHeight(s)));
-  const heights = results
-    .filter((r): r is PromiseFulfilledResult<number> => r.status === 'fulfilled' && r.value > 0)
+export async function getConsensusTip(servers: ExtendedServerConfig[]): Promise<TipHeader> {
+  const results = await Promise.allSettled(servers.map(s => queryTipHeader(s)));
+  const headers = results
+    .filter((r): r is PromiseFulfilledResult<RawTipHeader> => r.status === 'fulfilled' && r.value !== null)
     .map(r => r.value);
-  if (heights.length < 2) {
-    throw new Error(`Insufficient server responses for consensus (got ${heights.length}, need ≥2)`);
+  if (headers.length < 2) {
+    throw new Error(`Insufficient server responses for consensus (got ${headers.length}, need ≥2)`);
   }
+  const heights = headers.map(h => h.height);
   const med = median(heights);
   const outliers = heights.filter(h => Math.abs(h - med) > 6);
   if (outliers.length > 0) {
