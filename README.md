@@ -1,7 +1,6 @@
 # Chui Wallet
 
-**Version:** 0.0.1  
-**License:** MIT
+License: MIT. Current version lives in [`chrome-extension/package.json`](chrome-extension/package.json).
 
 Chui is a non-custodial Bitcoin wallet built specifically for merchants. It is implemented as an open source Chrome extension that emphasizes security, performance, and a clean user experience.
 
@@ -46,8 +45,6 @@ The project is built with a modular, object-oriented approach using [bitcoinjs-l
 8. **High Security Standards:**  
    - High emphasis on wallet security by following best practices and Chrome extension coding guidelines.
 
-Below is an improved Installation & Available Scripts section with detailed instructions for building, running, and publishing the extension, as well as steps for importing it into Chrome Developer Mode.
-
 ## Installation and Setup
 
 ### Prerequisites
@@ -65,63 +62,71 @@ cd chuiwallet
 pnpm install
 ```
 
-## Available Scripts
+## Scripts
+
+All scripts run from the repo root. Turbo fans them out to every workspace that defines the matching script.
 
 ### Cleaning
 
-- **`pnpm clean`**  
-  Cleans build outputs, caches, and node_modules.
-- **`pnpm clean:install`**  
-  Cleans node_modules and reinstalls dependencies.
+- `pnpm clean` removes `dist/`, turbo caches, and every `node_modules`.
+- `pnpm clean:install` runs `clean` then `pnpm install --frozen-lockfile`.
 
 ### Building
 
-- **`pnpm build`**  
-  Cleans and builds the project for production. This command compiles TypeScript, bundles JavaScript files, and outputs the final extension package in the `dist/` folder.
-- **`pnpm build:firefox`**  
-  Builds the project specifically for Firefox, preparing the appropriate build for the Firefox Add-ons Marketplace.
+- `pnpm build` produces the Chrome production build under `dist/`.
+- `pnpm build:firefox` produces the Firefox build.
 
 ### Development
 
-- **`pnpm dev`**  
-  Starts the development environment with hot-reloading, allowing you to see changes in real time.
-- **`pnpm dev:firefox`**  
-  Starts the development environment tailored for Firefox.
+- `pnpm dev` starts the watch build with HMR for Chrome.
+- `pnpm dev:firefox` does the same for Firefox.
 
-### Linting & Type Checking
+### Lint, type-check, test
 
-- **`pnpm lint`**  
-  Runs ESLint to check for code quality issues.
-- **`pnpm lint:fix`**  
-  Automatically fixes linting issues where possible.
-- **`pnpm type-check`**  
-  Performs TypeScript type checking to ensure code integrity.
+- `pnpm lint:check` runs ESLint across every workspace (read-only).
+- `pnpm lint` / `pnpm lint:fix` run ESLint with `--fix`.
+- `pnpm type-check` runs `tsc --noEmit` in every workspace.
+- `pnpm test` runs the `test` script in every workspace that has one. Today that is just `@extension/backend` (Jest).
 
-### Packaging & Publishing
+### Packaging
 
-- **`pnpm zip`**  
-  Zips the production build output for distribution. Use the resulting zip file to publish the extension on the Chrome Web Store.
-- **`pnpm zip:firefox`**  
-  Zips the Firefox-specific build for submission to the Firefox Add-ons Marketplace.
-- **Cutting a release (Changesets):**
-  Versions are managed by [Changesets](https://github.com/changesets/changesets). All workspace packages bump together (see `.changeset/config.json`).
-    1. While developing, run `pnpm changeset` to record a patch/minor/major bump for `chrome-extension`. Commit the generated `.changeset/*.md` file.
-    2. When ready to release, on `main`, run `pnpm version-packages`. This consumes all pending changesets, bumps every workspace package in lockstep, refreshes `pnpm-lock.yaml`, and updates each package's `CHANGELOG.md`. Commit the result.
-    3. Tag and push only that tag: `release_tag="v$(node -p "require('./chrome-extension/package.json').version")" && git tag "$release_tag" && git push origin "$release_tag"`.
-    4. The release workflow verifies the tag matches `chrome-extension/package.json` before building the zip.
-- **Publishing Steps:**
-  - **Release artifact must come from green CI.** Do not upload a locally built zip. Push a `v*` tag to trigger `.github/workflows/release.yaml`; that workflow runs `pnpm audit --prod --audit-level=high`, lint, type-check, tests, build, and source-map check, then publishes the zip as a build artifact for download.
-  - **Chrome Web Store:**  
-    1. Push a `v*` tag and wait for the `Release` workflow to complete on GitHub Actions.
-    2. Download the zip artifact from the workflow run.
-    3. Log in to the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/developer/dashboard).
-    4. Click **Add a new item** and upload the artifact zip.
-    5. Follow the on-screen instructions to complete your extension listing (provide descriptions, screenshots, etc.).
-  - **Firefox Add-ons:**  
-    1. Run `pnpm zip:firefox` to generate the Firefox build zip.
-    2. Log in to the [Firefox Developer Hub](https://addons.mozilla.org/en-US/developers/).
-    3. Click **Submit a New Add-on** and follow the steps to upload your zip file.
-    4. Fill in the required details (descriptions, screenshots, privacy policies, etc.) and submit for review.
+- `pnpm zip` builds Chrome, then writes the store zip to `dist-zip/`.
+- `pnpm zip:firefox` does the same for Firefox.
+
+## Cutting a release
+
+Versions are managed by [Changesets](https://github.com/changesets/changesets). Every workspace package is in the `fixed` group, so they all bump together (see [`.changeset/config.json`](.changeset/config.json)). The `chrome-extension` version is what ends up in the manifest.
+
+1. As part of a change, run `pnpm changeset`, pick `patch` / `minor` / `major` against `chrome-extension`, and write a one-line summary. Commit the generated `.changeset/*.md` alongside the rest of the change.
+2. When the queued changesets are ready to ship, on `main`:
+
+   ```bash
+   pnpm version-packages
+   ```
+
+   That eats the pending changesets, bumps every workspace `package.json`, refreshes `pnpm-lock.yaml`, and writes a `CHANGELOG.md` entry per package. Commit the result. (Don't use `pnpm version` directly: that's the built-in pnpm command, not this script.)
+3. Tag and push only the new tag:
+
+   ```bash
+   release_tag="v$(node -p "require('./chrome-extension/package.json').version")"
+   git tag "$release_tag"
+   git push origin "$release_tag"
+   ```
+
+The `Release` workflow ([`.github/workflows/release.yaml`](.github/workflows/release.yaml)) then:
+
+- refuses to run if the tag isn't reachable from `main`,
+- refuses to run if the tag doesn't match `chrome-extension/package.json`,
+- runs `pnpm audit --prod --audit-level=high`, lint, type-check, `pnpm test`, build, and a source-map check,
+- uploads `chuiwallet-vX.Y.Z.zip` as a workflow artifact.
+
+## Publishing
+
+Always download the zip artifact from the green release workflow run. Do not upload a locally built zip.
+
+**Chrome Web Store:** [Developer Dashboard](https://chrome.google.com/webstore/developer/dashboard) > Add a new item > upload the artifact zip.
+
+**Firefox Add-ons:** for Firefox the release workflow currently only zips Chrome. Run `pnpm zip:firefox` locally on the release commit, then upload the resulting zip at the [Developer Hub](https://addons.mozilla.org/en-US/developers/) > Submit a New Add-on.
 
 ## Running the Extension in Chrome
 
@@ -140,15 +145,6 @@ pnpm install
    - Click **Load unpacked**.
    - Select the `dist/` folder from your project.
    - The extension will load and appear in your list of installed extensions.
-
-## Additional Notes
-
-- **Hot Reloading:**  
-  During development, `pnpm dev` (or `pnpm dev:firefox`) allows live updates as you modify the code.
-- **Testing:**  
-  Ensure that unit and end-to-end tests pass (integrated with GitHub Actions) before publishing.
-- **Configuration:**  
-  Wallet-specific settings (like gap limit, network settings, and fiat preferences) can be adjusted in the extension's settings panel or configuration files.
 
 ## Contributing
 
