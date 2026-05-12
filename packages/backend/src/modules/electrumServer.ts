@@ -11,7 +11,98 @@ export const availableServerList: ServerConfig[] = [
   { host: 'testnet4.electrum.blockonomics.co', port: 443, useTls: true, network: Network.Testnet },
 ];
 
-export async function selectBestServer(network: Network): Promise<ExtendedServerConfig> {
+function median(vals: number[]): number {
+  const sorted = [...vals].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? Math.floor((sorted[mid - 1] + sorted[mid]) / 2) : sorted[mid];
+}
+
+export async function queryTipHeight(server: ExtendedServerConfig, timeout = 5000): Promise<number> {
+  const protocol = server.useTls ? 'wss://' : 'ws://';
+  const url = `${protocol}${server.host}:${server.port}`;
+  return new Promise<number>((resolve, reject) => {
+    const socket = new WebSocket(url);
+    let buffer = '';
+    let settled = false;
+    const settle = (fn: () => void) => {
+      if (!settled) {
+        settled = true;
+        fn();
+      }
+    };
+    const timer = setTimeout(() => {
+      socket.close();
+      settle(() => reject(new Error(`Tip height query timed out: ${server.host}`)));
+    }, timeout);
+
+    // Returns 'done' (resolved), 'skip' (valid JSON but not our id), 'incomplete' (partial JSON).
+    const tryParse = (text: string): 'done' | 'skip' | 'incomplete' => {
+      const trimmed = text.trim();
+      if (!trimmed) return 'incomplete';
+      try {
+        const parsed = JSON.parse(trimmed) as { id?: unknown; result?: unknown };
+        if (parsed.id !== 1) return 'skip';
+        clearTimeout(timer);
+        socket.close();
+        const result = parsed.result as { height?: unknown } | null | undefined;
+        const height = result != null && typeof result.height === 'number' && result.height > 0 ? result.height : 0;
+        settle(() => resolve(height));
+        return 'done';
+      } catch {
+        // incomplete JSON, keep buffering
+      }
+      return 'incomplete';
+    };
+
+    socket.onopen = () => {
+      socket.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'blockchain.headers.subscribe', params: [] }));
+    };
+
+    socket.onmessage = (event: MessageEvent) => {
+      buffer += typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data as ArrayBuffer);
+      let idx: number;
+      while ((idx = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 1);
+        const r = tryParse(line);
+        if (r === 'done') return;
+      }
+      const r = tryParse(buffer);
+      if (r === 'done' || r === 'skip') buffer = '';
+    };
+
+    socket.onerror = () => {
+      clearTimeout(timer);
+      socket.close();
+      settle(() => reject(new Error(`WebSocket error querying tip: ${server.host}`)));
+    };
+
+    socket.onclose = () => {
+      clearTimeout(timer);
+      settle(() => reject(new Error(`WebSocket closed before response: ${server.host}`)));
+    };
+  });
+}
+
+export async function getConsensusTipHeight(servers: ExtendedServerConfig[]): Promise<number> {
+  const results = await Promise.allSettled(servers.map(s => queryTipHeight(s)));
+  const heights = results
+    .filter((r): r is PromiseFulfilledResult<number> => r.status === 'fulfilled' && r.value > 0)
+    .map(r => r.value);
+  if (heights.length < 2) {
+    throw new Error(`Insufficient server responses for consensus (got ${heights.length}, need ≥2)`);
+  }
+  const med = median(heights);
+  const outliers = heights.filter(h => Math.abs(h - med) > 6);
+  if (outliers.length > 0) {
+    throw new Error(`Tip height consensus failed: ${outliers.length} server(s) deviate >6 blocks from median ${med}`);
+  }
+  return med;
+}
+
+export async function selectBestServer(
+  network: Network,
+): Promise<{ server: ExtendedServerConfig; healthyServers: ExtendedServerConfig[] }> {
   const serverList = availableServerList.filter(server => server.network === network);
   if (serverList.length === 0) {
     throw new Error(`No servers available for ${network}`);
@@ -23,9 +114,8 @@ export async function selectBestServer(network: Network): Promise<ExtendedServer
     throw new Error('No healthy servers found');
   }
 
-  // Sort by latency.
   healthyServers.sort((a, b) => a.latency! - b.latency!);
-  return healthyServers[0];
+  return { server: healthyServers[0], healthyServers };
 }
 
 export async function scanServers(servers: ExtendedServerConfig[]): Promise<ExtendedServerConfig[]> {

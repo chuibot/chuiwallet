@@ -82,17 +82,32 @@ export class FeeService {
 
   private async getReliableFeeRates(network: Network): Promise<FeeRates> {
     const providers = [this.fetchMempool(network), this.fetchBlockstream(network)];
-
     if (network === Network.Mainnet) {
       providers.push(this.fetchBlockchainInfo());
     }
 
-    try {
-      return await Promise.any(providers);
-    } catch (e) {
-      console.error('All fee providers failed or timed out, using fallback', e);
+    const results = await Promise.allSettled(providers);
+    const fulfilled = results
+      .filter((r): r is PromiseFulfilledResult<FeeRates> => r.status === 'fulfilled')
+      .map(r => r.value);
+
+    if (fulfilled.length === 0) {
+      console.error('All fee providers failed or timed out, using fallback');
       return FALLBACK_FEES;
     }
+
+    const clamp = (v: number) => Math.min(1000, Math.max(1, Math.round(v)));
+    const med = (key: keyof FeeRates): number => {
+      const vals = fulfilled.map(f => f[key]).sort((a, b) => a - b);
+      const mid = Math.floor(vals.length / 2);
+      return vals.length % 2 === 0 ? Math.floor((vals[mid - 1] + vals[mid]) / 2) : vals[mid];
+    };
+
+    return {
+      fastestFee: clamp(med('fastestFee')),
+      halfHourFee: clamp(med('halfHourFee')),
+      hourFee: clamp(med('hourFee')),
+    };
   }
 
   async getFeeEstimates(

@@ -105,20 +105,43 @@ describe('ElectrumService', () => {
     await expect(p).rejects.toThrow(/Unexpected broadcast result/);
   });
 
-  it('getTipHeight returns 0 when the server returns no header', async () => {
-    const { svc, ws } = await bootElectrumService();
+  it('getTipHeight throws when all healthy servers return null (quorum not met)', async () => {
+    const { svc } = await bootElectrumService();
+    const prevCount = FakeWebSocket.instances.length;
     const p = svc.getTipHeight();
-    const sent = JSON.parse(ws().sent[ws().sent.length - 1]);
-    ws().triggerMessage(JSON.stringify({ id: sent.id, result: null }));
-    expect(await p).toBe(0);
+    await new Promise<void>(resolve => setTimeout(resolve, 5));
+    const newInsts = FakeWebSocket.instances.slice(prevCount);
+    for (const inst of newInsts) {
+      inst.triggerOpen();
+      inst.triggerMessage(JSON.stringify({ id: 1, result: null }));
+    }
+    await expect(p).rejects.toThrow(/Insufficient server responses/);
   });
 
-  it('getTipHeight returns the height when present', async () => {
-    const { svc, ws } = await bootElectrumService();
+  it('getTipHeight returns the consensus height when servers agree', async () => {
+    const { svc } = await bootElectrumService();
+    const prevCount = FakeWebSocket.instances.length;
     const p = svc.getTipHeight();
-    const sent = JSON.parse(ws().sent[ws().sent.length - 1]);
-    ws().triggerMessage(JSON.stringify({ id: sent.id, result: { height: 800_123 } }));
+    await new Promise<void>(resolve => setTimeout(resolve, 5));
+    const newInsts = FakeWebSocket.instances.slice(prevCount);
+    for (const inst of newInsts) {
+      inst.triggerOpen();
+      inst.triggerMessage(JSON.stringify({ id: 1, result: { height: 800_123 } }));
+    }
     expect(await p).toBe(800_123);
+  });
+
+  it('getTipHeight throws when servers disagree by more than 6 blocks', async () => {
+    const { svc } = await bootElectrumService();
+    const prevCount = FakeWebSocket.instances.length;
+    const p = svc.getTipHeight();
+    await new Promise<void>(resolve => setTimeout(resolve, 5));
+    const newInsts = FakeWebSocket.instances.slice(prevCount);
+    newInsts.forEach((inst, i) => {
+      inst.triggerOpen();
+      inst.triggerMessage(JSON.stringify({ id: 1, result: { height: i === 0 ? 800_000 : 800_100 } }));
+    });
+    await expect(p).rejects.toThrow(/consensus failed/);
   });
 
   it('throws when calling RPC methods before init/connect', async () => {
