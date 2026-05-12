@@ -56,8 +56,8 @@ jobs:
       - name: Type-check
         run: pnpm type-check
 
-      - name: Run backend tests
-        run: pnpm --filter @extension/backend test
+      - name: Run tests
+        run: pnpm test
 
       - name: Build
         run: pnpm build
