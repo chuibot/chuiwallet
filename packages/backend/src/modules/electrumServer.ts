@@ -110,6 +110,29 @@ export async function getConsensusTip(servers: ExtendedServerConfig[]): Promise<
     throw new Error(`Tip height consensus failed: ${outliers.length} server(s) deviate >6 blocks from median ${med}`);
   }
 
+  // Cross-validate merkle roots: group by exact height, require ≥2 servers at the same
+  // height to agree on the header bytes before trusting the root.
+  const byHeight = new Map<number, RawTipHeader[]>();
+  for (const h of headers) {
+    const list = byHeight.get(h.height) ?? [];
+    list.push(h);
+    byHeight.set(h.height, list);
+  }
+
+  const groupsWithQuorum = [...byHeight.entries()]
+    .filter(([, g]) => g.length >= 2)
+    .sort((a, b) => Math.abs(a[0] - med) - Math.abs(b[0] - med));
+
+  if (groupsWithQuorum.length > 0) {
+    const [heightKey, group] = groupsWithQuorum[0];
+    const roots = new Set(group.map(h => parseMerkleRoot(h.hex)));
+    if (roots.size > 1) {
+      throw new Error(`Merkle root consensus failed at height ${heightKey}: servers disagree on header content`);
+    }
+    return { height: med, merkle_root: parseMerkleRoot(group[0].hex) };
+  }
+
+  // No height has ≥2 servers — fall back to the server closest to median (no root cross-validation).
   const trustworthy = headers.reduce((best, curr) =>
     Math.abs(curr.height - med) < Math.abs(best.height - med) ? curr : best,
   );

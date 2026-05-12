@@ -22,6 +22,12 @@ describe('parseMerkleRoot', () => {
   it('works with all-zero header', () => {
     expect(parseMerkleRoot('00'.repeat(80))).toBe('00'.repeat(32));
   });
+
+  it('throws RangeError for wrong-length input', () => {
+    expect(() => parseMerkleRoot('00'.repeat(79))).toThrow(RangeError);
+    expect(() => parseMerkleRoot('00'.repeat(81))).toThrow(RangeError);
+    expect(() => parseMerkleRoot('')).toThrow(RangeError);
+  });
 });
 
 describe('verifyMerkleProof', () => {
@@ -58,6 +64,23 @@ describe('verifyMerkleProof', () => {
   it('rejects correct txid at wrong position', () => {
     // TX0 is at pos=0, providing it at pos=1 with TX1 as sibling should fail
     expect(verifyMerkleProof(TX0, 1, [TX1], MERKLE_ROOT_2TX)).toBe(false);
+  });
+
+  it('verifies Bitcoin odd-tx-count duplication (3 txs, pos=2 uses itself as sibling)', () => {
+    // Bitcoin duplicates the last tx when the row count is odd.
+    // For [A, B, C]: level1 = [hash(A+B), hash(C+C)], root = hash(level1[0]+level1[1])
+    const txs = ['aa', 'bb', 'cc'].map(b => b.repeat(32));
+    const internals = txs.map(t => Buffer.from(t, 'hex').reverse());
+    const level1 = [
+      bitcoin.crypto.hash256(Buffer.concat([internals[0], internals[1]])),
+      bitcoin.crypto.hash256(Buffer.concat([internals[2], internals[2]])), // C duplicated
+    ];
+    const root = bitcoin.crypto.hash256(Buffer.concat([level1[0], level1[1]])).toString('hex');
+
+    // Electrum proof for C (pos=2): sibling[0]=C (display), sibling[1]=level1[0] (display = reversed)
+    const sib0 = txs[2]; // C itself in display order
+    const sib1Display = Buffer.from(level1[0]).reverse().toString('hex');
+    expect(verifyMerkleProof(txs[2], 2, [sib0, sib1Display], root)).toBe(true);
   });
 
   it('verifies a three-level merkle tree (4 transactions)', () => {

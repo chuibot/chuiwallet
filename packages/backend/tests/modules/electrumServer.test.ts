@@ -154,5 +154,17 @@ describe('WebSocket-backed server functions', () => {
       expect(tip.height).toBe(850_003);
       expect(tip.merkle_root).toBe(FAKE_MERKLE_ROOT);
     });
+
+    it('throws when two servers at the same height disagree on the header (forged merkle root)', async () => {
+      const FORGED_HEX = 'ff'.repeat(80);
+      const promise = getConsensusTip(['a', 'b', 'c'].map(mkServer));
+      setTimeout(() => {
+        // a and b report the same height but different header bytes
+        respond(FakeWebSocket.instances[0]!, 850_000, FAKE_HEX);
+        respond(FakeWebSocket.instances[1]!, 850_000, FORGED_HEX);
+        respond(FakeWebSocket.instances[2]!, 850_001, FAKE_HEX);
+      }, 5);
+      await expect(promise).rejects.toThrow(/Merkle root consensus failed/);
+    });
   });
 });
