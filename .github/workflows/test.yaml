@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   ci:
-    name: Lint, type-check, backend tests
+    name: Lint, type-check, tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -41,5 +41,5 @@ jobs:
       - name: Type-check
         run: pnpm type-check
 
-      - name: Run backend tests
-        run: pnpm --filter @extension/backend test
+      - name: Run tests
+        run: pnpm test
