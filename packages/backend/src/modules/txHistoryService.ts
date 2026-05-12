@@ -7,6 +7,8 @@ import { getBitcoinPrice } from './blockonomics';
 import { scanManager } from '../scanManager';
 import { electrumService } from './electrumService';
 import { assertElectrumTransaction } from '../utils/electrumValidation';
+import { parseMerkleRoot, verifyMerkleProof } from '../utils/merkle';
+import { logger } from '../utils/logger';
 
 type ScriptPubKey = Readonly<{
   address?: string;
@@ -45,7 +47,7 @@ export class TxHistoryService {
     const bitcoinPrice = await getBitcoinPrice();
 
     for (const entry of histories) {
-      for (const [txid] of entry.txs) {
+      for (const [txid, blockHeight] of entry.txs) {
         const cached = this.txHistoryCache.get(txid);
         if (!cached || cached.status === 'PENDING') {
           const raw = await electrumService.getRawTransaction(txid, true);
@@ -56,6 +58,7 @@ export class TxHistoryService {
             scanManager.addressCacheReceive,
             scanManager.addressCacheChange,
             bitcoinPrice,
+            blockHeight,
           );
           // Only update if status changed or it wasn't there
           if (!cached || newEntry.status !== cached.status || newEntry.confirmations !== cached.confirmations) {
@@ -74,6 +77,7 @@ export class TxHistoryService {
     addressCacheReceive: Map<number, AddressEntry>,
     addressCacheChange: Map<number, AddressEntry>,
     btcUsdRate?: number,
+    blockHeight = 0,
   ): Promise<TxEntry> {
     const myReceiveSet = this.buildAddressSet(addressCacheReceive);
     const myChangeSet = this.buildAddressSet(addressCacheChange);
@@ -112,6 +116,20 @@ export class TxHistoryService {
     const { sender, receiver } = this.pickSenderReceiverFromOutputs(type, inputs, tx, myChangeSet);
 
     const status: TxStatus = tx.confirmations && tx.confirmations > 0 ? 'CONFIRMED' : 'PENDING';
+
+    if (status === 'CONFIRMED' && blockHeight > 0) {
+      try {
+        const headerHex = await electrumService.getBlockHeader(blockHeight);
+        const merkleRoot = parseMerkleRoot(headerHex);
+        const proof = await electrumService.getMerkleProof(tx.txid, blockHeight);
+        if (!verifyMerkleProof(tx.txid, proof.pos, proof.merkle, merkleRoot)) {
+          logger.warn(`Merkle proof mismatch for tx ${tx.txid} at height ${blockHeight}`);
+        }
+      } catch (e) {
+        logger.warn(`Merkle verification skipped for ${tx.txid}:`, e);
+      }
+    }
+
     const rawTs = (tx.time ?? tx.blocktime ?? Math.floor(Date.now() / 1000)) as number;
     const tsMs = rawTs > 1e12 ? rawTs : rawTs * 1000;
 

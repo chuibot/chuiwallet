@@ -14,6 +14,7 @@ import { ElectrumRpcClient } from './electrumRpcClient';
 import { getConsensusTip, selectBestServer } from './electrumServer';
 import { createEmitter } from '../utils/emitter';
 import {
+  assertBlockHeader,
   assertElectrumHistoryBatch,
   assertElectrumMerkleProof,
   assertElectrumTransaction,
@@ -24,6 +25,7 @@ export class ElectrumService {
   private network: Network = Network.Mainnet;
   private rpcClient: ElectrumRpcClient | undefined;
   private healthyServers: ExtendedServerConfig[] = [];
+  private headerCache = new Map<number, string>();
   public status: ConnectionStatus = 'disconnected';
   public readonly onStatus = createEmitter<ConnectionUpdate>();
 
@@ -49,6 +51,7 @@ export class ElectrumService {
     logger.log('Disconnecting Electrum server', reason);
     this.setStatus('disconnected', undefined, reason);
     this.rpcClient?.disconnect();
+    this.headerCache.clear();
   }
 
   private setStatus(status: ConnectionStatus, detail?: string, reason?: string) {
@@ -116,6 +119,16 @@ export class ElectrumService {
     if (!this.rpcClient) throw new Error('Electrum not connected');
     const response = await this.rpcClient.sendRequest('blockchain.transaction.get_merkle', [txid, height]);
     assertElectrumMerkleProof(response);
+    return response;
+  }
+
+  public async getBlockHeader(height: number): Promise<string> {
+    const cached = this.headerCache.get(height);
+    if (cached) return cached;
+    if (!this.rpcClient) throw new Error('Electrum not connected');
+    const response = await this.rpcClient.sendRequest('blockchain.block.header', [height]);
+    assertBlockHeader(response);
+    this.headerCache.set(height, response);
     return response;
   }
 

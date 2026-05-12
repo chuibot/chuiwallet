@@ -107,6 +107,12 @@ export function assertElectrumTipHeader(value: unknown): asserts value is { heig
   }
 }
 
+export function assertBlockHeader(value: unknown): asserts value is string {
+  if (typeof value !== 'string' || !/^[0-9a-f]{160}$/i.test(value)) {
+    throw new Error('Electrum response: block header must be 160-char hex string');
+  }
+}
+
 export function assertElectrumMerkleProof(value: unknown): asserts value is ElectrumMerkleProof {
   if (!isObject(value)) throw new Error('Electrum response: merkle proof must be object');
   if (typeof value.block_height !== 'number' || !Number.isFinite(value.block_height) || value.block_height < 0) {

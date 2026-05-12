@@ -8,10 +8,18 @@ import { accountManager } from '../../src/accountManager';
 import { scanManager } from '../../src/scanManager';
 import { electrumService } from '../../src/modules/electrumService';
 import type { ElectrumTransaction } from '../../src/types/electrum';
+import { logger } from '../../src/utils/logger';
 
 const MY_RECEIVE = 'bc1qmyaddr0';
 const MY_CHANGE = 'bc1qchange0';
 const REMOTE = 'bc1qremote';
+
+// 64-char hex txid required by verifyMerkleProof input validation
+const VALID_TXID = 'a'.repeat(64);
+// Single-tx block: merkle_root = reverse(txid_internal) = reverse(reverse(VALID_TXID)) = VALID_TXID
+const VALID_MERKLE_ROOT = Buffer.from(VALID_TXID, 'hex').reverse().toString('hex');
+// Header where bytes 36-67 hold VALID_MERKLE_ROOT
+const VALID_HEADER_HEX = '00'.repeat(36) + VALID_MERKLE_ROOT + '00'.repeat(12);
 
 function fakeRecvTx(): ElectrumTransaction {
   return {
@@ -254,6 +262,82 @@ describe('TxHistoryService.get', () => {
     const recv = txs.find(t => t.transactionHash === 'recvtx1')!;
     expect(recv.type).toBe('RECEIVE');
     expect(recv.receiver).not.toBe('bc1qsomeoneelse');
+  });
+
+  function fakeConfirmedTxWithValidId(): ElectrumTransaction {
+    return {
+      txid: VALID_TXID,
+      hex: '00',
+      version: 2,
+      locktime: 0,
+      confirmations: 6,
+      time: 1_700_000_000,
+      vin: [],
+      vout: [
+        {
+          value: 0.5,
+          n: 0,
+          scriptPubKey: { asm: '', hex: '', type: 'witness_v0_keyhash', address: MY_RECEIVE },
+        },
+      ],
+    };
+  }
+
+  it('runs merkle verification for confirmed tx and succeeds silently on valid proof', async () => {
+    const map = (scanManager as unknown as { historyCacheReceive: Map<number, HistoryEntry> }).historyCacheReceive;
+    map.set(0, { lastChecked: 0, txs: [[VALID_TXID, 800_000]] });
+    jest
+      .spyOn(electrumService, 'getRawTransaction')
+      .mockResolvedValue(fakeConfirmedTxWithValidId() as unknown as string);
+    jest.spyOn(electrumService, 'getBlockHeader').mockResolvedValue(VALID_HEADER_HEX);
+    jest.spyOn(electrumService, 'getMerkleProof').mockResolvedValue({ block_height: 800_000, pos: 0, merkle: [] });
+    const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+    const svc = new TxHistoryService();
+    const txs = await svc.get();
+    expect(txs.find(t => t.transactionHash === VALID_TXID)?.status).toBe('CONFIRMED');
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('logs warn and still returns tx when merkle proof does not match', async () => {
+    const map = (scanManager as unknown as { historyCacheReceive: Map<number, HistoryEntry> }).historyCacheReceive;
+    map.set(0, { lastChecked: 0, txs: [[VALID_TXID, 800_000]] });
+    jest
+      .spyOn(electrumService, 'getRawTransaction')
+      .mockResolvedValue(fakeConfirmedTxWithValidId() as unknown as string);
+    // Header with all-zero merkle root — won't match VALID_TXID proof
+    jest.spyOn(electrumService, 'getBlockHeader').mockResolvedValue('00'.repeat(80));
+    jest.spyOn(electrumService, 'getMerkleProof').mockResolvedValue({ block_height: 800_000, pos: 0, merkle: [] });
+    const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+    const svc = new TxHistoryService();
+    const txs = await svc.get();
+    // tx still returned despite mismatch (soft fail)
+    expect(txs.find(t => t.transactionHash === VALID_TXID)?.status).toBe('CONFIRMED');
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('skips merkle verification and still returns tx when getBlockHeader throws', async () => {
+    const map = (scanManager as unknown as { historyCacheReceive: Map<number, HistoryEntry> }).historyCacheReceive;
+    map.set(0, { lastChecked: 0, txs: [[VALID_TXID, 800_000]] });
+    jest
+      .spyOn(electrumService, 'getRawTransaction')
+      .mockResolvedValue(fakeConfirmedTxWithValidId() as unknown as string);
+    jest.spyOn(electrumService, 'getBlockHeader').mockRejectedValue(new Error('Electrum not connected'));
+    const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+    const svc = new TxHistoryService();
+    const txs = await svc.get();
+    expect(txs.find(t => t.transactionHash === VALID_TXID)?.status).toBe('CONFIRMED');
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('skips merkle verification for unconfirmed txs (height = 0)', async () => {
+    const map = (scanManager as unknown as { historyCacheReceive: Map<number, HistoryEntry> }).historyCacheReceive;
+    map.set(0, { lastChecked: 0, txs: [[VALID_TXID, 0]] }); // height=0 = unconfirmed
+    const pendingTx: ElectrumTransaction = { ...fakeConfirmedTxWithValidId(), confirmations: 0 };
+    jest.spyOn(electrumService, 'getRawTransaction').mockResolvedValue(pendingTx as unknown as string);
+    const getHeaderSpy = jest.spyOn(electrumService, 'getBlockHeader');
+    const svc = new TxHistoryService();
+    await svc.get();
+    expect(getHeaderSpy).not.toHaveBeenCalled();
   });
 
   it('addOptimisticPending() is replaced by the canonical entry once the scanner picks the tx up', async () => {

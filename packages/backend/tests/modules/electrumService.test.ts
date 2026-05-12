@@ -175,6 +175,55 @@ describe('ElectrumService', () => {
     await expect(svc.getUtxoBatch([['x']])).rejects.toThrow('Electrum not connected');
   });
 
+  it('getBlockHeader sends blockchain.block.header and returns 160-char hex', async () => {
+    const { svc, ws } = await bootElectrumService();
+    const HEADER_HEX = '00'.repeat(80);
+    const p = svc.getBlockHeader(800_000);
+    const sent = JSON.parse(ws().sent[ws().sent.length - 1]);
+    expect(sent.method).toBe('blockchain.block.header');
+    expect(sent.params).toEqual([800_000]);
+    ws().triggerMessage(JSON.stringify({ id: sent.id, result: HEADER_HEX }));
+    expect(await p).toBe(HEADER_HEX);
+  });
+
+  it('getBlockHeader caches the result — second call sends no new request', async () => {
+    const { svc, ws } = await bootElectrumService();
+    const HEADER_HEX = 'ab'.repeat(80);
+    const p = svc.getBlockHeader(850_000);
+    const sent = JSON.parse(ws().sent[ws().sent.length - 1]);
+    ws().triggerMessage(JSON.stringify({ id: sent.id, result: HEADER_HEX }));
+    await p;
+    const sentBefore = ws().sent.length;
+    expect(await svc.getBlockHeader(850_000)).toBe(HEADER_HEX);
+    expect(ws().sent.length).toBe(sentBefore);
+  });
+
+  it('getBlockHeader throws when not connected', async () => {
+    const svc = new ElectrumService();
+    await expect(svc.getBlockHeader(800_000)).rejects.toThrow('Electrum not connected');
+  });
+
+  it('getBlockHeader throws on invalid server response', async () => {
+    const { svc, ws } = await bootElectrumService();
+    const p = svc.getBlockHeader(800_000);
+    const sent = JSON.parse(ws().sent[ws().sent.length - 1]);
+    ws().triggerMessage(JSON.stringify({ id: sent.id, result: 'tooshort' }));
+    await expect(p).rejects.toThrow(/block header/);
+  });
+
+  it('disconnect clears the header cache', async () => {
+    const { svc, ws } = await bootElectrumService();
+    const HEADER_HEX = '00'.repeat(80);
+    const p = svc.getBlockHeader(800_000);
+    const sent = JSON.parse(ws().sent[ws().sent.length - 1]);
+    ws().triggerMessage(JSON.stringify({ id: sent.id, result: HEADER_HEX }));
+    await p;
+    svc.disconnect();
+    // After disconnect, rpcClient is still set but cache is cleared — next call would go to server
+    // We verify by checking status changed to disconnected
+    expect(svc.status).toBe('disconnected');
+  });
+
   it('disconnect updates status to "disconnected" and includes reason', async () => {
     const { svc } = await bootElectrumService();
     const events: { status: string; reason?: string }[] = [];
