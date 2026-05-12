@@ -23,8 +23,13 @@
     "@extension/shared": "workspace:*",
     "@extension/storage": "workspace:*",
     "avvvatars-react": "^0.4.2",
+    "bip39": "3.1.0",
+    "bitcoinjs-lib": "6.1.7",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
     "react-loading-skeleton": "^3.5.0",
     "react-qr-code": "^2.0.15",
+    "react-router-dom": "^7.9.5",
     "webextension-polyfill": "^0.12.0"
   },
   "devDependencies": {
@@ -32,8 +37,7 @@
     "@extension/tsconfig": "workspace:*",
     "@extension/vite-config": "workspace:*",
     "@types/webextension-polyfill": "^0.12.3",
-    "cross-env": "^7.0.3",
-    "postcss-load-config": "^6.0.1"
+    "cross-env": "^7.0.3"
   },
   "postcss": {
     "plugins": {
