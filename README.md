@@ -103,6 +103,12 @@ pnpm install
   Zips the production build output for distribution. Use the resulting zip file to publish the extension on the Chrome Web Store.
 - **`pnpm zip:firefox`**  
   Zips the Firefox-specific build for submission to the Firefox Add-ons Marketplace.
+- **Cutting a release (Changesets):**
+  Versions are managed by [Changesets](https://github.com/changesets/changesets). All workspace packages bump together (see `.changeset/config.json`).
+    1. While developing, run `pnpm changeset` to record a patch/minor/major bump for `chrome-extension`. Commit the generated `.changeset/*.md` file.
+    2. When ready to release, on `main`, run `pnpm version-packages`. This consumes all pending changesets, bumps every workspace package in lockstep, refreshes `pnpm-lock.yaml`, and updates each package's `CHANGELOG.md`. Commit the result.
+    3. Tag and push only that tag: `release_tag="v$(node -p "require('./chrome-extension/package.json').version")" && git tag "$release_tag" && git push origin "$release_tag"`.
+    4. The release workflow verifies the tag matches `chrome-extension/package.json` before building the zip.
 - **Publishing Steps:**
   - **Release artifact must come from green CI.** Do not upload a locally built zip. Push a `v*` tag to trigger `.github/workflows/release.yaml`; that workflow runs `pnpm audit --prod --audit-level=high`, lint, type-check, tests, build, and source-map check, then publishes the zip as a build artifact for download.
   - **Chrome Web Store:**  
