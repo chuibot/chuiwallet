@@ -99,7 +99,12 @@ export class ElectrumService {
     // CRYPTO-W2-001 / CHUI-AUDIT-004: compute the txid locally. A malicious
     // Electrum server could otherwise return an attacker-controlled txid that
     // walletManager would then write into the user's optimistic history.
-    const localTxid = bitcoin.Transaction.fromHex(hex).getId();
+    let localTxid: string;
+    try {
+      localTxid = bitcoin.Transaction.fromHex(hex).getId();
+    } catch {
+      throw new Error('Invalid transaction hex');
+    }
 
     try {
       const response = await this.rpcClient.sendRequest('blockchain.transaction.broadcast', [hex]);
