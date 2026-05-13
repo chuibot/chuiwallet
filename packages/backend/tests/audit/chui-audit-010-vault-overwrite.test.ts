@@ -23,6 +23,6 @@ describe('CHUI-AUDIT-010 — wallet.create refuses to overwrite an existing vaul
     (wallet as unknown as { encryptedVault: string }).encryptedVault = 'PRE_EXISTING_CIPHERTEXT';
     (wallet as unknown as { root: null }).root = null;
 
-    await expect(wallet.create({ password: 'p455w0rd' })).rejects.toThrow(/already exists?/i);
+    await expect(wallet.create({ password: 'p455w0rd' })).rejects.toThrow(/wallet_already_exists/i);
   });
 });

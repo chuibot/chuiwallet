@@ -104,7 +104,8 @@ export function fingerprintBuffer(node: BIP32Interface): Buffer {
 
 /**
  * Convert a BIP32 node to an HDSigner acceptable by bitcoinjs-lib PSBT.
- * This fixes TypeScript’s type mismatch while keeping runtime behavior correct.
+ * For ECDSA paths only (P2PKH / P2WPKH / P2SH-P2WPKH). For P2TR key-path
+ * use `toTaprootSigner`, which exposes the tweaked pubkey + signSchnorr.
  */
 export function toHdSigner(node: BIP32Interface): bitcoin.Signer & HDSigner {
   const pubkey = asBuffer(node.publicKey);

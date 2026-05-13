@@ -1,3 +1,4 @@
+import * as bitcoin from 'bitcoinjs-lib';
 import type {
   ConnectionStatus,
   ConnectionUpdate,
@@ -95,12 +96,23 @@ export class ElectrumService {
       throw new Error('Invalid transaction hex');
     }
 
+    // CRYPTO-W2-001 / CHUI-AUDIT-004: compute the txid locally. A malicious
+    // Electrum server could otherwise return an attacker-controlled txid that
+    // walletManager would then write into the user's optimistic history.
+    let localTxid: string;
+    try {
+      localTxid = bitcoin.Transaction.fromHex(hex).getId();
+    } catch {
+      throw new Error('Invalid transaction hex');
+    }
+
     try {
       const response = await this.rpcClient.sendRequest('blockchain.transaction.broadcast', [hex]);
-      if (typeof response === 'string' && /^[0-9a-f]{64}$/i.test(response)) {
-        return response;
+      if (typeof response !== 'string' || !/^[0-9a-f]{64}$/i.test(response)) {
+        throw new Error(`Unexpected broadcast result: ${String(response)}`);
       }
-      throw new Error(`Unexpected broadcast result: ${String(response)}`);
+      // Ignore `response`; trust only the locally derived txid.
+      return localTxid;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       throw new Error(`Broadcast failed: ${msg}`);

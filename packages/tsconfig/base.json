@@ -6,6 +6,7 @@
     "noEmit": true,
     "module": "esnext",
     "downlevelIteration": true,
+    "ignoreDeprecations": "5.0",
     "isolatedModules": true,
     "strict": true,
     "noImplicitAny": true,

@@ -18,12 +18,11 @@ import { ElectrumService } from '../../src/modules/electrumService';
 
 describe('CHUI-AUDIT-004 — broadcast txid is locally computed', () => {
   it('returns the locally-derived txid even when the server lies', async () => {
-    // A real tx hex (any valid serialization works for this test).
-    // For the placeholder, build a synthetic tx so the test does not depend on
-    // a fixture file.
+    // Build a synthetic tx so the test does not depend on a fixture file.
+    // Output script: OP_0 <20-byte-hash> = a valid P2WPKH.
     const tx = new bitcoin.Transaction();
     tx.addInput(Buffer.alloc(32, 1), 0);
-    tx.addOutput(Buffer.from('00149c8e8b...', 'hex'), 50_000n as unknown as number);
+    tx.addOutput(Buffer.from('0014' + '00'.repeat(20), 'hex'), 50_000);
     const rawTxHex = tx.toHex();
     const realTxid = tx.getId();
 
