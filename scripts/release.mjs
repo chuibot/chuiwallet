@@ -38,6 +38,22 @@ function captureFile(cmd, args) {
   return execFileSync(cmd, args, { cwd: ROOT, encoding: 'utf8' }).trim();
 }
 
+function runFile(cmd, args, opts = {}) {
+  return execFileSync(cmd, args, { cwd: ROOT, stdio: 'inherit', ...opts });
+}
+
+function isTracked(rel) {
+  try {
+    execFileSync('git', ['ls-files', '--error-unmatch', '--', rel], {
+      cwd: ROOT,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // --- pre-flight checks ------------------------------------------------------
 
 // Untracked files are ignored on purpose: this script only stages the files
@@ -87,6 +103,14 @@ const workspaceFiles = JSON.parse(
   .map(({ path }) => relative(ROOT, realpathSync(join(path, 'package.json'))) || 'package.json')
   .sort();
 
+const untrackedWorkspaceFiles = workspaceFiles.filter((rel) => !isTracked(rel));
+if (untrackedWorkspaceFiles.length) {
+  console.error('✗ Untracked workspace package.json files present:');
+  console.error(untrackedWorkspaceFiles.join('\n'));
+  console.error('  Commit them or remove the workspace dir before releasing.');
+  process.exit(1);
+}
+
 // --- bump every package.json -----------------------------------------------
 
 for (const rel of workspaceFiles) {
@@ -112,7 +136,7 @@ run('pnpm install --lockfile-only');
 
 const tag = `v${next}`;
 const filesToStage = [...workspaceFiles, 'pnpm-lock.yaml'];
-run(`git add -- ${filesToStage.join(' ')}`);
+runFile('git', ['add', '--', ...filesToStage]);
 // --no-verify: release commit is mechanical (version bumps + lockfile). Quality
 // gates run on the tag in CI, not on this local commit.
 run(`git commit --no-verify -m "Release ${tag}"`);
