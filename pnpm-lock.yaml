@@ -237,15 +237,6 @@ importers:
         specifier: 8.18.0
         version: 8.18.0
 
-  packages/i18n:
-    devDependencies:
-      '@extension/hmr':
-        specifier: workspace:*
-        version: link:../hmr
-      '@extension/tsconfig':
-        specifier: workspace:*
-        version: link:../tsconfig
-
   packages/shared:
     devDependencies:
       '@extension/storage':
