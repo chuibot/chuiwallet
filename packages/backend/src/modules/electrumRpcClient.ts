@@ -60,8 +60,19 @@ export class ElectrumRpcClient {
       const wsUrl = `${protocol}${this.server.host}:${this.server.port}`;
       this.disconnect();
 
+      let opened = false;
+      let settled = false;
+      const fail = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        this.disconnect();
+        reject(error);
+      };
+
       this.socket = new WebSocket(wsUrl);
       this.socket.onopen = () => {
+        opened = true;
+        settled = true;
         logger.log(`Connected to Electrum server at ${wsUrl}`);
         this.setStatus('connected');
         resolve(this);
@@ -73,16 +84,18 @@ export class ElectrumRpcClient {
       };
 
       this.socket.onerror = (error: Event) => {
-        const errorMessage = 'WebSocket error: ' + (error as ErrorEvent).message || 'Unknown error';
+        const errorMessage = 'WebSocket error: ' + ((error as ErrorEvent).message || 'Unknown error');
         logger.error(errorMessage, error);
         this.setStatus('error', errorMessage);
-        this.disconnect();
-        reject(new Error(errorMessage));
+        fail(new Error(errorMessage));
       };
 
+      // Without this, a close before onopen would leave the connect() Promise
+      // pending forever, and the background reconnect loop would hang on it.
       this.socket.onclose = () => {
         this.disconnect();
         logger.warn('WebSocket closed');
+        if (!opened) fail(new Error(`WebSocket closed before connection opened: ${wsUrl}`));
       };
     });
   }

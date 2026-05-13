@@ -57,9 +57,10 @@ export class WalletManager {
     const sessionPassword = await getSessionPassword();
     if (!sessionPassword) return false;
 
-    const previousNetwork = preferenceManager.get().activeNetwork;
+    const previousPrefs = preferenceManager.get();
+    const previousNetwork = previousPrefs.activeNetwork;
+    const previousAccountIndex = previousPrefs.activeAccountIndex;
     electrumService.disconnect('switchNetwork');
-    scanManager.clear();
 
     try {
       await preferenceManager.update({ activeNetwork: network });
@@ -68,17 +69,27 @@ export class WalletManager {
       await electrumService.init(network);
       await electrumService.connect();
       await accountManager.init(preferenceManager.get().activeAccountIndex);
+      scanManager.clear();
       await scanManager.init();
       historyService.reset();
       return true;
     } catch (err) {
-      // Without this rollback, the 'switchNetwork' disconnect reason suppresses
-      // auto-reconnect and the wallet sits permanently on "Disconnected".
+      // Without a full rollback, the 'switchNetwork' disconnect reason suppresses
+      // auto-reconnect and the wallet sits permanently on "Disconnected". We also
+      // restore the previous account index — ensureDefaultAccount() may have moved
+      // it before init/connect failed, which would otherwise leave the previous
+      // network paired with the new network's account index.
       logger.error('switchNetwork failed, rolling back to previous network', err);
-      await preferenceManager.update({ activeNetwork: previousNetwork });
+      await preferenceManager.update({
+        activeNetwork: previousNetwork,
+        activeAccountIndex: previousAccountIndex,
+      });
       await wallet.restore(previousNetwork, sessionPassword).catch(() => undefined);
+      await accountManager.init(previousAccountIndex).catch(() => undefined);
+      scanManager.clear();
+      await scanManager.init().catch(() => undefined);
       await electrumService.init(previousNetwork).catch(() => undefined);
-      electrumService.connect().catch(() => undefined);
+      void electrumService.connect().catch(error => logger.error('rollback reconnect failed', error));
       throw err;
     }
   }
@@ -119,8 +130,11 @@ export class WalletManager {
         logger.error('switchAccount network change failed, rolling back', err);
         await preferenceManager.update({ activeNetwork: previousNetwork, activeAccountIndex: previousAccountIndex });
         await wallet.restore(previousNetwork, sessionPassword).catch(() => undefined);
+        await accountManager.init(previousAccountIndex).catch(() => undefined);
+        scanManager.clear();
+        await scanManager.init().catch(() => undefined);
         await electrumService.init(previousNetwork).catch(() => undefined);
-        electrumService.connect().catch(() => undefined);
+        void electrumService.connect().catch(error => logger.error('rollback reconnect failed', error));
         throw err;
       }
     } else {
