@@ -16,6 +16,33 @@ import { emitBalance, emitConnection, registerMessagePort } from '@src/backgroun
 bitcoin.initEccLib(secp256k1);
 
 let electrumReconnecting = false;
+let electrumReconnectAttempt = 0;
+let electrumReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleElectrumReconnect() {
+  if (electrumReconnecting) return;
+  if (electrumReconnectTimer) {
+    clearTimeout(electrumReconnectTimer);
+    electrumReconnectTimer = null;
+  }
+  electrumReconnecting = true;
+  void (async () => {
+    try {
+      await electrumService.connect();
+      electrumReconnectAttempt = 0;
+    } catch (err) {
+      logger.error('Electrum reconnect failed', err);
+      const delay = Math.min(30_000, 1000 * 2 ** electrumReconnectAttempt);
+      electrumReconnectAttempt++;
+      electrumReconnectTimer = setTimeout(() => {
+        electrumReconnectTimer = null;
+        scheduleElectrumReconnect();
+      }, delay);
+    } finally {
+      electrumReconnecting = false;
+    }
+  })();
+}
 
 async function init() {
   await ensureChainAdaptersReady();
@@ -24,17 +51,16 @@ async function init() {
 
   electrumService.onStatus.on(update => {
     emitConnection(update.status, update.detail);
-    if (update.status === 'disconnected' && !electrumReconnecting && update.reason !== 'switchNetwork') {
-      electrumReconnecting = true;
-      void (async () => {
-        try {
-          await electrumService.connect();
-        } catch (err) {
-          logger.error('Electrum reconnect failed', err);
-        } finally {
-          electrumReconnecting = false;
-        }
-      })();
+    if (update.status === 'connected') {
+      electrumReconnectAttempt = 0;
+      if (electrumReconnectTimer) {
+        clearTimeout(electrumReconnectTimer);
+        electrumReconnectTimer = null;
+      }
+      return;
+    }
+    if (update.status === 'disconnected' && update.reason !== 'switchNetwork') {
+      scheduleElectrumReconnect();
     }
   });
   await electrumService.connect();

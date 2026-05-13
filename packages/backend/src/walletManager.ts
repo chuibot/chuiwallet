@@ -55,21 +55,32 @@ export class WalletManager {
 
   async switchNetwork(network: Network) {
     const sessionPassword = await getSessionPassword();
-    if (sessionPassword) {
-      electrumService.disconnect('switchNetwork');
-      scanManager.clear();
+    if (!sessionPassword) return false;
+
+    const previousNetwork = preferenceManager.get().activeNetwork;
+    electrumService.disconnect('switchNetwork');
+    scanManager.clear();
+
+    try {
       await preferenceManager.update({ activeNetwork: network });
-      await wallet.restore(preferenceManager.get().activeNetwork, sessionPassword);
+      await wallet.restore(network, sessionPassword);
       await this.ensureDefaultAccount();
-      await electrumService.init(preferenceManager.get().activeNetwork);
+      await electrumService.init(network);
       await electrumService.connect();
       await accountManager.init(preferenceManager.get().activeAccountIndex);
       await scanManager.init();
       historyService.reset();
       return true;
+    } catch (err) {
+      // Without this rollback, the 'switchNetwork' disconnect reason suppresses
+      // auto-reconnect and the wallet sits permanently on "Disconnected".
+      logger.error('switchNetwork failed, rolling back to previous network', err);
+      await preferenceManager.update({ activeNetwork: previousNetwork });
+      await wallet.restore(previousNetwork, sessionPassword).catch(() => undefined);
+      await electrumService.init(previousNetwork).catch(() => undefined);
+      electrumService.connect().catch(() => undefined);
+      throw err;
     }
-
-    return false;
   }
 
   /**
@@ -96,11 +107,22 @@ export class WalletManager {
     const networkChanged = prefs.activeNetwork !== account.network;
 
     if (networkChanged) {
+      const previousNetwork = prefs.activeNetwork;
+      const previousAccountIndex = prefs.activeAccountIndex;
       electrumService.disconnect('switchNetwork');
-      await preferenceManager.update({ activeNetwork: account.network, activeAccountIndex: accountListIndex });
-      await wallet.restore(account.network, sessionPassword);
-      await electrumService.init(account.network);
-      await electrumService.connect();
+      try {
+        await preferenceManager.update({ activeNetwork: account.network, activeAccountIndex: accountListIndex });
+        await wallet.restore(account.network, sessionPassword);
+        await electrumService.init(account.network);
+        await electrumService.connect();
+      } catch (err) {
+        logger.error('switchAccount network change failed, rolling back', err);
+        await preferenceManager.update({ activeNetwork: previousNetwork, activeAccountIndex: previousAccountIndex });
+        await wallet.restore(previousNetwork, sessionPassword).catch(() => undefined);
+        await electrumService.init(previousNetwork).catch(() => undefined);
+        electrumService.connect().catch(() => undefined);
+        throw err;
+      }
     } else {
       await preferenceManager.update({ activeAccountIndex: accountListIndex });
     }
