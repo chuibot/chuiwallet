@@ -18,6 +18,7 @@ eslint.config.js
 .DS_Store
 .idea
 **/.turbo
+**/*.tsbuildinfo
 
 # compiled
 chrome-extension/public/manifest.json
