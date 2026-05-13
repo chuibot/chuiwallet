@@ -11,12 +11,12 @@
  *   3. workflow builds, zips, and attaches the zip to a GitHub Release
  */
 
-import { execSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { join, dirname, resolve } from 'node:path';
+import { execFileSync, execSync } from 'node:child_process';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
 
 const BUMP = process.argv[2];
 const ALLOWED = ['patch', 'minor', 'major'];
@@ -32,6 +32,10 @@ function run(cmd, opts = {}) {
 
 function capture(cmd) {
   return execSync(cmd, { cwd: ROOT }).toString().trim();
+}
+
+function captureFile(cmd, args) {
+  return execFileSync(cmd, args, { cwd: ROOT, encoding: 'utf8' }).trim();
 }
 
 // --- pre-flight checks ------------------------------------------------------
@@ -69,14 +73,11 @@ console.log(`Releasing ${current} → ${next}`);
 
 // --- collect every workspace package.json ----------------------------------
 
-const workspaceFiles = [
-  'package.json',
-  'chrome-extension/package.json',
-  'pages/popup/package.json',
-  ...readdirSync(join(ROOT, 'packages'))
-    .map((d) => `packages/${d}/package.json`)
-    .filter((rel) => existsSync(join(ROOT, rel))),
-];
+const workspaceFiles = JSON.parse(
+  captureFile('pnpm', ['-r', 'list', '--depth', '-1', '--json']),
+)
+  .map(({ path }) => relative(ROOT, realpathSync(join(path, 'package.json'))) || 'package.json')
+  .sort();
 
 // --- bump every package.json -----------------------------------------------
 
@@ -104,8 +105,8 @@ run('pnpm install --lockfile-only');
 const tag = `v${next}`;
 run('git add -A');
 run(`git commit -m "Release ${tag}"`);
-run(`git tag ${tag}`);
-run('git push origin main --follow-tags');
+run(`git tag -a ${tag} -m "Release ${tag}"`);
+run(`git push --atomic origin main refs/tags/${tag}`);
 
 console.log(`\n✓ Released ${tag}`);
 console.log(`  Watch CI: https://github.com/chuibot/chuiwallet/actions`);
