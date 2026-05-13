@@ -32,11 +32,11 @@
     "prettier": "turbo prettier --continue -- --cache --cache-location node_modules/.cache/.prettiercache",
     "prepare": "husky",
     "postinstall": "pnpm build:eslint",
-    "changeset": "changeset",
-    "version-packages": "changeset version && pnpm install --lockfile-only"
+    "release:patch": "node scripts/release.mjs patch",
+    "release:minor": "node scripts/release.mjs minor",
+    "release:major": "node scripts/release.mjs major"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.31.0",
     "@eslint/compat": "^1.2.5",
     "@eslint/eslintrc": "^3.2.0",
     "@eslint/js": "^9.18.0",
