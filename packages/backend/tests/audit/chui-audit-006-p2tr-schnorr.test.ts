@@ -1,23 +1,22 @@
 /**
  * CHUI-AUDIT-006 — P2TR signing path lacks `signSchnorr`.
  *
- * The bug: toHdSigner() in packages/backend/src/utils/crypto.ts returns a
- * bitcoinjs-lib Signer that has only `sign` (ECDSA), no `signSchnorr`. When
- * the wallet builds a P2TR PSBT and calls psbt.signInput, bitcoinjs-lib
- * either throws or produces a non-Schnorr witness, both of which mean the
- * tx will not confirm.
+ * Background: the wallet uses two signer factories. `toHdSigner` exposes
+ * ECDSA `sign` for P2PKH / P2WPKH / P2SH-P2WPKH. `toTaprootSigner` exposes
+ * the BIP-86 tweaked pubkey + `signSchnorr` for P2TR key-path. The wallet
+ * picks the right factory per input (wallet.ts switches on isTaproot).
  *
- * The fix: add a `signSchnorr` implementation that derives the BIP-86 tap
- * tweak and uses @bitcoinerlab/secp256k1's signSchnorr.
- *
- * This test currently FAILS on main (8f53021). It passes once the fix lands.
+ * The audit-006 bug was: P2TR PSBTs went through `toHdSigner`, which has
+ * no `signSchnorr`. The fix landed in wallet.ts: P2TR inputs now use
+ * `toTaprootSigner`. This test pins that contract by signing a P2TR input
+ * with the production taproot signer and validating the witness.
  */
 
 import * as bitcoin from 'bitcoinjs-lib';
 import * as bip39 from 'bip39';
 import { BIP32Factory } from 'bip32';
 import * as ecc from '@bitcoinerlab/secp256k1';
-import { toHdSigner } from '../../src/utils/crypto';
+import { toTaprootSigner } from '../../src/utils/crypto';
 
 const bip32 = BIP32Factory(ecc);
 bitcoin.initEccLib(ecc);
@@ -47,9 +46,8 @@ describe('CHUI-AUDIT-006 — P2TR signing produces a valid Schnorr witness', () 
     });
     psbt.addOutput({ script: scriptPubKey!, value: 99_500 });
 
-    const signer = toHdSigner(child);
+    const signer = toTaprootSigner(child);
 
-    // After fix: signer has signSchnorr and the call succeeds.
     expect(typeof signer.signSchnorr).toBe('function');
 
     psbt.signInput(0, signer);

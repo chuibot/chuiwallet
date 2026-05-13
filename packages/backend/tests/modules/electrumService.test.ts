@@ -1,6 +1,16 @@
+import * as bitcoin from 'bitcoinjs-lib';
 import { ElectrumService } from '../../src/modules/electrumService';
 import { FakeWebSocket, installWebSocketMock, resetWebSocketMock, restoreWebSocket } from '../helpers/wsMock';
 import { Network } from '../../src/types/electrum';
+
+// Build a real serialized tx so broadcastTx's local txid step
+// (Transaction.fromHex) accepts the input.
+function syntheticRawTx(): { rawTxHex: string; txid: string } {
+  const tx = new bitcoin.Transaction();
+  tx.addInput(Buffer.alloc(32, 1), 0);
+  tx.addOutput(Buffer.from('0014' + '00'.repeat(20), 'hex'), 50_000);
+  return { rawTxHex: tx.toHex(), txid: tx.getId() };
+}
 
 async function bootElectrumService(network: Network = Network.Mainnet): Promise<{
   svc: ElectrumService;
@@ -79,19 +89,23 @@ describe('ElectrumService', () => {
     await expect(svc.broadcastTx('abc')).rejects.toThrow(/Invalid transaction hex/);
   });
 
-  it('broadcastTx returns the txid when the server returns a 64-char hex string', async () => {
+  it('broadcastTx returns the LOCALLY computed txid and ignores the server reply', async () => {
     const { svc, ws } = await bootElectrumService();
-    const txid = 'a'.repeat(64);
-    const p = svc.broadcastTx('0100abcd');
+    const { rawTxHex, txid: localTxid } = syntheticRawTx();
+    const serverLie = 'a'.repeat(64);
+    const p = svc.broadcastTx(rawTxHex);
     const sent = JSON.parse(ws().sent[ws().sent.length - 1]);
     expect(sent.method).toBe('blockchain.transaction.broadcast');
-    ws().triggerMessage(JSON.stringify({ id: sent.id, result: txid }));
-    expect(await p).toBe(txid);
+    ws().triggerMessage(JSON.stringify({ id: sent.id, result: serverLie }));
+    const returned = await p;
+    expect(returned).toBe(localTxid);
+    expect(returned).not.toBe(serverLie);
   });
 
   it('broadcastTx wraps server errors with "Broadcast failed" prefix', async () => {
     const { svc, ws } = await bootElectrumService();
-    const p = svc.broadcastTx('0100abcd');
+    const { rawTxHex } = syntheticRawTx();
+    const p = svc.broadcastTx(rawTxHex);
     const sent = JSON.parse(ws().sent[ws().sent.length - 1]);
     ws().triggerMessage(JSON.stringify({ id: sent.id, error: { message: 'mempool full' } }));
     await expect(p).rejects.toThrow(/Broadcast failed: mempool full/);
@@ -99,10 +113,11 @@ describe('ElectrumService', () => {
 
   it('broadcastTx throws on unexpected non-txid result shape', async () => {
     const { svc, ws } = await bootElectrumService();
-    const p = svc.broadcastTx('0100abcd');
+    const { rawTxHex } = syntheticRawTx();
+    const p = svc.broadcastTx(rawTxHex);
     const sent = JSON.parse(ws().sent[ws().sent.length - 1]);
     ws().triggerMessage(JSON.stringify({ id: sent.id, result: 'not a txid' }));
-    await expect(p).rejects.toThrow(/Unexpected broadcast result/);
+    await expect(p).rejects.toThrow(/Broadcast failed: Unexpected broadcast result/);
   });
 
   it('getTipHeight throws when all healthy servers return null (quorum not met)', async () => {
