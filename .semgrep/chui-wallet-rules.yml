@@ -1,0 +1,283 @@
+rules:
+  # === Cryptographic primitives ===
+  - id: math-random-in-security-paths
+    pattern: Math.random(...)
+    message: |
+      Math.random is non-cryptographic. Use crypto.getRandomValues for any value
+      that is a key, salt, IV, nonce, session id, or other security-relevant
+      material. This rule fires only on backend/extension paths, where security
+      bugs cost funds.
+    languages: [typescript, javascript]
+    severity: ERROR
+    paths:
+      include:
+        - packages/backend/src/**
+        - chrome-extension/src/**
+      exclude:
+        - "**/*.test.ts"
+        - "**/*.spec.ts"
+
+  - id: weak-pbkdf2-iterations
+    patterns:
+      - pattern: PBKDF2($PASS, $SALT, { iterations: $N, ... })
+      - metavariable-comparison:
+          metavariable: $N
+          comparison: $N < 600000
+    message: |
+      PBKDF2 iteration count below 600 000 (OWASP 2023 minimum for SHA-256).
+      Chui pinned 600 000 in encryption.ts; do not lower it without a written
+      threat-model exception.
+    languages: [typescript, javascript]
+    severity: ERROR
+
+  # === Provider / dApp surface ===
+  - id: postmessage-wildcard-target-origin
+    pattern: $W.postMessage($MSG, "*")
+    message: |
+      postMessage targetOrigin "*" leaks the message to whatever origin the
+      window currently holds. For inpage <-> content traffic, pin to
+      window.location.origin so a navigation race cannot redirect the message.
+    languages: [typescript, javascript]
+    severity: WARNING
+    paths:
+      include:
+        - chrome-extension/src/**
+        - pages/popup/src/**
+
+  - id: postmessage-listener-no-source-or-tag-check
+    patterns:
+      - pattern: |
+          window.addEventListener("message", function ($EVT) { ... })
+      - pattern-not: |
+          window.addEventListener("message", function ($EVT) {
+            ...
+            if ($EVT.source !== window) ...
+            ...
+          })
+    message: |
+      postMessage listener does not check event.source against window.
+      Same-page attackers can spoof messages. Add at minimum
+      `if (event.source !== window) return;` and ideally a per-request
+      cryptographic nonce that the listener validates.
+    languages: [typescript, javascript]
+    severity: WARNING
+    paths:
+      include:
+        - chrome-extension/src/inpage/**
+        - chrome-extension/src/content/**
+
+  - id: writable-window-property-for-provider
+    patterns:
+      - pattern-either:
+          - pattern: window.$NAME = $VAL
+          - pattern: globalThis.$NAME = $VAL
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: "^(ChuiWalletProvider|btc|btc_providers|ethereum)$"
+    message: |
+      Direct assignment to a wallet-relevant window global makes the property
+      writable and configurable. A page script that runs before the inpage
+      bundle (or after, in a race) can replace it. Use Object.defineProperty
+      with writable:false, configurable:false, plus a descriptor self-check.
+    languages: [typescript, javascript]
+    severity: ERROR
+    paths:
+      include:
+        - chrome-extension/src/inpage/**
+
+  # === Secrets / logging ===
+  - id: console-log-of-secret-named-variable
+    patterns:
+      - pattern-either:
+          - pattern: console.$M(..., $VAR, ...)
+          - pattern: console.$M(..., $VAR)
+          - pattern: console.$M($VAR)
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: "(password|mnemonic|seed|xpriv|privkey|secret|salt|iv|sessionPassword)"
+      - metavariable-regex:
+          metavariable: $M
+          regex: "^(log|debug|info|warn|error)$"
+    message: |
+      console call appears to receive a variable whose name suggests it is
+      sensitive. Sensitive material must never reach the browser console
+      because dev tools, browser extensions and crash reporters can capture it.
+    languages: [typescript, javascript]
+    severity: ERROR
+    paths:
+      include:
+        - packages/backend/src/**
+        - chrome-extension/src/**
+        - pages/popup/src/**
+
+  - id: chrome-storage-local-set-of-secret
+    patterns:
+      - pattern-either:
+          - pattern: chrome.storage.local.set({ ..., $K: $V, ... })
+          - pattern: browser.storage.local.set({ ..., $K: $V, ... })
+      - metavariable-regex:
+          metavariable: $K
+          regex: "(password|mnemonic|seed|xpriv|privkey|secret|sessionPassword|apiKey)"
+    message: |
+      A field name that looks sensitive is being written to chrome.storage.local
+      (which persists to disk). Secrets must be encrypted before storage.local
+      writes, or held only in chrome.storage.session (in-memory).
+    languages: [typescript, javascript]
+    severity: ERROR
+
+  # === DOM / XSS ===
+  - id: dangerously-set-inner-html
+    pattern-either:
+      - pattern: $X.innerHTML = $Y
+      - pattern: $X.outerHTML = $Y
+      - pattern: <$T dangerouslySetInnerHTML={ ... } />
+    message: |
+      innerHTML / outerHTML / dangerouslySetInnerHTML create XSS surface.
+      For the approval popup and any dapp-supplied data, render via React
+      text nodes only.
+    languages: [typescript, javascript, tsx, jsx]
+    severity: ERROR
+    paths:
+      include:
+        - pages/popup/src/**
+        - chrome-extension/src/**
+
+  - id: eval-or-function-constructor
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+      - pattern: setTimeout($STR, ...)
+      - pattern: setInterval($STR, ...)
+    message: |
+      Dynamic code execution is forbidden. MV3 already blocks eval at runtime,
+      but a build-time check catches it before it ships.
+    languages: [typescript, javascript]
+    severity: ERROR
+
+  # === Mnemonic input attributes ===
+  - id: mnemonic-input-missing-autocomplete-off
+    patterns:
+      - pattern: |
+          <input type="text" ... />
+      - pattern-not: |
+          <input type="text" ... autoComplete="off" ... />
+    message: |
+      Inputs that may receive seed-phrase fragments must declare
+      autoComplete="off", spellCheck={false}, and autoCapitalize="off"
+      to prevent OS spell-cache and browser-autofill leaks (Halborn "Demonic"
+      class). Apply broadly to any input in onboarding/restore flows.
+    languages: [tsx, jsx]
+    severity: WARNING
+    paths:
+      include:
+        - pages/popup/src/pages/onboard/**
+        - pages/popup/src/components/**
+
+  # === HTTP and URL hygiene ===
+  - id: http-non-tls-url-in-security-path
+    patterns:
+      - pattern-regex: '\\bhttp://[a-zA-Z0-9.-]+'
+    message: |
+      Non-TLS HTTP URL in extension or backend code. All network traffic
+      from a wallet must use HTTPS or wss://. Use HTTPS even for fee/price
+      oracles.
+    languages: [typescript, javascript]
+    severity: WARNING
+    paths:
+      include:
+        - packages/backend/src/**
+        - chrome-extension/src/**
+      exclude:
+        - "**/*.test.ts"
+        - "**/*.spec.ts"
+
+  # === Parsing untrusted data ===
+  - id: json-parse-of-fetch-response-without-validation
+    patterns:
+      - pattern: |
+          $RES = await fetch(...);
+          ...
+          $DATA = await $RES.json();
+      - pattern-not-inside: |
+          if (...$DATA...) { ... }
+    message: |
+      JSON response is read but not validated. External RPC responses must be
+      shape-validated (zod, manual narrowing, or `assertElectrumResponse`)
+      before downstream code reads fields.
+    languages: [typescript, javascript]
+    severity: INFO
+    paths:
+      include:
+        - packages/backend/src/**
+
+  # === Empty catch ===
+  - id: empty-catch-block
+    pattern: |
+      try { ... } catch { }
+    message: |
+      Empty catch block hides errors. At minimum, log to logger.error.
+      In wallet code, swallowed errors can mean the user thinks an action
+      succeeded when it did not.
+    languages: [typescript, javascript]
+    severity: WARNING
+    paths:
+      include:
+        - packages/backend/src/**
+        - chrome-extension/src/**
+
+  # === Address truncation in render paths (anti-poisoning) ===
+  - id: address-truncation-without-full-on-hover
+    pattern-either:
+      - pattern: $ADDR.slice(0, 6) + "..." + $ADDR.slice(-4)
+      - pattern: |
+          `${$ADDR.slice(0, 6)}...${$ADDR.slice(-4)}`
+    message: |
+      Truncated address display without a full-address tooltip or expandable
+      view enables address-poisoning attacks. Either show the full address,
+      or render the truncated form with title={fullAddress} and a copy button.
+    languages: [typescript, javascript, tsx, jsx]
+    severity: WARNING
+    paths:
+      include:
+        - pages/popup/src/**
+
+  # === MV3 specifics ===
+  - id: chrome-runtime-on-message-no-sender-check
+    patterns:
+      - pattern: |
+          chrome.runtime.onMessage.addListener(($MSG, $SENDER, $REPLY) => { ... })
+      - pattern-not: |
+          chrome.runtime.onMessage.addListener(($MSG, $SENDER, $REPLY) => {
+            ...
+            if ($SENDER.id !== chrome.runtime.id) ...
+            ...
+          })
+    message: |
+      onMessage listener does not check sender.id against chrome.runtime.id.
+      With externally_connectable absent this still rejects cross-extension
+      callers, but defense-in-depth catches future manifest changes.
+    languages: [typescript, javascript]
+    severity: INFO
+    paths:
+      include:
+        - chrome-extension/src/**
+
+  - id: chrome-runtime-on-connect-no-sender-check
+    patterns:
+      - pattern: |
+          $X.runtime.onConnect.addListener(($PORT) => { ... })
+      - pattern-not: |
+          $X.runtime.onConnect.addListener(($PORT) => {
+            ...
+            if ($PORT.sender?.id !== chrome.runtime.id) ...
+            ...
+          })
+    message: |
+      runtime.onConnect listener does not check port.sender.id. The chui-app
+      port (PR #107) should reject connects from anything other than this
+      extension's own contexts.
+    languages: [typescript, javascript]
+    severity: WARNING
+    paths:
+      include:
+        - chrome-extension/src/**

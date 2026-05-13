@@ -1,0 +1,130 @@
+name: Audit Gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit-gates:
+    name: Type-check, lint, test, semgrep, audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Reproducible builds need a clean clone, not shallow depth.
+          fetch-depth: 0
+
+      - name: Read .nvmrc
+        id: nvm
+        run: echo "version=$(cat .nvmrc | tr -d 'v')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.nvm.outputs.version }}
+
+      - uses: pnpm/action-setup@v3
+        with:
+          # Match the version pinned in package.json packageManager field.
+          version: 9.15.1
+
+      - name: Disable npm lifecycle scripts globally
+        # Defence against compromised transitive dependencies running install hooks
+        # on a CI runner. The Qix and Shai-Hulud incidents both used postinstall.
+        run: pnpm config set ignore-scripts true
+
+      - name: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check (turbo)
+        run: pnpm type-check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Backend tests (jest)
+        run: pnpm --filter "@extension/backend" test
+
+      - name: Audit (pnpm)
+        run: pnpm audit --audit-level=moderate
+        # Keep this advisory until we triage all upstream advisories explicitly.
+        continue-on-error: false
+
+      - name: Install OSV-Scanner
+        run: |
+          go install github.com/google/osv-scanner/cmd/osv-scanner@latest
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+
+      - name: OSV-Scanner
+        run: osv-scanner --lockfile=pnpm-lock.yaml
+
+      - name: Install Semgrep
+        run: pip install semgrep==1.96.0
+
+      - name: Semgrep (chui-wallet rules)
+        run: semgrep --config .semgrep/chui-wallet-rules.yml --error --strict
+
+      - name: Build (production)
+        run: pnpm build
+
+      - name: Verify no source maps in dist/
+        run: |
+          if find dist -name '*.js.map' -o -name '*.css.map' | grep -q .; then
+            echo "Source maps found in production dist/" >&2
+            find dist -name '*.js.map' -o -name '*.css.map'
+            exit 1
+          fi
+
+      - name: Upload dist artifact for hash inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ github.sha }}
+          path: dist/
+          retention-days: 7
+
+  reproducibility-check:
+    name: Build reproducibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: audit-gates
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read .nvmrc
+        id: nvm
+        run: echo "version=$(cat .nvmrc | tr -d 'v')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.nvm.outputs.version }}
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9.15.1
+
+      - name: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Build twice and compare
+        run: |
+          pnpm build
+          (cd dist && find . -type f | sort | xargs sha256sum) > /tmp/hashes-1.txt
+          rm -rf dist
+          pnpm build
+          (cd dist && find . -type f | sort | xargs sha256sum) > /tmp/hashes-2.txt
+          diff /tmp/hashes-1.txt /tmp/hashes-2.txt
+        # If diff fails, the build is not byte-deterministic. Flagging here
+        # forces an explicit fix (or an explicit accepted exception with reason).
