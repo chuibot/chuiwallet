@@ -81,7 +81,8 @@
     ],
     "overrides": {
       "base-x@4": "4.0.1",
-      "sha.js": "^2.4.12"
+      "sha.js": "^2.4.12",
+      "jiti": "^2.4.2"
     }
   },
   "packageManager": "pnpm@9.15.1",
