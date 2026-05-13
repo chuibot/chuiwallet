@@ -40,8 +40,16 @@ function captureFile(cmd, args) {
 
 // --- pre-flight checks ------------------------------------------------------
 
-if (capture('git status --porcelain')) {
-  console.error('✗ Working tree is dirty. Commit or stash before releasing.');
+// Untracked files are ignored on purpose: this script only stages the files
+// it writes (workspace package.json files + pnpm-lock.yaml). Modifications
+// to tracked files DO block, since `git add` of the release files could miss
+// related staged work.
+const dirty = capture('git status --porcelain')
+  .split('\n')
+  .filter((line) => line && !line.startsWith('??'));
+if (dirty.length) {
+  console.error('✗ Tracked files have uncommitted changes:');
+  console.error(dirty.join('\n'));
   process.exit(1);
 }
 
@@ -103,7 +111,8 @@ run('pnpm install --lockfile-only');
 // --- commit, tag, push -----------------------------------------------------
 
 const tag = `v${next}`;
-run('git add -A');
+const filesToStage = [...workspaceFiles, 'pnpm-lock.yaml'];
+run(`git add -- ${filesToStage.join(' ')}`);
 run(`git commit -m "Release ${tag}"`);
 run(`git tag -a ${tag} -m "Release ${tag}"`);
 run(`git push --atomic origin main refs/tags/${tag}`);
