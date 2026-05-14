@@ -74,6 +74,12 @@ export class WalletManager {
       historyService.reset();
       return true;
     } catch (err) {
+      // A failed electrumService.connect() emits a reasonless 'disconnected'
+      // which the background listener treats as a real drop and starts
+      // reconnecting against the failed target. Re-tag the teardown with
+      // 'switchNetwork' so the background cancels that in-flight retry
+      // before we rebuild state for the previous network.
+      electrumService.disconnect('switchNetwork');
       // Without a full rollback, the 'switchNetwork' disconnect reason suppresses
       // auto-reconnect and the wallet sits permanently on "Disconnected". We also
       // restore the previous account index — ensureDefaultAccount() may have moved
@@ -132,6 +138,9 @@ export class WalletManager {
         historyService.reset();
         return preferenceManager.get();
       } catch (err) {
+        // Re-tag the teardown so the background cancels any auto-reconnect
+        // that the failed connect()'s reasonless 'disconnected' triggered.
+        electrumService.disconnect('switchNetwork');
         logger.error('switchAccount network change failed, rolling back', err);
         await preferenceManager.update({ activeNetwork: previousNetwork, activeAccountIndex: previousAccountIndex });
         await wallet.restore(previousNetwork, sessionPassword).catch(() => undefined);
