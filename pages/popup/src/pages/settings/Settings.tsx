@@ -54,20 +54,12 @@ export const Settings: React.FC = () => {
 
       <div className="flex gap-5 justify-between w-full text-xs leading-6 text-white max-w-[328px] mt-[246px]">
         <div className="self-stretch">
-          <a
-            className="underline font-bold text-xs"
-            href={TERMS_URL}
-            target="_blank"
-            rel="noopener noreferrer">
+          <a className="underline font-bold text-xs" href={TERMS_URL} target="_blank" rel="noopener noreferrer">
             Terms of Use
           </a>
         </div>
         <div className="self-stretch">
-          <a
-            className="underline font-bold text-xs"
-            href={PRIVACY_URL}
-            target="_blank"
-            rel="noopener noreferrer">
+          <a className="underline font-bold text-xs" href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">
             Privacy Policy
           </a>
         </div>
