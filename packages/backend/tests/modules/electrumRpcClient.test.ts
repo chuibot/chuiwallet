@@ -154,4 +154,30 @@ describe('ElectrumRpcClient', () => {
     ).not.toThrow();
     warnSpy.mockRestore();
   });
+
+  it('disconnect before onopen rejects the pending connect promise', async () => {
+    const c = new ElectrumRpcClient(cfg);
+    const p = c.connect();
+    const sock = FakeWebSocket.lastInstance!;
+    c.disconnect();
+    sock.triggerClose();
+    await expect(p).rejects.toThrow(/closed before connection opened/);
+  });
+
+  it('stale socket open does not resolve the current connection', async () => {
+    const c = new ElectrumRpcClient(cfg);
+
+    const stale = c.connect();
+    const staleSocket = FakeWebSocket.lastInstance!;
+
+    const current = c.connect();
+    const currentSocket = FakeWebSocket.lastInstance!;
+    expect(currentSocket).not.toBe(staleSocket);
+
+    staleSocket.triggerOpen();
+    await expect(stale).rejects.toThrow(/replaced before opening/);
+
+    currentSocket.triggerOpen();
+    await expect(current).resolves.toBe(c);
+  });
 });

@@ -16,6 +16,51 @@ import { emitBalance, emitConnection, registerMessagePort } from '@src/backgroun
 bitcoin.initEccLib(secp256k1);
 
 let electrumReconnecting = false;
+let electrumReconnectAttempt = 0;
+let electrumReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let electrumReconnectEpoch = 0;
+
+function cancelElectrumReconnect() {
+  electrumReconnectEpoch++;
+  electrumReconnectAttempt = 0;
+  // Release the flag immediately so a fresh disconnect can schedule a new
+  // attempt without waiting for the cancelled IIFE to drain.
+  electrumReconnecting = false;
+  if (electrumReconnectTimer) {
+    clearTimeout(electrumReconnectTimer);
+    electrumReconnectTimer = null;
+  }
+}
+
+function scheduleElectrumReconnect() {
+  if (electrumReconnecting) return;
+  if (electrumReconnectTimer) {
+    clearTimeout(electrumReconnectTimer);
+    electrumReconnectTimer = null;
+  }
+  const epoch = electrumReconnectEpoch;
+  electrumReconnecting = true;
+  void (async () => {
+    try {
+      await electrumService.connect();
+      if (epoch === electrumReconnectEpoch) electrumReconnectAttempt = 0;
+    } catch (err) {
+      logger.error('Electrum reconnect failed', err);
+      // Bail if this attempt was cancelled mid-flight (e.g. by switchNetwork).
+      if (epoch !== electrumReconnectEpoch) return;
+      const delay = Math.min(30_000, 1000 * 2 ** electrumReconnectAttempt);
+      electrumReconnectAttempt++;
+      electrumReconnectTimer = setTimeout(() => {
+        electrumReconnectTimer = null;
+        scheduleElectrumReconnect();
+      }, delay);
+    } finally {
+      // Only the matching attempt may clear the flag — a cancelled IIFE
+      // finishing late must not stomp the fresh attempt that took over.
+      if (epoch === electrumReconnectEpoch) electrumReconnecting = false;
+    }
+  })();
+}
 
 async function init() {
   await ensureChainAdaptersReady();
@@ -24,17 +69,16 @@ async function init() {
 
   electrumService.onStatus.on(update => {
     emitConnection(update.status, update.detail);
-    if (update.status === 'disconnected' && !electrumReconnecting && update.reason !== 'switchNetwork') {
-      electrumReconnecting = true;
-      void (async () => {
-        try {
-          await electrumService.connect();
-        } catch (err) {
-          logger.error('Electrum reconnect failed', err);
-        } finally {
-          electrumReconnecting = false;
-        }
-      })();
+    if (update.reason === 'switchNetwork') {
+      cancelElectrumReconnect();
+      return;
+    }
+    if (update.status === 'connected') {
+      cancelElectrumReconnect();
+      return;
+    }
+    if (update.status === 'disconnected') {
+      scheduleElectrumReconnect();
     }
   });
   await electrumService.connect();

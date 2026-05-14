@@ -247,4 +247,12 @@ describe('ElectrumService', () => {
     expect(events[0].status).toBe('disconnected');
     expect(events[0].reason).toBe('manual stop');
   });
+
+  it('disconnect(switchNetwork) does not emit a second reasonless disconnected event', async () => {
+    const { svc } = await bootElectrumService();
+    const events: { status: string; reason?: string }[] = [];
+    svc.onStatus.on(e => events.push({ status: e.status, reason: e.reason }));
+    svc.disconnect('switchNetwork');
+    expect(events).toEqual([{ status: 'disconnected', reason: 'switchNetwork' }]);
+  });
 });

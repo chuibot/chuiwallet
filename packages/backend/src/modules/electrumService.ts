@@ -27,6 +27,7 @@ export class ElectrumService {
   private rpcClient: ElectrumRpcClient | undefined;
   private healthyServers: ExtendedServerConfig[] = [];
   private headerCache = new Map<number, string>();
+  private suppressClientDisconnectStatus = false;
   public status: ConnectionStatus = 'disconnected';
   public readonly onStatus = createEmitter<ConnectionUpdate>();
 
@@ -34,8 +35,20 @@ export class ElectrumService {
     this.network = network;
     const { server, healthyServers } = await selectBestServer(this.network);
     this.healthyServers = healthyServers;
-    this.rpcClient = new ElectrumRpcClient(server);
-    this.rpcClient.onStatus.on(status => {
+    const client = new ElectrumRpcClient(server);
+    this.rpcClient = client;
+    // Old clients can still emit after a network switch — gate on identity so
+    // a stale 'disconnected' doesn't trigger background reconnect against the
+    // new client.
+    client.onStatus.on(status => {
+      if (this.rpcClient !== client) return;
+      // Suppress the secondary 'disconnected' that rpcClient.disconnect()
+      // emits during our own intentional teardown — the outer disconnect()
+      // already emitted the canonical event with the correct reason. Without
+      // this gate, the reasonless follow-up would slip past the background
+      // listener's `reason === 'switchNetwork'` check and schedule a
+      // reconnect against the old client while a network switch is in flight.
+      if (this.suppressClientDisconnectStatus && status.status === 'disconnected') return;
       this.setStatus(status.status, status.detail);
     });
     return this;
@@ -51,7 +64,12 @@ export class ElectrumService {
   public disconnect(reason?: string) {
     logger.log('Disconnecting Electrum server', reason);
     this.setStatus('disconnected', undefined, reason);
-    this.rpcClient?.disconnect();
+    this.suppressClientDisconnectStatus = true;
+    try {
+      this.rpcClient?.disconnect();
+    } finally {
+      this.suppressClientDisconnectStatus = false;
+    }
     this.headerCache.clear();
   }
 
