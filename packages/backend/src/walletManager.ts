@@ -94,8 +94,19 @@ export class WalletManager {
       await accountManager.init(previousAccountIndex).catch(() => undefined);
       scanManager.clear();
       await scanManager.init().catch(() => undefined);
-      await electrumService.init(previousNetwork).catch(() => undefined);
-      void electrumService.connect().catch(error => logger.error('rollback reconnect failed', error));
+      // Only reconnect after init for the previous network actually succeeded —
+      // otherwise this.rpcClient is still the failed target-network client and
+      // connect() would reach for the wrong server while prefs sit on previous.
+      let restoredElectrum = false;
+      try {
+        await electrumService.init(previousNetwork);
+        restoredElectrum = true;
+      } catch (restoreErr) {
+        logger.error('rollback electrum init failed', restoreErr);
+      }
+      if (restoredElectrum) {
+        void electrumService.connect().catch(error => logger.error('rollback reconnect failed', error));
+      }
       throw err;
     }
   }
@@ -147,8 +158,18 @@ export class WalletManager {
         await accountManager.init(previousAccountIndex).catch(() => undefined);
         scanManager.clear();
         await scanManager.init().catch(() => undefined);
-        await electrumService.init(previousNetwork).catch(() => undefined);
-        void electrumService.connect().catch(error => logger.error('rollback reconnect failed', error));
+        // Same guard as switchNetwork: only reconnect after rollback init
+        // succeeds, otherwise we'd reconnect the failed target-network client.
+        let restoredElectrum = false;
+        try {
+          await electrumService.init(previousNetwork);
+          restoredElectrum = true;
+        } catch (restoreErr) {
+          logger.error('rollback electrum init failed', restoreErr);
+        }
+        if (restoredElectrum) {
+          void electrumService.connect().catch(error => logger.error('rollback reconnect failed', error));
+        }
         throw err;
       }
     }
