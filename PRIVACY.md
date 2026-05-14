@@ -50,16 +50,33 @@ If you separately choose to contact us (by email, repository issue, or otherwise
 
 ## 5. Data the Software handles locally on your device
 
-The Software stores the following on your device, using your browser's built-in `chrome.storage.local` API. This data does **not** leave your device unless your browser, operating system, or another application transmits it (for example, via a browser sync feature you have enabled, a cloud backup of your profile directory, or malware).
+The Software stores the following on your device, using your browser's built-in `chrome.storage.local` and `chrome.storage.session` APIs. This data does **not** leave your device unless your browser, operating system, or another application transmits it (for example, via a browser sync feature you have enabled, a cloud backup of your profile directory, or malware).
 
-| Data | Where it lives | How it is protected |
+### 5.1 Persistent storage (`chrome.storage.local`)
+
+This data survives a browser restart. It is removed when you uninstall the Software.
+
+| Data | Storage key | How it is protected |
 |---|---|---|
-| Encrypted vault containing your BIP-39 mnemonic and/or BIP-32 extended private key | `chrome.storage.local` under the key `wallet` | Encrypted with a symmetric key derived from your password using PBKDF2-SHA-256 with **600,000 iterations** and a random salt, then sealed with authenticated symmetric encryption. The password is never stored. |
-| Account metadata (account names, derivation index, network, chain, extended public key, derived addresses) | `chrome.storage.local` under the key `accounts` | Plain JSON. Treat it as sensitive: it does not contain private keys but it does reveal the addresses you own. |
-| Preferences (gap limits, locale, fiat currency, active account index, active network) | `chrome.storage.local` under the key `preferences` | Plain JSON. Not sensitive on its own. |
-| Optional caches that speed up the wallet (block headers, transaction history, balances) | `chrome.storage.local` | Plain JSON. Derived from public chain data. |
+| Encrypted vault containing your BIP-39 mnemonic and/or BIP-32 extended private key | `wallet` | Encrypted with a symmetric key derived from your password using PBKDF2-SHA-256 with **600,000 iterations** and a random salt, then sealed with AES-256-GCM. Your password itself is not written to `chrome.storage.local`. |
+| Account metadata (account names, derivation index, network, chain, extended public key, derived addresses) | `accounts` | Plain JSON. Treat it as sensitive: it does not contain private keys but it does reveal the addresses you own. |
+| Preferences (gap limits, locale, fiat currency, active account index, active network) | `preferences` | Plain JSON. Not sensitive on its own. |
+| Optional caches that speed up the wallet (block headers, transaction history, balances) | various | Plain JSON. Derived from public chain data. |
 
-If you uninstall the Software, the browser deletes the `chrome.storage.local` namespace owned by the Software. If you have not previously backed up your mnemonic, your vault will no longer be recoverable.
+### 5.2 Session storage (`chrome.storage.session`)
+
+This data lives only in browser memory. It is automatically cleared when the browser closes or when the extension's service worker is terminated by the browser, and it is **not** copied into any persisted profile, sync, or cloud backup.
+
+While you are unlocked, the Software keeps a short-lived copy of your password and a session encryption key in `chrome.storage.session` so it can sign transactions without re-prompting you for the password on every action.
+
+| Data | Storage key | How it is protected |
+|---|---|---|
+| Session copy of your password | internal opaque key (currently `8C7822A5D65E99D67FDE93E344AF9`) | Encrypted with AES-256-GCM using a per-session key (see next row). Expires after **1 hour** or when you lock or log out, whichever is sooner. |
+| Per-session AES-256-GCM key, used only to wrap the session password | internal opaque key | Random 256-bit key generated at the start of each session and held in `chrome.storage.session` for the lifetime of the session. Never written to `chrome.storage.local` and never transmitted. |
+
+If you do not want a session copy held in memory, lock the wallet or close your browser before stepping away.
+
+If you uninstall the Software, the browser deletes both `chrome.storage.local` and `chrome.storage.session` data owned by the Software. If you have not previously backed up your mnemonic, your vault will no longer be recoverable.
 
 We have no way to access, read, copy, decrypt, reset, or recover any of this local data. We cannot recover lost passwords or mnemonics.
 
@@ -86,13 +103,13 @@ As of the effective date above, Third-Party Services contacted by default or by 
 | Generic price feed | `api.coingecko.com` |
 | Ethereum RPC | `ethereum-rpc.publicnode.com`, `mainnet.infura.io`, `ethereum-sepolia-rpc.publicnode.com`, `sepolia.infura.io` |
 | Ethereum chain queries and block explorer | `eth.blockscout.com`, `eth-sepolia.blockscout.com` |
-| UI fonts | `fonts.googleapis.com` (Google Fonts) |
+| UI fonts (CSS + font files) | `fonts.googleapis.com`, `fonts.gstatic.com` |
 
 Privacy considerations:
 
-  (a) **IP exposure.** Every Third-Party Service the Software contacts will see your IP address. If you do not want a Third-Party Service to associate your IP with your wallet addresses, you should use a VPN, Tor, or an `xpub`-isolating workflow at your own discretion.
+  (a) **IP exposure.** Every Third-Party Service the Software contacts will see your IP address. If you do not want a Third-Party Service to associate your IP with your wallet addresses, you can route the browser through a VPN, Tor, or an `xpub`-isolating workflow at your own discretion.
   (b) **Address-cluster exposure.** A single Third-Party Service that handles many of your queries can correlate your addresses into a cluster owned by the same User. You can mitigate this by running your own Electrum server, switching servers, or using independent wallets per use case.
-  (c) **Google Fonts.** The Software loads UI fonts from `fonts.googleapis.com`. Google states it does not log identifying information about end users from Google Fonts requests; we cannot verify this claim, only relay it. If you object, you can block this domain at your browser, host, or network level; the wallet will still function with a fallback system font.
+  (c) **Google Fonts.** Loading the UI font causes requests to Google-operated font domains (`fonts.googleapis.com` for the stylesheet and `fonts.gstatic.com` for the font files). Google may receive your IP address, the requested font URL, and standard HTTP headers such as `User-Agent` and `Referer`. Google publicly states it does not use Google Fonts data to profile end users or for targeted advertising; we relay that statement and cannot verify it. If you object, you can block these domains at the browser, host, or network level; the wallet will still function with a fallback system font.
 
 ## 7. Permissions the Software requests
 
@@ -104,7 +121,12 @@ When installed, the Software requests the following Chrome extension permissions
 | `alarms` | To schedule periodic, low-frequency background tasks such as rebalance scans. |
 | `host_permissions: <all_urls>` | To inject the Chui Wallet provider (`window.chuiWallet`) into web pages so that decentralised applications can request the User's `xpub` or addresses (after explicit User approval). The provider only exposes read methods (`getXpub`, `getAddresses`, `getXpubAddresses`); it does not silently sign or transfer funds. The Software does not read page content beyond what is necessary to expose the provider object. |
 
-We do not request, and the Software does not use, the `tabs`, `cookies`, `webRequest`, `clipboardWrite`, `clipboardRead`, `geolocation`, `notifications` (other than as a passive Chrome permission declared but unused in some builds), `nativeMessaging`, or `identity` permissions, except as already disclosed above.
+We do **not** request the `tabs`, `cookies`, `webRequest`, `clipboardRead`, `clipboardWrite`, `geolocation`, `notifications`, `nativeMessaging`, or `identity` extension permissions.
+
+The Software does, however, use two browser APIs that do not require their own permission entry:
+
+  (a) `navigator.clipboard.writeText()`: invoked only when you press a Copy button (for example, to copy an address, `xpub`, or mnemonic to the clipboard at your own request). The Software does not read the clipboard.
+  (b) `chrome.tabs.create()`: invoked only to open links you click (for example, opening a transaction in a block explorer, or the Terms of Use / Privacy Policy in a new tab). The Software does not enumerate, query, or modify your existing tabs.
 
 ## 8. dApp interactions
 
@@ -164,13 +186,23 @@ If you believe you have found a security vulnerability in the Software, please r
 
 ## 14. Contact
 
-For privacy enquiries, data-rights requests, or vulnerability reports, write to:
+For privacy and data-protection matters:
 
+> Privacy contact
 > OneByZero Tech Pte Ltd
 > 61 Robinson Road, #07-06
 > Singapore 068893
+> Email: privacy@chuiwallet.com
 
-Or open an issue on the official source repository.
+For security vulnerability reports:
+
+> Security contact
+> OneByZero Tech Pte Ltd
+> 61 Robinson Road, #07-06
+> Singapore 068893
+> Email: security@chuiwallet.com
+
+Do **not** post seed phrases, private keys, passwords, personal data, or vulnerability details in a public source-repository issue or any other public forum. Use the email addresses above so the report stays private.
 
 ## 15. Changes to this Policy
 

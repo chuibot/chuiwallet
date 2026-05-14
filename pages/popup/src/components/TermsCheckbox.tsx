@@ -1,5 +1,8 @@
 import * as React from 'react';
 
+const TERMS_URL = 'https://chuiwallet.com/terms';
+const PRIVACY_URL = 'https://chuiwallet.com/privacy';
+
 export interface TermsCheckboxProps {
   onAcceptChange: (accepted: boolean) => void;
   onBeforeTosOpen?: () => Promise<void>;
@@ -53,15 +56,24 @@ export const TermsCheckbox: React.FC<TermsCheckboxProps> = ({
             />
           </svg>
         </div>
-        <label htmlFor="terms" className="flex gap-1 items-center cursor-pointer">
+        <label htmlFor="terms" className="flex flex-wrap gap-1 items-center cursor-pointer">
           <span className="text-white">I accept the</span>
           <a
-            href="https://www.blockonomics.co/privacy"
+            href={TERMS_URL}
             className="text-primary-yellow no-underline"
             target="_blank"
             rel="noopener noreferrer"
             onClick={handleTosClick}>
-            Terms of Service
+            Terms of Use
+          </a>
+          <span className="text-white">and</span>
+          <a
+            href={PRIVACY_URL}
+            className="text-primary-yellow no-underline"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={handleTosClick}>
+            Privacy Policy
           </a>
         </label>
       </div>

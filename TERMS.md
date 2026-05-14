@@ -164,5 +164,6 @@ For any question, notice, or complaint relating to these Terms, write to:
 > OneByZero Tech Pte Ltd
 > 61 Robinson Road, #07-06
 > Singapore 068893
+> Email: legal@chuiwallet.com
 
-Or open an issue on the official source repository.
+For privacy and data-protection matters use `privacy@chuiwallet.com`; for security vulnerability reports use `security@chuiwallet.com` (see the Privacy Policy for details). Do not include seed phrases, private keys, passwords, or vulnerability details in a public source-repository issue.
