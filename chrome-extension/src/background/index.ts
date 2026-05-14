@@ -23,6 +23,9 @@ let electrumReconnectEpoch = 0;
 function cancelElectrumReconnect() {
   electrumReconnectEpoch++;
   electrumReconnectAttempt = 0;
+  // Release the flag immediately so a fresh disconnect can schedule a new
+  // attempt without waiting for the cancelled IIFE to drain.
+  electrumReconnecting = false;
   if (electrumReconnectTimer) {
     clearTimeout(electrumReconnectTimer);
     electrumReconnectTimer = null;
@@ -52,7 +55,9 @@ function scheduleElectrumReconnect() {
         scheduleElectrumReconnect();
       }, delay);
     } finally {
-      electrumReconnecting = false;
+      // Only the matching attempt may clear the flag — a cancelled IIFE
+      // finishing late must not stomp the fresh attempt that took over.
+      if (epoch === electrumReconnectEpoch) electrumReconnecting = false;
     }
   })();
 }
