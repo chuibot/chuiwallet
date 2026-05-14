@@ -65,7 +65,7 @@ This data survives a browser restart. It is removed when you uninstall the Softw
 
 ### 5.2 Session storage (`chrome.storage.session`)
 
-This data lives only in browser memory. It is automatically cleared when the browser closes or when the extension's service worker is terminated by the browser, and it is **not** copied into any persisted profile, sync, or cloud backup.
+This data is held in memory for the duration of the browser session. It is cleared when the browser restarts, when the extension is disabled, reloaded, updated, or uninstalled, or when the Software explicitly removes it (for example, when you lock or log out, or when a stored value passes its expiry). It can survive normal background service-worker restarts during the same browser session. It is **not** copied into any persisted profile, browser sync, or cloud backup.
 
 While you are unlocked, the Software keeps a short-lived copy of your password and a session encryption key in `chrome.storage.session` so it can sign transactions without re-prompting you for the password on every action.
 
