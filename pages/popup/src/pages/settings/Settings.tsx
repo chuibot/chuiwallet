@@ -3,6 +3,9 @@ import FiatCurrencySelector from '@src/components/FiatCurrencySelector';
 import { useNavigate } from 'react-router-dom';
 import { useWalletContext } from '@src/context/WalletContext';
 
+const TERMS_URL = 'https://chuiwallet.com/terms';
+const PRIVACY_URL = 'https://chuiwallet.com/privacy';
+
 export const Settings: React.FC = () => {
   const navigate = useNavigate();
   const { lock, logout } = useWalletContext();
@@ -51,13 +54,13 @@ export const Settings: React.FC = () => {
 
       <div className="flex gap-5 justify-between w-full text-xs leading-6 text-white max-w-[328px] mt-[246px]">
         <div className="self-stretch">
-          <a className="underline font-bold text-xs" href="https://www.blockonomics.co/privacy" target="_blank">
-            Terms and services
+          <a className="underline font-bold text-xs" href={TERMS_URL} target="_blank" rel="noopener noreferrer">
+            Terms of Use
           </a>
         </div>
-        <div className="self-stretch whitespace-nowrap">
-          <a className="underline font-bold text-xs" href="https://help.blockonomics.co/" target="_blank">
-            Help
+        <div className="self-stretch">
+          <a className="underline font-bold text-xs" href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">
+            Privacy Policy
           </a>
         </div>
       </div>
