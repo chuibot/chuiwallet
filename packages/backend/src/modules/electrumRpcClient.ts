@@ -62,25 +62,32 @@ export class ElectrumRpcClient {
       const wsUrl = `${protocol}${this.server.host}:${this.server.port}`;
       this.disconnect();
 
+      const socket = new WebSocket(wsUrl);
+      this.socket = socket;
+      // Old socket events (delayed onclose, onerror, timeout) can still fire
+      // after a reconnect or network switch has replaced this.socket. Without
+      // this guard a stale handler would close the new socket via disconnect().
+      const isCurrentSocket = () => this.socket === socket;
+
       let opened = false;
       let settled = false;
       const fail = (error: Error) => {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
-        this.disconnect();
+        if (isCurrentSocket()) this.disconnect();
         reject(error);
       };
       // Browser WebSockets can sit in CONNECTING indefinitely (no onopen,
       // onerror, or onclose ever fires). Without this timeout the background
       // reconnect loop would wait forever and never reach the backoff path.
       const timeout = setTimeout(() => {
+        if (!isCurrentSocket()) return;
         fail(new Error(`WebSocket connection timed out: ${wsUrl}`));
       }, ElectrumRpcClient.CONNECT_TIMEOUT_MS);
 
-      this.socket = new WebSocket(wsUrl);
-      this.socket.onopen = () => {
-        if (settled) return;
+      socket.onopen = () => {
+        if (!isCurrentSocket() || settled) return;
         opened = true;
         settled = true;
         clearTimeout(timeout);
@@ -89,12 +96,14 @@ export class ElectrumRpcClient {
         resolve(this);
       };
 
-      this.socket.onmessage = (event: MessageEvent) => {
+      socket.onmessage = (event: MessageEvent) => {
+        if (!isCurrentSocket()) return;
         const raw = typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data as ArrayBuffer);
         this.handleIncomingChunk(raw);
       };
 
-      this.socket.onerror = (error: Event) => {
+      socket.onerror = (error: Event) => {
+        if (!isCurrentSocket()) return;
         const errorMessage = 'WebSocket error: ' + ((error as ErrorEvent).message || 'Unknown error');
         logger.error(errorMessage, error);
         this.setStatus('error', errorMessage);
@@ -103,7 +112,8 @@ export class ElectrumRpcClient {
 
       // Without this, a close before onopen would leave the connect() Promise
       // pending forever, and the background reconnect loop would hang on it.
-      this.socket.onclose = () => {
+      socket.onclose = () => {
+        if (!isCurrentSocket()) return;
         this.disconnect();
         logger.warn('WebSocket closed');
         if (!opened) fail(new Error(`WebSocket closed before connection opened: ${wsUrl}`));

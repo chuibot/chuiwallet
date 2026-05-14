@@ -34,8 +34,13 @@ export class ElectrumService {
     this.network = network;
     const { server, healthyServers } = await selectBestServer(this.network);
     this.healthyServers = healthyServers;
-    this.rpcClient = new ElectrumRpcClient(server);
-    this.rpcClient.onStatus.on(status => {
+    const client = new ElectrumRpcClient(server);
+    this.rpcClient = client;
+    // Old clients can still emit after a network switch — gate on identity so
+    // a stale 'disconnected' doesn't trigger background reconnect against the
+    // new client.
+    client.onStatus.on(status => {
+      if (this.rpcClient !== client) return;
       this.setStatus(status.status, status.detail);
     });
     return this;
