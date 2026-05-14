@@ -120,12 +120,17 @@ export class WalletManager {
     if (networkChanged) {
       const previousNetwork = prefs.activeNetwork;
       const previousAccountIndex = prefs.activeAccountIndex;
-      electrumService.disconnect('switchNetwork');
       try {
+        electrumService.disconnect('switchNetwork');
         await preferenceManager.update({ activeNetwork: account.network, activeAccountIndex: accountListIndex });
         await wallet.restore(account.network, sessionPassword);
         await electrumService.init(account.network);
         await electrumService.connect();
+        await accountManager.init(accountListIndex);
+        scanManager.clear();
+        await scanManager.init();
+        historyService.reset();
+        return preferenceManager.get();
       } catch (err) {
         logger.error('switchAccount network change failed, rolling back', err);
         await preferenceManager.update({ activeNetwork: previousNetwork, activeAccountIndex: previousAccountIndex });
@@ -137,10 +142,9 @@ export class WalletManager {
         void electrumService.connect().catch(error => logger.error('rollback reconnect failed', error));
         throw err;
       }
-    } else {
-      await preferenceManager.update({ activeAccountIndex: accountListIndex });
     }
 
+    await preferenceManager.update({ activeAccountIndex: accountListIndex });
     await accountManager.init(accountListIndex);
     scanManager.clear();
     await scanManager.init();

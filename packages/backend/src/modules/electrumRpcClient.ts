@@ -33,6 +33,8 @@ function isJsonRpcResponse(value: unknown): value is JsonRpcResponse {
  * Todo: Improve failover switch connection
  */
 export class ElectrumRpcClient {
+  private static readonly CONNECT_TIMEOUT_MS = 10_000;
+
   private server: ServerConfig | ExtendedServerConfig;
   private socket: WebSocket | null;
   private requests: Map<number, RequestResolver> = new Map();
@@ -65,14 +67,23 @@ export class ElectrumRpcClient {
       const fail = (error: Error) => {
         if (settled) return;
         settled = true;
+        clearTimeout(timeout);
         this.disconnect();
         reject(error);
       };
+      // Browser WebSockets can sit in CONNECTING indefinitely (no onopen,
+      // onerror, or onclose ever fires). Without this timeout the background
+      // reconnect loop would wait forever and never reach the backoff path.
+      const timeout = setTimeout(() => {
+        fail(new Error(`WebSocket connection timed out: ${wsUrl}`));
+      }, ElectrumRpcClient.CONNECT_TIMEOUT_MS);
 
       this.socket = new WebSocket(wsUrl);
       this.socket.onopen = () => {
+        if (settled) return;
         opened = true;
         settled = true;
+        clearTimeout(timeout);
         logger.log(`Connected to Electrum server at ${wsUrl}`);
         this.setStatus('connected');
         resolve(this);
