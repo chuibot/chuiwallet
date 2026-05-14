@@ -1,6 +1,6 @@
 {
   "name": "chuiwallet",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Chui Wallet simplifies bitcoin payments with speed, precision, and ease.",
   "private": true,
   "license": "MIT",
