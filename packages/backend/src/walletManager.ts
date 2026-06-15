@@ -23,6 +23,7 @@ import { scriptTypeFromAddress } from './utils/crypto';
 import { verifyMerkleProof } from './utils/merkle';
 import { deleteSessionPassword, getSessionPassword } from './utils/sessionStorageHelper';
 import { convertToSlip0132 } from './utils/xpubConverter';
+import bs58check from 'bs58check';
 
 bitcoin.initEccLib(secp256k1);
 
@@ -414,15 +415,24 @@ export class WalletManager {
     return await wallet.getMnemonic(password);
   }
 
-  /**
-   * Get the xpub of the current wallet
-   */
+  /** Account-level zpub/ypub for the active account. Null if locked or no active account. */
   public getXpub() {
-    const xpub = wallet.getXpub();
-    if (!xpub) return null;
+    // master xpub is null when the wallet is locked, so bail before exporting anything
+    if (!wallet.getXpub()) return null;
 
-    const activeAccount = accountManager.getActiveAccount();
-    return convertToSlip0132(xpub, activeAccount.scriptType, activeAccount.network);
+    let activeAccount;
+    try {
+      activeAccount = accountManager.getActiveAccount();
+    } catch {
+      return null; // no active account (e.g. after logout)
+    }
+
+    // has to be the account node (depth 3), anything higher won't match the receive addresses
+    if (bs58check.decode(activeAccount.xpub)[4] !== 3) {
+      throw new Error('Refusing to export non-account-level extended public key');
+    }
+
+    return convertToSlip0132(activeAccount.xpub, activeAccount.scriptType, activeAccount.network);
   }
 
   /**
