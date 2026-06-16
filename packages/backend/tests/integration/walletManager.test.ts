@@ -1,4 +1,7 @@
 import * as bitcoin from 'bitcoinjs-lib';
+import BIP32Factory from 'bip32';
+import * as secp256k1 from '@bitcoinerlab/secp256k1';
+import bs58check from 'bs58check';
 import { resetChromeStorage } from '../helpers/chromeMock';
 import { installFetchMock, jsonResponse, mockFetch, resetFetchMock, restoreFetch } from '../helpers/fetchMock';
 import { walletManager } from '../../src/walletManager';
@@ -17,6 +20,18 @@ import { setSessionPassword } from '../../src/utils/sessionStorageHelper';
 
 const MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const PASSWORD = 'pw';
+
+const bip32 = BIP32Factory(secp256k1);
+
+// Swap SLIP-0132 version bytes back to a standard xpub/tpub, like an external tool does on import.
+function toStandardXpub(slip0132: string, network: Network): string {
+  const standardVersion = network === Network.Mainnet ? 0x0488b21e : 0x043587cf;
+  const decoded = bs58check.decode(slip0132);
+  const out = new Uint8Array(decoded.length);
+  out.set(decoded);
+  new DataView(out.buffer).setUint32(0, standardVersion, false);
+  return bs58check.encode(out);
+}
 
 async function freshState(): Promise<void> {
   resetChromeStorage();
@@ -98,6 +113,36 @@ describe('WalletManager — full lifecycle (integration)', () => {
     await walletManager.createWallet(MNEMONIC, PASSWORD);
     wallet.clear();
     expect(walletManager.getXpub()).toBeNull();
+  });
+
+  it('getXpub() returns null (does not throw) when no account is active', async () => {
+    await walletManager.createWallet(MNEMONIC, PASSWORD);
+    accountManager.activeAccountIndex = -1;
+    expect(walletManager.getXpub()).toBeNull();
+  });
+
+  // Regression: the export used to encode the master node (depth 0), so addresses derived from
+  // the zpub didn't match the wallet's receive addresses. Re-derive the way an external tool would.
+  it('exported zpub re-derives the wallet’s own receive addresses (account-level, depth 3)', async () => {
+    await walletManager.createWallet(MNEMONIC, PASSWORD);
+
+    const zpub = walletManager.getXpub();
+    expect(zpub).toMatch(/^zpub/);
+    expect(bs58check.decode(zpub!)[4]).toBe(3); // account node, not the master's 0
+
+    const node = bip32.fromBase58(toStandardXpub(zpub!, Network.Mainnet), bitcoin.networks.bitcoin);
+    const addressFromZpub = (index: number) =>
+      bitcoin.payments.p2wpkh({
+        pubkey: Buffer.from(node.derive(0).derive(index).publicKey),
+        network: bitcoin.networks.bitcoin,
+      }).address;
+
+    for (let index = 0; index < 3; index++) {
+      expect(addressFromZpub(index)).toBe(walletManager.deriveAddress(0, index));
+    }
+
+    // Pin the canonical address, not just self-consistency between the two paths.
+    expect(addressFromZpub(0)).toBe('bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu');
   });
 
   it('switchEvmNetwork() updates the activeEvmNetwork preference only', async () => {
