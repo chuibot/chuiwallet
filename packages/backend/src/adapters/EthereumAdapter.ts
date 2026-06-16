@@ -24,6 +24,9 @@ const ERC20_ABI = [
 
 const INTEGER_STRING = /^\d+$/;
 const MAX_FORMAT_UNITS_DECIMALS = 80;
+const UINT256_DECIMAL_MAX_LEN = 78;
+const WEI_RATE_DECIMAL_MAX_LEN = 30;
+const SAFE_INT_DECIMAL_MAX_LEN = 15;
 
 type RawIndexerTx = {
   hash: string;
@@ -39,7 +42,16 @@ type RawIndexerTx = {
   txreceipt_status?: string;
 };
 
-/** Validate one indexer entry; numeric fields must be integer strings so BigInt/parseInt cannot throw or yield NaN. */
+function isBoundedIntegerString(value: unknown, maxLength: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= maxLength && INTEGER_STRING.test(value);
+}
+
+/** A digit string that is also short enough to be a safe JS integer (for parseInt fields). */
+function isSafeIntegerString(value: unknown): value is string {
+  return isBoundedIntegerString(value, SAFE_INT_DECIMAL_MAX_LEN) && Number.isSafeInteger(Number(value));
+}
+
+/** Validate one indexer entry; numeric fields must be bounded integer strings so BigInt/ethers/parseInt cannot throw or yield unsafe values. */
 function isIndexerTx(value: unknown): value is RawIndexerTx {
   if (!isRecord(value)) return false;
   if (
@@ -50,8 +62,12 @@ function isIndexerTx(value: unknown): value is RawIndexerTx {
   ) {
     return false;
   }
-  return (['value', 'gasUsed', 'gasPrice', 'timeStamp', 'confirmations'] as const).every(
-    key => typeof value[key] === 'string' && INTEGER_STRING.test(value[key] as string),
+  return (
+    isBoundedIntegerString(value.value, UINT256_DECIMAL_MAX_LEN) &&
+    isSafeIntegerString(value.gasUsed) &&
+    isBoundedIntegerString(value.gasPrice, WEI_RATE_DECIMAL_MAX_LEN) &&
+    isSafeIntegerString(value.timeStamp) &&
+    isSafeIntegerString(value.confirmations)
   );
 }
 

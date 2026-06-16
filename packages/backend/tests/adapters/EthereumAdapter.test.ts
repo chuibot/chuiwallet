@@ -72,6 +72,23 @@ describe('parseIndexerTransactions — untrusted response validation', () => {
     expect(Number.isNaN(txs[0].confirmations)).toBe(false);
   });
 
+  it('drops rows with oversized digit-only numeric fields without throwing', () => {
+    const result = [
+      { ...validTx, value: '1'.repeat(100) },
+      { ...validTx, gasUsed: '9'.repeat(20) },
+      { ...validTx, gasPrice: '9'.repeat(40) },
+      { ...validTx, timeStamp: '9'.repeat(20) },
+      { ...validTx, confirmations: '9'.repeat(20) },
+      validTx,
+    ];
+    let txs: ReturnType<typeof parseIndexerTransactions> = [];
+    expect(() => {
+      txs = parseIndexerTransactions({ status: '1', result });
+    }).not.toThrow();
+    expect(txs).toHaveLength(1);
+    expect(txs[0].hash).toBe('0xabc');
+  });
+
   it('drops token rows with malformed or oversized tokenDecimal', () => {
     const result = [
       { ...validTx, tokenDecimal: '1e309' },
