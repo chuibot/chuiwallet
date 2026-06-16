@@ -23,6 +23,7 @@ const ERC20_ABI = [
 ];
 
 const INTEGER_STRING = /^\d+$/;
+const MAX_FORMAT_UNITS_DECIMALS = 80;
 
 type RawIndexerTx = {
   hash: string;
@@ -54,34 +55,47 @@ function isIndexerTx(value: unknown): value is RawIndexerTx {
   );
 }
 
+/** Validate an indexer tokenDecimal; defaults to 18 when absent, null when malformed or out of range. */
+function parseTokenDecimals(value: unknown): number | null {
+  if (value === undefined || value === '') return 18;
+  if (typeof value !== 'string' || !INTEGER_STRING.test(value)) return null;
+  const decimals = Number(value);
+  if (!Number.isSafeInteger(decimals) || decimals < 0 || decimals > MAX_FORMAT_UNITS_DECIMALS) {
+    return null;
+  }
+  return decimals;
+}
+
 /** Parse an untrusted Blockscout/Etherscan history response, dropping any entry that fails validation. */
 export function parseIndexerTransactions(raw: unknown, tokenAddress?: string): ChainTransaction[] {
   if (!isRecord(raw) || raw.status !== '1' || !Array.isArray(raw.result)) {
     return [];
   }
 
-  return raw.result.filter(isIndexerTx).map(tx => {
-    const tokenDecimals = Number.parseInt(tx.tokenDecimal ?? '', 10);
-    const resolvedTokenDecimals = Number.isFinite(tokenDecimals) ? tokenDecimals : 18;
+  return raw.result.filter(isIndexerTx).flatMap(tx => {
+    const resolvedTokenDecimals = parseTokenDecimals(tx.tokenDecimal);
+    if (resolvedTokenDecimals === null) return [];
 
-    return {
-      hash: tx.hash,
-      from: tx.from,
-      to: tx.to,
-      amount: tokenAddress
-        ? parseFloat(ethers.formatUnits(tx.value, resolvedTokenDecimals))
-        : parseFloat(ethers.formatEther(tx.value)),
-      fee: parseFloat(ethers.formatEther((BigInt(tx.gasUsed) * BigInt(tx.gasPrice)).toString())),
-      timestamp: parseInt(tx.timeStamp, 10),
-      confirmations: parseInt(tx.confirmations, 10),
-      status:
-        tx.isError === '1' || tx.txreceipt_status === '0'
-          ? ('failed' as const)
-          : parseInt(tx.confirmations, 10) > 0
-            ? ('confirmed' as const)
-            : ('pending' as const),
-      chain: ChainType.Ethereum,
-    };
+    return [
+      {
+        hash: tx.hash,
+        from: tx.from,
+        to: tx.to,
+        amount: tokenAddress
+          ? parseFloat(ethers.formatUnits(tx.value, resolvedTokenDecimals))
+          : parseFloat(ethers.formatEther(tx.value)),
+        fee: parseFloat(ethers.formatEther((BigInt(tx.gasUsed) * BigInt(tx.gasPrice)).toString())),
+        timestamp: parseInt(tx.timeStamp, 10),
+        confirmations: parseInt(tx.confirmations, 10),
+        status:
+          tx.isError === '1' || tx.txreceipt_status === '0'
+            ? ('failed' as const)
+            : parseInt(tx.confirmations, 10) > 0
+              ? ('confirmed' as const)
+              : ('pending' as const),
+        chain: ChainType.Ethereum,
+      },
+    ];
   });
 }
 

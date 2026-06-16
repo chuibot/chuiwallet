@@ -137,6 +137,22 @@ describe('FeeService.getFeeEstimates', () => {
     expect(tiers.map(t => t.sats)).toEqual([5, 15, 30]);
   });
 
+  it('ignores a malformed (empty) Blockstream response instead of averaging it in', async () => {
+    mockFetch('mempool.space/api/v1/fees/recommended', () =>
+      jsonResponse({ fastestFee: 30, halfHourFee: 15, hourFee: 5 }),
+    );
+    mockFetch('blockstream.info/api/fee-estimates', () => jsonResponse({}));
+    mockFetch('blockchain.info', () => new Response('boom', { status: 500 }));
+    const svc = new FeeService();
+    const tiers = await svc.getFeeEstimates(
+      [mkUtxo(ScriptType.P2WPKH)],
+      'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+      Network.Mainnet,
+      ScriptType.P2WPKH,
+    );
+    expect(tiers.map(t => t.sats)).toEqual([5, 15, 30]);
+  });
+
   it('uses testnet endpoints for testnet network', async () => {
     let usedTestnet = false;
     mockFetch('mempool.space/testnet4/api/v1/fees/recommended', () => {

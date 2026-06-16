@@ -1,3 +1,4 @@
+import { ethers } from 'ethers';
 import { resetChromeStorage } from '../helpers/chromeMock';
 import { EthereumAdapter, parseIndexerTransactions } from '../../src/adapters/EthereumAdapter';
 import { ChainType } from '../../src/adapters/IChainAdapter';
@@ -69,6 +70,23 @@ describe('parseIndexerTransactions — untrusted response validation', () => {
     expect(txs[0].hash).toBe('0xabc');
     expect(Number.isNaN(txs[0].timestamp)).toBe(false);
     expect(Number.isNaN(txs[0].confirmations)).toBe(false);
+  });
+
+  it('drops token rows with malformed or oversized tokenDecimal', () => {
+    const result = [
+      { ...validTx, tokenDecimal: '1e309' },
+      { ...validTx, tokenDecimal: '999' },
+      { ...validTx, tokenDecimal: '6' },
+    ];
+    const txs = parseIndexerTransactions({ status: '1', result }, '0xtoken');
+    expect(txs).toHaveLength(1);
+    expect(txs[0].amount).toBe(parseFloat(ethers.formatUnits('1000000000000000000', 6)));
+  });
+
+  it('defaults to 18 decimals when tokenDecimal is absent on a token row', () => {
+    const txs = parseIndexerTransactions({ status: '1', result: [validTx] }, '0xtoken');
+    expect(txs).toHaveLength(1);
+    expect(txs[0].amount).toBe(parseFloat(ethers.formatUnits('1000000000000000000', 18)));
   });
 });
 

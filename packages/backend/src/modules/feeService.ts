@@ -83,17 +83,17 @@ export class FeeService {
     const res = await fetchWithTimeout(`${baseUrl}/fee-estimates`);
     const estimates = await res.json();
     if (!isRecord(estimates)) throw new Error('Malformed blockstream.info response');
-    const pick = (keys: string[], fallback: number): number => {
+    const pick = (keys: string[]): number | undefined => {
       for (const key of keys) {
         const n = coerceFiniteNumber(estimates[key]);
-        if (n !== undefined && n > 0) return n;
+        if (n !== undefined && n > 0) return Math.ceil(n);
       }
-      return fallback;
+      return undefined;
     };
     return assertFeeRates({
-      fastestFee: Math.ceil(pick(['1', '2'], 10)),
-      halfHourFee: Math.ceil(pick(['3', '6'], 5)),
-      hourFee: Math.ceil(pick(['12', '24'], 2)),
+      fastestFee: pick(['1', '2']),
+      halfHourFee: pick(['3', '6']),
+      hourFee: pick(['12', '24']),
     });
   }
 
