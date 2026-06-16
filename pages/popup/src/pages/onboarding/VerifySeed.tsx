@@ -50,6 +50,12 @@ export const VerifySeed = () => {
               className="w-full mt-6 p-3 rounded-lg bg-neutral-700 text-foreground text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary-yellow"
               rows={4}
               placeholder="Enter your 12-word seed phrase..."
+              autoComplete="off"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              data-1p-ignore="true"
+              data-lpignore="true"
               value={input}
               onChange={e => {
                 setInput(e.target.value);
