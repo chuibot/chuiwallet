@@ -1,5 +1,5 @@
 import { resetChromeStorage } from '../helpers/chromeMock';
-import { EthereumAdapter } from '../../src/adapters/EthereumAdapter';
+import { EthereumAdapter, parseIndexerTransactions } from '../../src/adapters/EthereumAdapter';
 import { ChainType } from '../../src/adapters/IChainAdapter';
 import { ERC20_TOKEN_DEFINITIONS, getErc20ContractAddress } from '../../src/adapters/erc20TokenDefinitions';
 import { Network } from '../../src/types/electrum';
@@ -23,6 +23,52 @@ describe('getErc20ContractAddress', () => {
   });
   it('returns undefined for unknown tokens', () => {
     expect(getErc20ContractAddress('UNKNOWN', Network.Mainnet)).toBeUndefined();
+  });
+});
+
+describe('parseIndexerTransactions — untrusted response validation', () => {
+  const validTx = {
+    hash: '0xabc',
+    from: '0x1111111111111111111111111111111111111111',
+    to: '0x2222222222222222222222222222222222222222',
+    value: '1000000000000000000',
+    gasUsed: '21000',
+    gasPrice: '1000000000',
+    timeStamp: '1700000000',
+    confirmations: '10',
+    isError: '0',
+  };
+
+  it('parses a well-formed response', () => {
+    const txs = parseIndexerTransactions({ status: '1', result: [validTx] });
+    expect(txs).toHaveLength(1);
+    expect(txs[0].hash).toBe('0xabc');
+    expect(txs[0].amount).toBe(1);
+    expect(txs[0].confirmations).toBe(10);
+    expect(txs[0].status).toBe('confirmed');
+  });
+
+  it('returns [] for a non-object, wrong-status, or non-array response', () => {
+    expect(parseIndexerTransactions(null)).toEqual([]);
+    expect(parseIndexerTransactions('garbage')).toEqual([]);
+    expect(parseIndexerTransactions(['x'])).toEqual([]);
+    expect(parseIndexerTransactions({ status: '0', result: [validTx] })).toEqual([]);
+    expect(parseIndexerTransactions({ status: '1', result: 'nope' })).toEqual([]);
+  });
+
+  it('drops entries with missing or non-integer numeric fields (no NaN leaks through)', () => {
+    const result = [
+      { ...validTx, value: undefined },
+      { ...validTx, gasUsed: 'abc' },
+      { ...validTx, confirmations: '1.5' },
+      { ...validTx, timeStamp: 'not-a-number' },
+      validTx,
+    ];
+    const txs = parseIndexerTransactions({ status: '1', result });
+    expect(txs).toHaveLength(1);
+    expect(txs[0].hash).toBe('0xabc');
+    expect(Number.isNaN(txs[0].timestamp)).toBe(false);
+    expect(Number.isNaN(txs[0].confirmations)).toBe(false);
   });
 });
 

@@ -5,6 +5,7 @@ import { scriptTypeFromAddress } from '../utils/crypto';
 import { getBitcoinPrice } from './blockonomics';
 import { Network } from '../types/electrum';
 import { preferenceManager } from '../preferenceManager';
+import { coerceFiniteNumber, isFiniteNumber, isRecord } from '../utils/validation';
 
 export type FeeSizer = (inputCount: number, includeChange: boolean) => number;
 
@@ -15,6 +16,18 @@ const FALLBACK_FEES: FeeRates = {
   halfHourFee: 5,
   hourFee: 2,
 };
+
+/** Reject a provider response whose rates are not finite positive numbers. */
+function assertFeeRates(rates: { fastestFee?: number; halfHourFee?: number; hourFee?: number }): FeeRates {
+  const { fastestFee, halfHourFee, hourFee } = rates;
+  if (!isFiniteNumber(fastestFee) || !isFiniteNumber(halfHourFee) || !isFiniteNumber(hourFee)) {
+    throw new Error('Malformed fee response');
+  }
+  if (fastestFee <= 0 || halfHourFee <= 0 || hourFee <= 0) {
+    throw new Error('Non-positive fee response');
+  }
+  return { fastestFee, halfHourFee, hourFee };
+}
 
 async function fetchWithTimeout(url: string, options: any = {}, timeout = 5000) {
   const controller = new AbortController();
@@ -55,7 +68,13 @@ export class FeeService {
   private async fetchMempool(network: Network): Promise<FeeRates> {
     const baseUrl = network === Network.Mainnet ? 'https://mempool.space/api' : 'https://mempool.space/testnet4/api';
     const res = await fetchWithTimeout(`${baseUrl}/v1/fees/recommended`);
-    return await res.json();
+    const data = await res.json();
+    if (!isRecord(data)) throw new Error('Malformed mempool.space response');
+    return assertFeeRates({
+      fastestFee: coerceFiniteNumber(data.fastestFee),
+      halfHourFee: coerceFiniteNumber(data.halfHourFee),
+      hourFee: coerceFiniteNumber(data.hourFee),
+    });
   }
 
   private async fetchBlockstream(network: Network): Promise<FeeRates> {
@@ -63,21 +82,35 @@ export class FeeService {
       network === Network.Mainnet ? 'https://blockstream.info/api' : 'https://blockstream.info/testnet/api';
     const res = await fetchWithTimeout(`${baseUrl}/fee-estimates`);
     const estimates = await res.json();
-    return {
-      fastestFee: Math.ceil(estimates['1'] || estimates['2'] || 10),
-      halfHourFee: Math.ceil(estimates['3'] || estimates['6'] || 5),
-      hourFee: Math.ceil(estimates['12'] || estimates['24'] || 2),
+    if (!isRecord(estimates)) throw new Error('Malformed blockstream.info response');
+    const pick = (keys: string[], fallback: number): number => {
+      for (const key of keys) {
+        const n = coerceFiniteNumber(estimates[key]);
+        if (n !== undefined && n > 0) return n;
+      }
+      return fallback;
     };
+    return assertFeeRates({
+      fastestFee: Math.ceil(pick(['1', '2'], 10)),
+      halfHourFee: Math.ceil(pick(['3', '6'], 5)),
+      hourFee: Math.ceil(pick(['12', '24'], 2)),
+    });
   }
 
   private async fetchBlockchainInfo(): Promise<FeeRates> {
     const res = await fetchWithTimeout('https://api.blockchain.info/mempool/fees');
     const data = await res.json();
-    return {
-      fastestFee: data.priority,
-      halfHourFee: data.regular,
-      hourFee: Math.max(1, data.regular - 1),
-    };
+    if (!isRecord(data)) throw new Error('Malformed blockchain.info response');
+    const priority = coerceFiniteNumber(data.priority);
+    const regular = coerceFiniteNumber(data.regular);
+    if (priority === undefined || regular === undefined) {
+      throw new Error('Malformed blockchain.info response');
+    }
+    return assertFeeRates({
+      fastestFee: priority,
+      halfHourFee: regular,
+      hourFee: Math.max(1, regular - 1),
+    });
   }
 
   private async getReliableFeeRates(network: Network): Promise<FeeRates> {

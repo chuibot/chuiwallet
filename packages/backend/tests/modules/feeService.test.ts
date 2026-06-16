@@ -107,6 +107,36 @@ describe('FeeService.getFeeEstimates', () => {
     errSpy.mockRestore();
   });
 
+  it('rejects a malformed 200 response and falls back when no provider is valid', async () => {
+    mockFetch('mempool.space', () => jsonResponse({ foo: 'bar' }));
+    mockFetch('blockstream.info', () => new Response('boom', { status: 500 }));
+    mockFetch('blockchain.info', () => new Response('boom', { status: 500 }));
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const svc = new FeeService();
+    const tiers = await svc.getFeeEstimates(
+      [mkUtxo(ScriptType.P2WPKH)],
+      'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+      Network.Mainnet,
+      ScriptType.P2WPKH,
+    );
+    expect(tiers.map(t => t.sats)).toEqual([2, 5, 10]);
+    errSpy.mockRestore();
+  });
+
+  it('ignores a malformed provider and uses the valid one', async () => {
+    mockFetch('mempool.space/api/v1/fees/recommended', () => jsonResponse({ fastestFee: 'oops' }));
+    mockFetch('blockstream.info/api/fee-estimates', () => jsonResponse({ '1': 30, '3': 15, '12': 5 }));
+    mockFetch('blockchain.info', () => new Response('boom', { status: 500 }));
+    const svc = new FeeService();
+    const tiers = await svc.getFeeEstimates(
+      [mkUtxo(ScriptType.P2WPKH)],
+      'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+      Network.Mainnet,
+      ScriptType.P2WPKH,
+    );
+    expect(tiers.map(t => t.sats)).toEqual([5, 15, 30]);
+  });
+
   it('uses testnet endpoints for testnet network', async () => {
     let usedTestnet = false;
     mockFetch('mempool.space/testnet4/api/v1/fees/recommended', () => {

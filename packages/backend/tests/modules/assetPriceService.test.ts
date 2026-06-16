@@ -99,4 +99,35 @@ describe('AssetPriceService', () => {
     expect(await svc.getUsdPrices(['ethereum'])).toEqual({});
     warnSpy.mockRestore();
   });
+
+  it('returns empty map on a malformed (non-object) response with no prior cache', async () => {
+    mockFetch('coingecko.com', () => jsonResponse('garbage'));
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const svc = new AssetPriceService();
+    expect(await svc.getUsdPrices(['ethereum'])).toEqual({});
+    warnSpy.mockRestore();
+  });
+
+  it('rejects a malformed response and falls back to stale cache', async () => {
+    let firstCall = true;
+    mockFetch('coingecko.com', () => {
+      if (firstCall) {
+        firstCall = false;
+        return jsonResponse({ ethereum: { usd: 3000 } });
+      }
+      return jsonResponse(['not', 'an', 'object']);
+    });
+    const svc = new AssetPriceService();
+    await svc.getUsdPrices(['ethereum']);
+    const realNow = Date.now;
+    Date.now = () => realNow() + 120_000;
+    try {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const result = await svc.getUsdPrices(['ethereum']);
+      expect(result.ethereum).toBe(3000);
+      warnSpy.mockRestore();
+    } finally {
+      Date.now = realNow;
+    }
+  });
 });

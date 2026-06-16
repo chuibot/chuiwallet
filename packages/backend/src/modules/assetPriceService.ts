@@ -1,3 +1,5 @@
+import { isRecord } from '../utils/validation';
+
 type PriceCacheEntry = {
   price: number;
   fetchedAt: number;
@@ -51,9 +53,13 @@ export class AssetPriceService {
           throw new Error(`CoinGecko HTTP ${response.status}`);
         }
 
-        const payload = (await response.json()) as Record<string, Record<string, number | undefined>>;
+        const payload: unknown = await response.json();
+        if (!isRecord(payload)) {
+          throw new Error('Malformed CoinGecko response');
+        }
         missingIds.forEach(assetId => {
-          const nextPrice = payload?.[assetId]?.[vs];
+          const entry = payload[assetId];
+          const nextPrice = isRecord(entry) ? entry[vs] : undefined;
           if (typeof nextPrice === 'number' && Number.isFinite(nextPrice) && nextPrice > 0) {
             this.cache.set(this.cacheKey(assetId, vs), {
               price: nextPrice,

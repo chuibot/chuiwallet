@@ -14,12 +14,76 @@ import {
   type ChainSendOptions,
 } from './IChainAdapter';
 import { ERC20_TOKEN_DEFINITIONS, type Erc20TokenDefinition } from './erc20TokenDefinitions';
+import { isRecord } from '../utils/validation';
 
 const ERC20_ABI = [
   'function balanceOf(address owner) view returns (uint256)',
   'function transfer(address to, uint256 amount) returns (bool)',
   'function decimals() view returns (uint8)',
 ];
+
+const INTEGER_STRING = /^\d+$/;
+
+type RawIndexerTx = {
+  hash: string;
+  from: string;
+  to: string;
+  value: string;
+  tokenDecimal?: string;
+  gasUsed: string;
+  gasPrice: string;
+  timeStamp: string;
+  confirmations: string;
+  isError: string;
+  txreceipt_status?: string;
+};
+
+/** Validate one indexer entry; numeric fields must be integer strings so BigInt/parseInt cannot throw or yield NaN. */
+function isIndexerTx(value: unknown): value is RawIndexerTx {
+  if (!isRecord(value)) return false;
+  if (
+    typeof value.hash !== 'string' ||
+    typeof value.from !== 'string' ||
+    typeof value.to !== 'string' ||
+    typeof value.isError !== 'string'
+  ) {
+    return false;
+  }
+  return (['value', 'gasUsed', 'gasPrice', 'timeStamp', 'confirmations'] as const).every(
+    key => typeof value[key] === 'string' && INTEGER_STRING.test(value[key] as string),
+  );
+}
+
+/** Parse an untrusted Blockscout/Etherscan history response, dropping any entry that fails validation. */
+export function parseIndexerTransactions(raw: unknown, tokenAddress?: string): ChainTransaction[] {
+  if (!isRecord(raw) || raw.status !== '1' || !Array.isArray(raw.result)) {
+    return [];
+  }
+
+  return raw.result.filter(isIndexerTx).map(tx => {
+    const tokenDecimals = Number.parseInt(tx.tokenDecimal ?? '', 10);
+    const resolvedTokenDecimals = Number.isFinite(tokenDecimals) ? tokenDecimals : 18;
+
+    return {
+      hash: tx.hash,
+      from: tx.from,
+      to: tx.to,
+      amount: tokenAddress
+        ? parseFloat(ethers.formatUnits(tx.value, resolvedTokenDecimals))
+        : parseFloat(ethers.formatEther(tx.value)),
+      fee: parseFloat(ethers.formatEther((BigInt(tx.gasUsed) * BigInt(tx.gasPrice)).toString())),
+      timestamp: parseInt(tx.timeStamp, 10),
+      confirmations: parseInt(tx.confirmations, 10),
+      status:
+        tx.isError === '1' || tx.txreceipt_status === '0'
+          ? ('failed' as const)
+          : parseInt(tx.confirmations, 10) > 0
+            ? ('confirmed' as const)
+            : ('pending' as const),
+      chain: ChainType.Ethereum,
+    };
+  });
+}
 
 export class EthereumAdapter implements IChainAdapter {
   readonly chainType = ChainType.Ethereum;
@@ -250,50 +314,8 @@ export class EthereumAdapter implements IChainAdapter {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Blockscout HTTP ${res.status}`);
 
-      const data = (await res.json()) as {
-        status: string;
-        result: Array<{
-          hash: string;
-          from: string;
-          to: string;
-          value: string;
-          tokenDecimal?: string;
-          gasUsed: string;
-          gasPrice: string;
-          timeStamp: string;
-          confirmations: string;
-          isError: string;
-          txreceipt_status?: string;
-        }>;
-      };
-
-      if (data.status !== '1' || !Array.isArray(data.result)) {
-        return [];
-      }
-
-      return data.result.map(tx => {
-        const tokenDecimals = Number.parseInt(tx.tokenDecimal ?? '', 10);
-        const resolvedTokenDecimals = Number.isFinite(tokenDecimals) ? tokenDecimals : 18;
-
-        return {
-          hash: tx.hash,
-          from: tx.from,
-          to: tx.to,
-          amount: tokenAddress
-            ? parseFloat(ethers.formatUnits(tx.value, resolvedTokenDecimals))
-            : parseFloat(ethers.formatEther(tx.value)),
-          fee: parseFloat(ethers.formatEther((BigInt(tx.gasUsed) * BigInt(tx.gasPrice)).toString())),
-          timestamp: parseInt(tx.timeStamp, 10),
-          confirmations: parseInt(tx.confirmations, 10),
-          status:
-            tx.isError === '1' || tx.txreceipt_status === '0'
-              ? ('failed' as const)
-              : parseInt(tx.confirmations, 10) > 0
-                ? ('confirmed' as const)
-                : ('pending' as const),
-          chain: ChainType.Ethereum,
-        };
-      });
+      const raw: unknown = await res.json();
+      return parseIndexerTransactions(raw, tokenAddress);
     } catch (e) {
       console.warn('Failed to fetch ETH transaction history from indexer', e);
       throw e;
