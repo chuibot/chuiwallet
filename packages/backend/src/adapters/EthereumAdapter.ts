@@ -14,12 +14,106 @@ import {
   type ChainSendOptions,
 } from './IChainAdapter';
 import { ERC20_TOKEN_DEFINITIONS, type Erc20TokenDefinition } from './erc20TokenDefinitions';
+import { isRecord } from '../utils/validation';
 
 const ERC20_ABI = [
   'function balanceOf(address owner) view returns (uint256)',
   'function transfer(address to, uint256 amount) returns (bool)',
   'function decimals() view returns (uint8)',
 ];
+
+const INTEGER_STRING = /^\d+$/;
+const MAX_FORMAT_UNITS_DECIMALS = 80;
+const UINT256_DECIMAL_MAX_LEN = 78;
+const WEI_RATE_DECIMAL_MAX_LEN = 30;
+const SAFE_INT_DECIMAL_MAX_LEN = 15;
+
+type RawIndexerTx = {
+  hash: string;
+  from: string;
+  to: string;
+  value: string;
+  tokenDecimal?: string;
+  gasUsed: string;
+  gasPrice: string;
+  timeStamp: string;
+  confirmations: string;
+  isError: string;
+  txreceipt_status?: string;
+};
+
+function isBoundedIntegerString(value: unknown, maxLength: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= maxLength && INTEGER_STRING.test(value);
+}
+
+/** A digit string that is also short enough to be a safe JS integer (for parseInt fields). */
+function isSafeIntegerString(value: unknown): value is string {
+  return isBoundedIntegerString(value, SAFE_INT_DECIMAL_MAX_LEN) && Number.isSafeInteger(Number(value));
+}
+
+/** Validate one indexer entry; numeric fields must be bounded integer strings so BigInt/ethers/parseInt cannot throw or yield unsafe values. */
+function isIndexerTx(value: unknown): value is RawIndexerTx {
+  if (!isRecord(value)) return false;
+  if (
+    typeof value.hash !== 'string' ||
+    typeof value.from !== 'string' ||
+    typeof value.to !== 'string' ||
+    typeof value.isError !== 'string'
+  ) {
+    return false;
+  }
+  return (
+    isBoundedIntegerString(value.value, UINT256_DECIMAL_MAX_LEN) &&
+    isSafeIntegerString(value.gasUsed) &&
+    isBoundedIntegerString(value.gasPrice, WEI_RATE_DECIMAL_MAX_LEN) &&
+    isSafeIntegerString(value.timeStamp) &&
+    isSafeIntegerString(value.confirmations)
+  );
+}
+
+/** Validate an indexer tokenDecimal; defaults to 18 when absent, null when malformed or out of range. */
+function parseTokenDecimals(value: unknown): number | null {
+  if (value === undefined || value === '') return 18;
+  if (typeof value !== 'string' || !INTEGER_STRING.test(value)) return null;
+  const decimals = Number(value);
+  if (!Number.isSafeInteger(decimals) || decimals < 0 || decimals > MAX_FORMAT_UNITS_DECIMALS) {
+    return null;
+  }
+  return decimals;
+}
+
+/** Parse an untrusted Blockscout/Etherscan history response, dropping any entry that fails validation. */
+export function parseIndexerTransactions(raw: unknown, tokenAddress?: string): ChainTransaction[] {
+  if (!isRecord(raw) || raw.status !== '1' || !Array.isArray(raw.result)) {
+    return [];
+  }
+
+  return raw.result.filter(isIndexerTx).flatMap(tx => {
+    const resolvedTokenDecimals = parseTokenDecimals(tx.tokenDecimal);
+    if (resolvedTokenDecimals === null) return [];
+
+    return [
+      {
+        hash: tx.hash,
+        from: tx.from,
+        to: tx.to,
+        amount: tokenAddress
+          ? parseFloat(ethers.formatUnits(tx.value, resolvedTokenDecimals))
+          : parseFloat(ethers.formatEther(tx.value)),
+        fee: parseFloat(ethers.formatEther((BigInt(tx.gasUsed) * BigInt(tx.gasPrice)).toString())),
+        timestamp: parseInt(tx.timeStamp, 10),
+        confirmations: parseInt(tx.confirmations, 10),
+        status:
+          tx.isError === '1' || tx.txreceipt_status === '0'
+            ? ('failed' as const)
+            : parseInt(tx.confirmations, 10) > 0
+              ? ('confirmed' as const)
+              : ('pending' as const),
+        chain: ChainType.Ethereum,
+      },
+    ];
+  });
+}
 
 export class EthereumAdapter implements IChainAdapter {
   readonly chainType = ChainType.Ethereum;
@@ -250,50 +344,8 @@ export class EthereumAdapter implements IChainAdapter {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Blockscout HTTP ${res.status}`);
 
-      const data = (await res.json()) as {
-        status: string;
-        result: Array<{
-          hash: string;
-          from: string;
-          to: string;
-          value: string;
-          tokenDecimal?: string;
-          gasUsed: string;
-          gasPrice: string;
-          timeStamp: string;
-          confirmations: string;
-          isError: string;
-          txreceipt_status?: string;
-        }>;
-      };
-
-      if (data.status !== '1' || !Array.isArray(data.result)) {
-        return [];
-      }
-
-      return data.result.map(tx => {
-        const tokenDecimals = Number.parseInt(tx.tokenDecimal ?? '', 10);
-        const resolvedTokenDecimals = Number.isFinite(tokenDecimals) ? tokenDecimals : 18;
-
-        return {
-          hash: tx.hash,
-          from: tx.from,
-          to: tx.to,
-          amount: tokenAddress
-            ? parseFloat(ethers.formatUnits(tx.value, resolvedTokenDecimals))
-            : parseFloat(ethers.formatEther(tx.value)),
-          fee: parseFloat(ethers.formatEther((BigInt(tx.gasUsed) * BigInt(tx.gasPrice)).toString())),
-          timestamp: parseInt(tx.timeStamp, 10),
-          confirmations: parseInt(tx.confirmations, 10),
-          status:
-            tx.isError === '1' || tx.txreceipt_status === '0'
-              ? ('failed' as const)
-              : parseInt(tx.confirmations, 10) > 0
-                ? ('confirmed' as const)
-                : ('pending' as const),
-          chain: ChainType.Ethereum,
-        };
-      });
+      const raw: unknown = await res.json();
+      return parseIndexerTransactions(raw, tokenAddress);
     } catch (e) {
       console.warn('Failed to fetch ETH transaction history from indexer', e);
       throw e;

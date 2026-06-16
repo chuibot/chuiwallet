@@ -1,5 +1,6 @@
+import { ethers } from 'ethers';
 import { resetChromeStorage } from '../helpers/chromeMock';
-import { EthereumAdapter } from '../../src/adapters/EthereumAdapter';
+import { EthereumAdapter, parseIndexerTransactions } from '../../src/adapters/EthereumAdapter';
 import { ChainType } from '../../src/adapters/IChainAdapter';
 import { ERC20_TOKEN_DEFINITIONS, getErc20ContractAddress } from '../../src/adapters/erc20TokenDefinitions';
 import { Network } from '../../src/types/electrum';
@@ -23,6 +24,86 @@ describe('getErc20ContractAddress', () => {
   });
   it('returns undefined for unknown tokens', () => {
     expect(getErc20ContractAddress('UNKNOWN', Network.Mainnet)).toBeUndefined();
+  });
+});
+
+describe('parseIndexerTransactions — untrusted response validation', () => {
+  const validTx = {
+    hash: '0xabc',
+    from: '0x1111111111111111111111111111111111111111',
+    to: '0x2222222222222222222222222222222222222222',
+    value: '1000000000000000000',
+    gasUsed: '21000',
+    gasPrice: '1000000000',
+    timeStamp: '1700000000',
+    confirmations: '10',
+    isError: '0',
+  };
+
+  it('parses a well-formed response', () => {
+    const txs = parseIndexerTransactions({ status: '1', result: [validTx] });
+    expect(txs).toHaveLength(1);
+    expect(txs[0].hash).toBe('0xabc');
+    expect(txs[0].amount).toBe(1);
+    expect(txs[0].confirmations).toBe(10);
+    expect(txs[0].status).toBe('confirmed');
+  });
+
+  it('returns [] for a non-object, wrong-status, or non-array response', () => {
+    expect(parseIndexerTransactions(null)).toEqual([]);
+    expect(parseIndexerTransactions('garbage')).toEqual([]);
+    expect(parseIndexerTransactions(['x'])).toEqual([]);
+    expect(parseIndexerTransactions({ status: '0', result: [validTx] })).toEqual([]);
+    expect(parseIndexerTransactions({ status: '1', result: 'nope' })).toEqual([]);
+  });
+
+  it('drops entries with missing or non-integer numeric fields (no NaN leaks through)', () => {
+    const result = [
+      { ...validTx, value: undefined },
+      { ...validTx, gasUsed: 'abc' },
+      { ...validTx, confirmations: '1.5' },
+      { ...validTx, timeStamp: 'not-a-number' },
+      validTx,
+    ];
+    const txs = parseIndexerTransactions({ status: '1', result });
+    expect(txs).toHaveLength(1);
+    expect(txs[0].hash).toBe('0xabc');
+    expect(Number.isNaN(txs[0].timestamp)).toBe(false);
+    expect(Number.isNaN(txs[0].confirmations)).toBe(false);
+  });
+
+  it('drops rows with oversized digit-only numeric fields without throwing', () => {
+    const result = [
+      { ...validTx, value: '1'.repeat(100) },
+      { ...validTx, gasUsed: '9'.repeat(20) },
+      { ...validTx, gasPrice: '9'.repeat(40) },
+      { ...validTx, timeStamp: '9'.repeat(20) },
+      { ...validTx, confirmations: '9'.repeat(20) },
+      validTx,
+    ];
+    let txs: ReturnType<typeof parseIndexerTransactions> = [];
+    expect(() => {
+      txs = parseIndexerTransactions({ status: '1', result });
+    }).not.toThrow();
+    expect(txs).toHaveLength(1);
+    expect(txs[0].hash).toBe('0xabc');
+  });
+
+  it('drops token rows with malformed or oversized tokenDecimal', () => {
+    const result = [
+      { ...validTx, tokenDecimal: '1e309' },
+      { ...validTx, tokenDecimal: '999' },
+      { ...validTx, tokenDecimal: '6' },
+    ];
+    const txs = parseIndexerTransactions({ status: '1', result }, '0xtoken');
+    expect(txs).toHaveLength(1);
+    expect(txs[0].amount).toBe(parseFloat(ethers.formatUnits('1000000000000000000', 6)));
+  });
+
+  it('defaults to 18 decimals when tokenDecimal is absent on a token row', () => {
+    const txs = parseIndexerTransactions({ status: '1', result: [validTx] }, '0xtoken');
+    expect(txs).toHaveLength(1);
+    expect(txs[0].amount).toBe(parseFloat(ethers.formatUnits('1000000000000000000', 18)));
   });
 });
 
