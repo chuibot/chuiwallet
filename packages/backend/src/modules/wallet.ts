@@ -195,39 +195,34 @@ export class Wallet {
    * Each input must include bip32Derivation (segwit/legacy) or tapBip32Derivation (taproot)
    * paths that correspond to this wallet's root fingerprint.
    */
-  public signPsbt(utxos: SpendableUtxo[], psbt: bitcoin.Psbt): string | undefined {
-    try {
-      if (!this.root) throw new Error('Wallet is not ready');
-      const masterFingerprint = fingerprintBuffer(this.root);
-      const account = accountManager.getActiveAccount();
-      const isTaproot = account.scriptType === ScriptType.P2TR;
-      for (let i = 0; i < utxos.length; i++) {
-        const purpose = purposeFromScriptType(account.scriptType);
-        const coin = account.network === Network.Testnet ? 1 : 0;
-        const chainNum = utxos[i].chain === ChangeType.External ? 0 : 1;
-        const expectedPath = `m/${purpose}'/${coin}'/${account.index}'/${chainNum}/${utxos[i].index}`;
-        assertPsbtDerivationPath(psbt.data.inputs[i], masterFingerprint, expectedPath);
+  public signPsbt(utxos: SpendableUtxo[], psbt: bitcoin.Psbt): string {
+    if (!this.root) throw new Error('Wallet is not ready');
+    const masterFingerprint = fingerprintBuffer(this.root);
+    const account = accountManager.getActiveAccount();
+    const isTaproot = account.scriptType === ScriptType.P2TR;
+    for (let i = 0; i < utxos.length; i++) {
+      const purpose = purposeFromScriptType(account.scriptType);
+      const coin = account.network === Network.Testnet ? 1 : 0;
+      const chainNum = utxos[i].chain === ChangeType.External ? 0 : 1;
+      const expectedPath = `m/${purpose}'/${coin}'/${account.index}'/${chainNum}/${utxos[i].index}`;
+      assertPsbtDerivationPath(psbt.data.inputs[i], masterFingerprint, expectedPath);
 
-        const accountNode = this.root.deriveHardened(purpose).deriveHardened(coin).deriveHardened(account.index);
-        const childNode = accountNode.derive(chainNum).derive(utxos[i].index);
-        psbt.signInput(i, isTaproot ? toTaprootSigner(childNode) : toHdSigner(childNode));
-      }
-
-      const validator = isTaproot
-        ? (pubkey: Buffer, msghash: Buffer, signature: Buffer) =>
-            secp256k1.verifySchnorr(asBuffer(msghash), asBuffer(pubkey), asBuffer(signature))
-        : (pubkey: Buffer, msghash: Buffer, signature: Buffer) =>
-            secp256k1.verify(asBuffer(msghash), asBuffer(pubkey), asBuffer(signature));
-      if (!psbt.validateSignaturesOfAllInputs(validator)) {
-        throw new Error('PSBT signature validation failed');
-      }
-
-      psbt.finalizeAllInputs();
-      return psbt.extractTransaction().toHex();
-    } catch (e) {
-      console.error(e);
-      return undefined;
+      const accountNode = this.root.deriveHardened(purpose).deriveHardened(coin).deriveHardened(account.index);
+      const childNode = accountNode.derive(chainNum).derive(utxos[i].index);
+      psbt.signInput(i, isTaproot ? toTaprootSigner(childNode) : toHdSigner(childNode));
     }
+
+    const validator = isTaproot
+      ? (pubkey: Buffer, msghash: Buffer, signature: Buffer) =>
+          secp256k1.verifySchnorr(asBuffer(msghash), asBuffer(pubkey), asBuffer(signature))
+      : (pubkey: Buffer, msghash: Buffer, signature: Buffer) =>
+          secp256k1.verify(asBuffer(msghash), asBuffer(pubkey), asBuffer(signature));
+    if (!psbt.validateSignaturesOfAllInputs(validator)) {
+      throw new Error('PSBT signature validation failed');
+    }
+
+    psbt.finalizeAllInputs();
+    return psbt.extractTransaction().toHex();
   }
 
   /**

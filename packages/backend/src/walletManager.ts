@@ -364,8 +364,8 @@ export class WalletManager {
       getPrevTxHex: (txid: string) => electrumService.getRawTransaction(txid), // Todo: only used for legacy P2PKH, consider depracation
     });
     const txHex = wallet.signPsbt(selectedUtxo.inputs, psbt);
-    const localTxid = bitcoin.Transaction.fromHex(txHex!).getId();
-    const serverTxid = await electrumService.broadcastTx(txHex!);
+    const localTxid = bitcoin.Transaction.fromHex(txHex).getId();
+    const serverTxid = await electrumService.broadcastTx(txHex);
     if (serverTxid !== localTxid) {
       logger.warn(`Electrum returned a divergent txid: server=${serverTxid} local=${localTxid}`);
     }

@@ -306,11 +306,9 @@ describe('Wallet — signPsbt', () => {
     expect(tx.outs[0].value).toBe(90_000);
   });
 
-  it('signPsbt returns undefined when wallet is not ready', () => {
-    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  it('signPsbt throws when wallet is not ready', () => {
     const w = new Wallet();
-    expect(w.signPsbt([], new bitcoin.Psbt())).toBeUndefined();
-    errSpy.mockRestore();
+    expect(() => w.signPsbt([], new bitcoin.Psbt())).toThrow(/not ready/);
   });
 
   async function setupP2wpkhFixture() {
@@ -342,47 +340,30 @@ describe('Wallet — signPsbt', () => {
   }
 
   it('rejects a PSBT whose bip32Derivation declares a different master fingerprint', async () => {
-    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const { w, utxo, psbt } = await setupP2wpkhFixture();
     psbt.data.inputs[0].bip32Derivation![0].masterFingerprint = Buffer.from('deadbeef', 'hex');
-    expect(w.signPsbt([utxo], psbt)).toBeUndefined();
-    expect(errSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining('missing bip32 derivation for this wallet') }),
-    );
-    errSpy.mockRestore();
+    expect(() => w.signPsbt([utxo], psbt)).toThrow(/missing bip32 derivation for this wallet/);
   });
 
   it('rejects a PSBT whose bip32Derivation path differs from the expected leaf index', async () => {
-    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const { w, utxo, psbt } = await setupP2wpkhFixture();
     psbt.data.inputs[0].bip32Derivation![0].path = "m/84'/0'/0'/0/5";
-    expect(w.signPsbt([utxo], psbt)).toBeUndefined();
-    expect(errSpy).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('path mismatch') }));
-    errSpy.mockRestore();
+    expect(() => w.signPsbt([utxo], psbt)).toThrow(/path mismatch/);
   });
 
   it('rejects a PSBT path that points at a different account index', async () => {
-    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const { w, utxo, psbt } = await setupP2wpkhFixture();
     psbt.data.inputs[0].bip32Derivation![0].path = "m/84'/0'/1'/0/0";
-    expect(w.signPsbt([utxo], psbt)).toBeUndefined();
-    expect(errSpy).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('path mismatch') }));
-    errSpy.mockRestore();
+    expect(() => w.signPsbt([utxo], psbt)).toThrow(/path mismatch/);
   });
 
   it('rejects a PSBT input that has no bip32Derivation and no tapBip32Derivation', async () => {
-    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const { w, utxo, psbt } = await setupP2wpkhFixture();
     delete psbt.data.inputs[0].bip32Derivation;
-    expect(w.signPsbt([utxo], psbt)).toBeUndefined();
-    expect(errSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining('missing bip32 derivation') }),
-    );
-    errSpy.mockRestore();
+    expect(() => w.signPsbt([utxo], psbt)).toThrow(/missing bip32 derivation/);
   });
 
   it('rejects a taproot PSBT whose tapBip32Derivation path is tampered', async () => {
-    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const w = new Wallet();
     await w.init();
     await w.create({ password: PASSWORD, network: Network.Mainnet, mnemonic: MNEMONIC });
@@ -408,9 +389,7 @@ describe('Wallet — signPsbt', () => {
       masterFingerprint: fp,
     });
     psbt.data.inputs[0].tapBip32Derivation![0].path = "m/86'/0'/0'/0/9";
-    expect(w.signPsbt([utxo], psbt)).toBeUndefined();
-    expect(errSpy).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('path mismatch') }));
-    errSpy.mockRestore();
+    expect(() => w.signPsbt([utxo], psbt)).toThrow(/path mismatch/);
   });
 });
 
