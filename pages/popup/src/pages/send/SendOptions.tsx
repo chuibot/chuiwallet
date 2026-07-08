@@ -336,6 +336,10 @@ export const SendOptions: React.FC = () => {
     } catch (maxSendError) {
       if (requestId !== maxSendRequestRef.current) return;
       console.error('Failed to compute max send amount', maxSendError);
+      setIsMaxSend(false);
+      setMaxSendFee(null);
+      setAssetAmount('');
+      setUsdAmount('');
       setError('Insufficient funds');
     } finally {
       if (requestId === maxSendRequestRef.current) setMaxSendLoading(false);
@@ -365,6 +369,20 @@ export const SendOptions: React.FC = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFeeIndex]);
+
+  const handleFeeSelect = (index: number) => {
+    if (index === selectedFeeIndex) return;
+    // Drop the amount that was netted against the old fee so it can't be sent before the
+    // re-estimate lands. BTC re-estimates async, so hold the loading state until it returns.
+    if (isMaxSend && !usesSeparateFeeAsset) {
+      maxSendRequestRef.current++;
+      setMaxSendFee(null);
+      setAssetAmount('');
+      setUsdAmount('');
+      setMaxSendLoading(meta.chain === ChainType.Bitcoin);
+    }
+    setSelectedFeeIndex(index);
+  };
 
   const handleNext = () => {
     if (!currency || !states?.destinationAddress || !selectedFee) {
@@ -571,7 +589,7 @@ export const SendOptions: React.FC = () => {
                   fiatCurrency={preferences?.fiatCurrency || 'USD'}
                   selected={selectedFeeIndex === index}
                   disabled={maxSendLoading}
-                  onSelect={() => setSelectedFeeIndex(index)}
+                  onSelect={() => handleFeeSelect(index)}
                 />
               ))
             )}
