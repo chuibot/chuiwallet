@@ -78,6 +78,18 @@ export interface ChainFeeEstimate {
 }
 
 /**
+ * Max-sendable amount for a sweep (entire balance to one recipient), with the
+ * real on-chain fee already netted off. Only meaningful for chains where the
+ * fee is paid out of the same balance being sent (e.g. BTC).
+ */
+export interface ChainMaxSendEstimate {
+  /** Max sendable amount in display units, after the fee */
+  amount: number;
+  /** Fee in display units */
+  fee: number;
+}
+
+/**
  * Options for sending a transaction
  */
 export interface ChainSendOptions {
@@ -95,6 +107,8 @@ export interface ChainSendOptions {
   tokenSymbol?: string;
   /** For ERC-20 transfers */
   tokenAddress?: string;
+  /** Sweep the entire spendable balance to `to`, netting the real fee off the amount sent */
+  isMax?: boolean;
 }
 
 /**
@@ -155,4 +169,7 @@ export interface IChainAdapter {
 
   /** Estimate fees for a transaction */
   estimateFee(to: string, amount?: string, options?: ChainSendOptions): Promise<ChainFeeEstimate[]>;
+
+  /** Compute the true max sendable amount for a sweep, netting the real fee off the balance */
+  estimateMaxSend?(to: string, options?: ChainSendOptions): Promise<ChainMaxSendEstimate>;
 }

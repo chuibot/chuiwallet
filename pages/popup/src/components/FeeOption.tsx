@@ -11,6 +11,7 @@ export interface FeeOptionProps {
   symbol: string;
   fiatCurrency?: string;
   selected: boolean;
+  disabled?: boolean;
   onSelect?: () => void;
 }
 
@@ -23,6 +24,7 @@ export const FeeOption: React.FC<FeeOptionProps> = ({
   symbol,
   fiatCurrency = 'USD',
   selected,
+  disabled = false,
   onSelect,
 }) => {
   const iconVariant = (name ?? 'Medium').toLowerCase();
@@ -33,7 +35,9 @@ export const FeeOption: React.FC<FeeOptionProps> = ({
   return (
     <button
       onClick={onSelect}
-      className={`flex flex-col justify-center items-center px-auto rounded-2xl border border-solid h-[110px] min-h-[110px] w-[110px] gap-1 cursor-pointer 
+      disabled={disabled}
+      className={`flex flex-col justify-center items-center px-auto rounded-2xl border border-solid h-[110px] min-h-[110px] w-[110px] gap-1
+        ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
         ${selected ? 'bg-background-14 border-primary-yellow' : 'bg-background-2c border-background-1d'}`}>
       <div className="w-full flex justify-center">
         <img

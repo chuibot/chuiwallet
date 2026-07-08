@@ -35,6 +35,7 @@ function makeStubs() {
       { speed: 'fast', sats: 10, btcAmount: 0.0006, usdAmount: 36 },
     ]),
     sendPayment: jest.fn(async () => 'txhashAAA'),
+    getMaxSendAmount: jest.fn(async () => ({ amountSats: 199_998_750, feeSats: 1_250 })),
   };
   const electrum = { init: jest.fn(), connect: jest.fn(), disconnect: jest.fn() };
   const scan = {};
@@ -180,14 +181,29 @@ describe('BitcoinAdapter — sendPayment + estimateFee', () => {
     const { wallet, electrum, scan, history } = makeStubs();
     const a = new BitcoinAdapter(wallet, electrum, scan, history);
     await a.sendPayment('bc1qrecv', '0.5');
-    expect(wallet.sendPayment).toHaveBeenCalledWith('bc1qrecv', 50_000_000, 1);
+    expect(wallet.sendPayment).toHaveBeenCalledWith('bc1qrecv', 50_000_000, 1, false);
   });
 
   it('parses BTC string with feeRate option', async () => {
     const { wallet, electrum, scan, history } = makeStubs();
     const a = new BitcoinAdapter(wallet, electrum, scan, history);
     await a.sendPayment('bc1qrecv', '1', { feeRate: 7 });
-    expect(wallet.sendPayment).toHaveBeenCalledWith('bc1qrecv', 100_000_000, 7);
+    expect(wallet.sendPayment).toHaveBeenCalledWith('bc1qrecv', 100_000_000, 7, false);
+  });
+
+  it('forwards isMax to sweep the whole balance', async () => {
+    const { wallet, electrum, scan, history } = makeStubs();
+    const a = new BitcoinAdapter(wallet, electrum, scan, history);
+    await a.sendPayment('bc1qrecv', '1', { feeRate: 7, isMax: true });
+    expect(wallet.sendPayment).toHaveBeenCalledWith('bc1qrecv', 100_000_000, 7, true);
+  });
+
+  it('estimateMaxSend converts the sweep amount and fee to BTC', async () => {
+    const { wallet, electrum, scan, history } = makeStubs();
+    const a = new BitcoinAdapter(wallet, electrum, scan, history);
+    const estimate = await a.estimateMaxSend('bc1qrecv', { feeRate: 7 });
+    expect(wallet.getMaxSendAmount).toHaveBeenCalledWith('bc1qrecv', 7);
+    expect(estimate).toEqual({ amount: 1.9999875, fee: 0.0000125 });
   });
 
   it('rejects amounts with too many decimals', async () => {
@@ -212,7 +228,7 @@ describe('BitcoinAdapter — sendPayment + estimateFee', () => {
     const { wallet, electrum, scan, history } = makeStubs();
     const a = new BitcoinAdapter(wallet, electrum, scan, history);
     await a.sendPayment('bc1qrecv', '.5');
-    expect(wallet.sendPayment).toHaveBeenCalledWith('bc1qrecv', 50_000_000, 1);
+    expect(wallet.sendPayment).toHaveBeenCalledWith('bc1qrecv', 50_000_000, 1, false);
   });
 
   it('estimateFee maps three speeds to ChainFeeEstimate[]', async () => {
