@@ -333,4 +333,107 @@ describe('WalletManager — full lifecycle (integration)', () => {
       jest.restoreAllMocks();
     });
   });
+
+  describe('send-max sweep', () => {
+    const TO_ADDR = 'bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3';
+
+    async function setupMultiUtxoWallet(values: number[]) {
+      await walletManager.createWallet(MNEMONIC, PASSWORD);
+      const ownAddr = walletManager.deriveAddress(0, 0)!;
+      const utxoKey = getCacheKey(CacheType.Utxo, ChangeType.External);
+      const addrKey = getCacheKey(CacheType.Address, ChangeType.External);
+      await chrome.storage.local.set({
+        [addrKey]: [[0, { address: ownAddr, firstSeen: 0, lastChecked: 0, everUsed: true }]],
+        [utxoKey]: [
+          [
+            0,
+            {
+              lastChecked: 0,
+              utxos: values.map((value, i) => ({ txid: `${i}`.repeat(64), vout: 0, value, height: 800_000 })),
+            },
+          ],
+        ],
+      });
+    }
+
+    it('getMaxSendAmount nets the real multi-input fee off the total balance', async () => {
+      await setupMultiUtxoWallet([400_000, 300_000, 300_000]);
+
+      const { amountSats, feeSats } = await walletManager.getMaxSendAmount(TO_ADDR, 5);
+
+      // No leftover: the whole balance is accounted for between the recipient and the fee.
+      expect(amountSats + feeSats).toBe(1_000_000);
+      expect(amountSats).toBeGreaterThan(0);
+    });
+
+    it('sendPayment(isMax) sweeps every UTXO into a single change-less output', async () => {
+      await setupMultiUtxoWallet([400_000, 300_000, 300_000]);
+      jest.spyOn(scanManager, 'forwardScan').mockResolvedValue();
+      jest.spyOn(historyService, 'addOptimisticPending').mockResolvedValue();
+      let broadcastHex = '';
+      jest.spyOn(electrumService, 'broadcastTx').mockImplementation(async (hex: string) => {
+        broadcastHex = hex;
+        return bitcoin.Transaction.fromHex(hex).getId();
+      });
+
+      const { amountSats } = await walletManager.getMaxSendAmount(TO_ADDR, 5);
+      await walletManager.sendPayment(TO_ADDR, amountSats, 5, true);
+
+      const tx = bitcoin.Transaction.fromHex(broadcastHex);
+      expect(tx.ins).toHaveLength(3);
+      expect(tx.outs).toHaveLength(1);
+      expect(tx.outs[0].value).toBe(amountSats);
+
+      jest.restoreAllMocks();
+    });
+
+    it('a max amount sized for a single input throws Insufficient funds across 3 real UTXOs, unlike the sweep path', async () => {
+      await setupMultiUtxoWallet([400_000, 300_000, 300_000]);
+      jest.spyOn(scanManager, 'forwardScan').mockResolvedValue();
+      jest.spyOn(historyService, 'addOptimisticPending').mockResolvedValue();
+      jest
+        .spyOn(electrumService, 'broadcastTx')
+        .mockImplementation(async (hex: string) => bitcoin.Transaction.fromHex(hex).getId());
+
+      // What the old UI math produced: balance minus a fee sized for 1 input + 1 change output,
+      // regardless of how many UTXOs actually exist. With 3 UTXOs the real fee is bigger than
+      // this guess, so this amount isn't actually affordable.
+      const staleFeeGuess = Math.ceil((10 + 2 + 68 + 1 + 31 + 31) * 5);
+      const staleMaxAmount = 1_000_000 - staleFeeGuess;
+
+      await expect(walletManager.sendPayment(TO_ADDR, staleMaxAmount, 5)).rejects.toThrow('Insufficient funds');
+
+      const { amountSats } = await walletManager.getMaxSendAmount(TO_ADDR, 5);
+      expect(amountSats).toBeLessThan(staleMaxAmount);
+      await expect(walletManager.sendPayment(TO_ADDR, amountSats, 5, true)).resolves.toEqual(expect.any(String));
+
+      jest.restoreAllMocks();
+    });
+
+    it('excludes unconfirmed external UTXOs from the sweep', async () => {
+      await walletManager.createWallet(MNEMONIC, PASSWORD);
+      const ownAddr = walletManager.deriveAddress(0, 0)!;
+      const utxoKey = getCacheKey(CacheType.Utxo, ChangeType.External);
+      const addrKey = getCacheKey(CacheType.Address, ChangeType.External);
+      await chrome.storage.local.set({
+        [addrKey]: [[0, { address: ownAddr, firstSeen: 0, lastChecked: 0, everUsed: true }]],
+        [utxoKey]: [
+          [
+            0,
+            {
+              lastChecked: 0,
+              utxos: [
+                { txid: 'a'.repeat(64), vout: 0, value: 500_000, height: 800_000 },
+                { txid: 'b'.repeat(64), vout: 0, value: 500_000, height: 0 }, // unconfirmed external
+              ],
+            },
+          ],
+        ],
+      });
+
+      const { amountSats, feeSats } = await walletManager.getMaxSendAmount(TO_ADDR, 5);
+      // Only the confirmed 500_000 UTXO is swept; the unconfirmed deposit is left out.
+      expect(amountSats + feeSats).toBe(500_000);
+    });
+  });
 });

@@ -464,6 +464,21 @@ const handlers: Record<string, Handler> = {
     return adapter.estimateFee(to, amount, options);
   },
 
+  'chain.estimateMaxSend': async params => {
+    const payload = expectObjectParams('chain.estimateMaxSend', params);
+    const chain = expectEnumParam('chain.estimateMaxSend', payload, 'chain', Object.values(ChainType));
+    const to = expectStringParam('chain.estimateMaxSend', payload, 'to');
+    const rawOptions = payload.options;
+    const options =
+      rawOptions === undefined
+        ? undefined
+        : (expectObjectParams('chain.estimateMaxSend.options', rawOptions) as ChainSendOptions);
+    const adapter = chainRegistry.get(chain);
+    if (!adapter) throw new Error(`Unsupported chain: ${chain}`);
+    if (!adapter.estimateMaxSend) throw new Error(`chain.estimateMaxSend not supported for ${chain}`);
+    return adapter.estimateMaxSend(to, options);
+  },
+
   'chain.sendPayment': async params => {
     await requireUnlockedWallet('chain.sendPayment');
     const payload = expectObjectParams('chain.sendPayment', params);

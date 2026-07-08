@@ -13,6 +13,7 @@ import {
   type ChainTransaction,
   type ChainTransactionHistoryOptions,
   type ChainFeeEstimate,
+  type ChainMaxSendEstimate,
   type ChainSendOptions,
 } from './IChainAdapter';
 
@@ -109,7 +110,17 @@ export class BitcoinAdapter implements IChainAdapter {
 
   async sendPayment(to: string, amount: string, options?: ChainSendOptions): Promise<string> {
     const feeRate = options?.feeRate ?? 1;
-    return this.walletManager.sendPayment(to, this.parseBtcAmountToSats(amount), feeRate);
+    const isMax = options?.isMax === true;
+    return this.walletManager.sendPayment(to, this.parseBtcAmountToSats(amount), feeRate, isMax);
+  }
+
+  async estimateMaxSend(to: string, options?: ChainSendOptions): Promise<ChainMaxSendEstimate> {
+    const feeRate = options?.feeRate ?? 1;
+    const { amountSats, feeSats } = await this.walletManager.getMaxSendAmount(to, feeRate);
+    return {
+      amount: amountSats / 1e8,
+      fee: feeSats / 1e8,
+    };
   }
 
   async estimateFee(to: string, _amount?: string, _options?: ChainSendOptions): Promise<ChainFeeEstimate[]> {

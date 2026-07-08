@@ -3,6 +3,7 @@ import type { SpendableUtxo, utxoSelectionResult } from './modules/utxoSelection
 import type { AddressEntry, UtxoEntry } from './types/cache';
 import type { Network } from './types/electrum';
 import type { Balance } from './types/wallet';
+import type { FeeSizer } from './modules/feeService';
 import { CacheType, ChangeType } from './types/cache';
 import browser from 'webextension-polyfill';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
@@ -272,6 +273,38 @@ export class WalletManager {
     }
   }
 
+  /**
+   * UTXOs eligible for a sweep. Mirrors getBalance's spendable definition: confirmed external
+   * UTXOs plus our own pending change (trusted immediately); never unconfirmed external deposits.
+   */
+  private sweepableUtxos(utxos: SpendableUtxo[]): SpendableUtxo[] {
+    return utxos.filter(u => u.height > 0 || u.chain === ChangeType.Internal);
+  }
+
+  /** Inputs, fee, and amount for sweeping every spendable UTXO to `to` in one output, no change. */
+  private sweepAmount(
+    utxos: SpendableUtxo[],
+    feeSizer: FeeSizer,
+  ): { inputs: SpendableUtxo[]; amountSats: number; feeSats: number } {
+    const inputs = this.sweepableUtxos(utxos);
+    const total = inputs.reduce((sum, u) => sum + u.value, 0);
+    const feeSats = feeSizer(inputs.length, false);
+    return { inputs, amountSats: total - feeSats, feeSats };
+  }
+
+  public async getMaxSendAmount(
+    toAddress: string,
+    feerateSatPerVb: number,
+  ): Promise<{ amountSats: number; feeSats: number }> {
+    const utxos = await this.getUtxos();
+    const account = accountManager.getActiveAccount();
+    const toScript = scriptTypeFromAddress(toAddress);
+    const feeSizer = feeService.createFeeSizer(feerateSatPerVb, account.scriptType, toScript);
+    const { inputs, amountSats, feeSats } = this.sweepAmount(utxos, feeSizer);
+    if (inputs.length === 0 || amountSats <= 0) throw new Error('Insufficient funds');
+    return { amountSats, feeSats };
+  }
+
   public async getUtxos(): Promise<SpendableUtxo[]> {
     // Storage keys written by ScanManager
     const rxUtxoKey = getCacheKey(CacheType.Utxo, ChangeType.External);
@@ -340,15 +373,27 @@ export class WalletManager {
   /**
    * Builds, signs, and broadcasts a PAYMENT (spend to one recipient).
    */
-  public async sendPayment(to: string, amountSats: number, feerateSatPerVb: number): Promise<string> {
+  public async sendPayment(to: string, amountSats: number, feerateSatPerVb: number, isMax = false): Promise<string> {
     logger.log(`Sending ${amountSats} to ${to} at the rate of ${feerateSatPerVb}`);
     const utxos = await this.getUtxos();
     const account = accountManager.getActiveAccount();
     const changeScript = account.scriptType;
     const toScript = scriptTypeFromAddress(to);
     const feeSizer = feeService.createFeeSizer(feerateSatPerVb, changeScript, toScript);
-    const selectedUtxo: utxoSelectionResult = selectUtxo(utxos, amountSats, feeSizer, feeService.DUST[changeScript]);
-    const outputs: Array<{ address: string; value: number }> = [{ address: to, value: amountSats }];
+
+    let selectedUtxo: utxoSelectionResult;
+    let sendAmountSats: number;
+    if (isMax) {
+      const swept = this.sweepAmount(utxos, feeSizer);
+      if (swept.inputs.length === 0 || swept.amountSats <= 0) throw new Error('Insufficient funds');
+      sendAmountSats = swept.amountSats;
+      selectedUtxo = { inputs: swept.inputs, change: 0, fee: swept.feeSats };
+    } else {
+      sendAmountSats = amountSats;
+      selectedUtxo = selectUtxo(utxos, amountSats, feeSizer, feeService.DUST[changeScript]);
+    }
+
+    const outputs: Array<{ address: string; value: number }> = [{ address: to, value: sendAmountSats }];
     if (selectedUtxo.change > 0) {
       const changeAddr = this.getAddress(ChangeType.Internal);
       if (!changeAddr) throw new Error('Unable to derive change address');
@@ -375,7 +420,7 @@ export class WalletManager {
         txid: localTxid,
         toAddress: to,
         fromAddress: selectedUtxo.inputs[0].address,
-        amountSats,
+        amountSats: sendAmountSats,
         feeSats: selectedUtxo.fee,
       });
     } catch (err) {

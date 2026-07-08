@@ -1,7 +1,7 @@
 import { resetChromeStorage } from '../helpers/chromeMock';
 import { installFetchMock, jsonResponse, mockFetch, resetFetchMock, restoreFetch } from '../helpers/fetchMock';
 import { TxHistoryService } from '../../src/modules/txHistoryService';
-import { ChangeType, type AddressEntry, type HistoryEntry } from '../../src/types/cache';
+import { type AddressEntry, type HistoryEntry } from '../../src/types/cache';
 import { Network } from '../../src/types/electrum';
 import { ScriptType } from '../../src/types/wallet';
 import { accountManager } from '../../src/accountManager';
