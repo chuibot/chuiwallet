@@ -301,7 +301,7 @@ export class WalletManager {
     const toScript = scriptTypeFromAddress(toAddress);
     const feeSizer = feeService.createFeeSizer(feerateSatPerVb, account.scriptType, toScript);
     const { inputs, amountSats, feeSats } = this.sweepAmount(utxos, feeSizer);
-    if (inputs.length === 0 || amountSats <= 0) throw new Error('Insufficient funds');
+    if (inputs.length === 0 || amountSats < feeService.DUST[toScript]) throw new Error('Insufficient funds');
     return { amountSats, feeSats };
   }
 
@@ -385,8 +385,12 @@ export class WalletManager {
     let sendAmountSats: number;
     if (isMax) {
       const swept = this.sweepAmount(utxos, feeSizer);
-      if (swept.inputs.length === 0 || swept.amountSats <= 0) throw new Error('Insufficient funds');
-      sendAmountSats = swept.amountSats;
+      if (swept.inputs.length === 0 || swept.amountSats < feeService.DUST[toScript]) {
+        throw new Error('Insufficient funds');
+      }
+      // Broadcast exactly what the preview approved; if the sweep shifted since, abort.
+      if (swept.amountSats !== amountSats) throw new Error('Max send amount changed');
+      sendAmountSats = amountSats;
       selectedUtxo = { inputs: swept.inputs, change: 0, fee: swept.feeSats };
     } else {
       sendAmountSats = amountSats;

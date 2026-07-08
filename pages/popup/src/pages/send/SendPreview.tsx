@@ -98,6 +98,8 @@ export function SendPreview() {
 
       if (errorMessage.includes('Invalid password')) {
         setError('Invalid password');
+      } else if (meta.chain === ChainType.Bitcoin && normalizedMessage.includes('max send amount changed')) {
+        setError(ERROR_MESSAGES.SEND_MAX_AMOUNT_CHANGED);
       } else if (normalizedMessage.includes('insufficient funds') || normalizedMessage.includes('insufficient')) {
         setError(ERROR_MESSAGES.SEND_TRANSACTION_INSUFFICIENT_FUNDS);
       } else if (meta.chain === ChainType.Bitcoin && normalizedMessage.includes('dust')) {

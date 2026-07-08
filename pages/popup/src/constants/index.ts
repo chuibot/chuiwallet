@@ -12,6 +12,7 @@ export const ERROR_MESSAGES = {
   SEND_TRANSACTION_TOO_SMALL: 'Transaction amount is too small. Please increase the amount.',
   SEND_TRANSACTION_INSUFFICIENT_FUNDS: 'Insufficient funds to complete this transaction.',
   SEND_TRANSACTION_FEE_ERROR: 'Transaction fee error. Please try adjusting the fee.',
+  SEND_MAX_AMOUNT_CHANGED: 'Your balance changed. Tap Send Max again to update the amount.',
   PASSWORD_NOT_FOUND: 'No password found. Please restart the setup process.',
   UNEXPECTED_ERROR: 'An unexpected error occurred. Please try again.',
 };

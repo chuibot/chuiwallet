@@ -311,6 +311,7 @@ export const SendOptions: React.FC = () => {
     maxSendRequestRef.current++;
     setIsMaxSend(false);
     setMaxSendFee(null);
+    setMaxSendLoading(false);
   };
 
   // BTC's true max needs real UTXO selection on the backend, since the fee scales with the
@@ -526,7 +527,7 @@ export const SendOptions: React.FC = () => {
             value={usdAmount}
             onChange={handleUsdAmountChange}
             hasIcon={false}
-            disabled={feeEstimatesLoading || fiatRate === null}
+            disabled={feeEstimatesLoading || fiatRate === null || maxSendLoading}
           />
         </div>
         {fiatRate === null && (
@@ -569,6 +570,7 @@ export const SendOptions: React.FC = () => {
                   symbol={meta.symbol}
                   fiatCurrency={preferences?.fiatCurrency || 'USD'}
                   selected={selectedFeeIndex === index}
+                  disabled={maxSendLoading}
                   onSelect={() => setSelectedFeeIndex(index)}
                 />
               ))

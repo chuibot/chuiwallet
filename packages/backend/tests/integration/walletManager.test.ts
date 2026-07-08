@@ -435,5 +435,26 @@ describe('WalletManager — full lifecycle (integration)', () => {
       // Only the confirmed 500_000 UTXO is swept; the unconfirmed deposit is left out.
       expect(amountSats + feeSats).toBe(500_000);
     });
+
+    it('aborts an isMax send when the approved amount no longer matches the current sweep', async () => {
+      await setupMultiUtxoWallet([400_000, 300_000, 300_000]);
+      jest
+        .spyOn(electrumService, 'broadcastTx')
+        .mockImplementation(async (hex: string) => bitcoin.Transaction.fromHex(hex).getId());
+
+      const { amountSats } = await walletManager.getMaxSendAmount(TO_ADDR, 5);
+      // One sat off the real sweep stands in for UTXOs shifting between preview and confirm.
+      await expect(walletManager.sendPayment(TO_ADDR, amountSats - 1, 5, true)).rejects.toThrow(
+        'Max send amount changed',
+      );
+
+      jest.restoreAllMocks();
+    });
+
+    it('getMaxSendAmount rejects a balance that nets a positive but sub-dust output', async () => {
+      // 700 sats total, fee 560 at 5 sat/vB leaves 140 — above zero but below the 330 dust floor.
+      await setupMultiUtxoWallet([700]);
+      await expect(walletManager.getMaxSendAmount(TO_ADDR, 5)).rejects.toThrow('Insufficient funds');
+    });
   });
 });
