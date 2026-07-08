@@ -98,8 +98,19 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   useChuiEvents({
-    onConnection: e => setConnected(e.status as ConnectionStatus),
-    onBalance: () => refreshBalance(),
+    onConnection: e => {
+      setConnected(e.status as ConnectionStatus);
+      if (preferences.activeAccountIndex >= 0) {
+        refreshBalance();
+        refreshTransactions();
+      }
+    },
+    onBalance: e => {
+      if (e.accountIndex !== preferences.activeAccountIndex) return;
+      if (e.network !== preferences.activeNetwork) return;
+      if (e.balance) _setBalance(e.balance);
+      refreshBalance();
+    },
     onTx: () => refreshTransactions(),
   });
 

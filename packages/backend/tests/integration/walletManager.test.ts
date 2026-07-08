@@ -3,7 +3,14 @@ import BIP32Factory from 'bip32';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import bs58check from 'bs58check';
 import { resetChromeStorage } from '../helpers/chromeMock';
-import { installFetchMock, jsonResponse, mockFetch, resetFetchMock, restoreFetch } from '../helpers/fetchMock';
+import {
+  getFetchCalls,
+  installFetchMock,
+  jsonResponse,
+  mockFetch,
+  resetFetchMock,
+  restoreFetch,
+} from '../helpers/fetchMock';
 import { walletManager } from '../../src/walletManager';
 import { wallet } from '../../src/modules/wallet';
 import { accountManager } from '../../src/accountManager';
@@ -206,6 +213,27 @@ describe('WalletManager — full lifecycle (integration)', () => {
     expect(balance.confirmed).toBe(100_000);
     expect(balance.unconfirmed).toBe(50_000);
     expect(balance.confirmedUsd).toBeCloseTo((100_000 / 1e8) * 60_000, 6);
+  });
+
+  it('getBalance() can skip fiat pricing', async () => {
+    await walletManager.createWallet(MNEMONIC, PASSWORD);
+    const utxoKey = getCacheKey(CacheType.Utxo, ChangeType.External);
+    await chrome.storage.local.set({
+      [utxoKey]: [
+        [
+          0,
+          {
+            lastChecked: 0,
+            utxos: [{ txid: 'a'.repeat(64), vout: 0, value: 100_000, height: 800_000 }],
+          },
+        ],
+      ],
+    });
+
+    const balance = await walletManager.getBalance({ includeFiat: false });
+
+    expect(balance).toEqual({ confirmed: 100_000, unconfirmed: 0, confirmedUsd: 0, unconfirmedUsd: 0 });
+    expect(getFetchCalls()).toHaveLength(0);
   });
 
   it('getBalance() trusts pending change outputs as confirmed (internal chain)', async () => {

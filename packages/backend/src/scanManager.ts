@@ -25,6 +25,7 @@ export interface ScanManagerConfig {
   staleBatchSize: number;
   electrumBatchSize: number;
   pruneThresholdDays: number;
+  hotReceiveLookahead: number;
 }
 
 export const defaultScanConfig: ScanManagerConfig = {
@@ -34,6 +35,7 @@ export const defaultScanConfig: ScanManagerConfig = {
   staleBatchSize: 900,
   electrumBatchSize: 150,
   pruneThresholdDays: 7,
+  hotReceiveLookahead: 20,
 };
 
 export class ScanManager {
@@ -57,6 +59,7 @@ export class ScanManager {
   // a scan started under one context from being reused after a switch.
   private forwardInflight = new Map<string, Promise<void>>();
   private backfillInflight = new Map<string, Promise<void>>();
+  private hotReceiveInflight = new Map<string, Promise<void>>();
 
   constructor(config: ScanManagerConfig = defaultScanConfig) {
     this.config = { ...config };
@@ -153,6 +156,28 @@ export class ScanManager {
     return p;
   }
 
+  public scanHotReceiveAddresses(): Promise<void> {
+    const ctx = this.currentContext();
+    if (!ctx || electrumService.status !== 'connected') return Promise.resolve();
+    const key = this.contextKey(ctx, ChangeType.External);
+    const existing = this.hotReceiveInflight.get(key);
+    if (existing) return existing;
+    const p: Promise<void> = this.runHotReceiveScan(ctx).finally(() => {
+      if (this.hotReceiveInflight.get(key) === p) this.hotReceiveInflight.delete(key);
+    });
+    this.hotReceiveInflight.set(key, p);
+    return p;
+  }
+
+  private async runHotReceiveScan(ctx: ScanContext): Promise<void> {
+    const count = Math.max(1, this.config.hotReceiveLookahead);
+    const startIndex = this.nextReceiveIndex;
+    const endIndex = startIndex + count - 1;
+    await this.derive(startIndex, endIndex, ChangeType.External, ctx);
+    if (!this.isCurrentContext(ctx)) return;
+    await this.scan(this.hotReceiveIndices(startIndex, endIndex), ChangeType.External, ctx);
+  }
+
   private contextKey(ctx: ScanContext, changeType: ChangeType): string {
     return `${ctx.network}:${ctx.accountIndex}:${changeType}`;
   }
@@ -238,6 +263,24 @@ export class ScanManager {
       data: { scanType: 'backfill' },
     });
     await this.scan(indicesToScan, changeType, ctx);
+  }
+
+  private hotReceiveIndices(startIndex: number, endIndex: number): number[] {
+    const indices = new Set<number>();
+    for (const index of this.liveReceiveIndices()) indices.add(index);
+    for (let index = startIndex; index <= endIndex; index++) indices.add(index);
+    return Array.from(indices).sort((a, b) => a - b);
+  }
+
+  private liveReceiveIndices(): number[] {
+    const indices = new Set<number>();
+    for (const index of this.historyCacheReceive.keys()) {
+      if (this.isLiveIndex(index, this.historyCacheReceive, this.utxoCacheReceive)) indices.add(index);
+    }
+    for (const index of this.utxoCacheReceive.keys()) {
+      if (this.isLiveIndex(index, this.historyCacheReceive, this.utxoCacheReceive)) indices.add(index);
+    }
+    return Array.from(indices);
   }
 
   private async derive(startIndex: number, endIndex: number, changeType: ChangeType, ctx: ScanContext) {
@@ -581,6 +624,7 @@ export class ScanManager {
     this.epoch++;
     this.forwardInflight.clear();
     this.backfillInflight.clear();
+    this.hotReceiveInflight.clear();
     this.addressCacheReceive.clear();
     this.addressCacheChange.clear();
     this.historyCacheReceive.clear();
