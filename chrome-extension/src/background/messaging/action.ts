@@ -2,7 +2,6 @@ import type { Runtime } from 'webextension-polyfill';
 import { Network } from '@extension/backend/src/types/electrum';
 import type { EthereumAdapter } from '@extension/backend/src/adapters/EthereumAdapter';
 import type { AppAction } from '@src/background/messaging/index';
-import browser from 'webextension-polyfill';
 import { getSessionPassword, setSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
 import { getApprovalRequest, rejectApproval, resolveApproval } from '@src/background/messaging/rpc';
 import {
@@ -13,7 +12,6 @@ import {
 import { preferenceManager } from '@extension/backend/src/preferenceManager';
 import { walletManager } from '@extension/backend/src/walletManager';
 import { accountManager } from '@extension/backend/src/accountManager';
-import { scanManager } from '@extension/backend/src/scanManager';
 import { historyService } from '@extension/backend/src/modules/txHistoryService';
 import { chainBalanceCache } from '@extension/backend/src/modules/chainBalanceCache';
 import { chainTransactionHistoryCache } from '@extension/backend/src/modules/chainTransactionHistoryCache';
@@ -24,8 +22,8 @@ import {
   type ChainTransactionHistoryOptions,
   type IChainAdapter,
 } from '@extension/backend/src/adapters/IChainAdapter';
-import { ChangeType } from '@extension/backend/src/types/cache';
 import { logger } from '@extension/backend/src/utils/logger';
+import { resetScanRuntime, runAllScans, runHotScan } from '@src/background/scanRuntime';
 
 type Handler = (params: unknown, sender: Runtime.MessageSender) => Promise<unknown> | unknown;
 type ParamsRecord = Record<string, unknown>;
@@ -139,14 +137,7 @@ function supportsCachedTransactionHistory(adapter: IChainAdapter): adapter is IC
 }
 
 function triggerAccountScans(): void {
-  void (async () => {
-    try {
-      await Promise.all([scanManager.backfillScan(), scanManager.backfillScan(ChangeType.Internal)]);
-      await Promise.all([scanManager.forwardScan(), scanManager.forwardScan(ChangeType.Internal)]);
-    } catch (error) {
-      logger.error('Failed to trigger account scans', error);
-    }
-  })();
+  void runAllScans().catch(error => logger.error('Failed to trigger account scans', error));
 }
 
 /**
@@ -176,7 +167,7 @@ const handlers: Record<string, Handler> = {
           preferenceManager.get().activeEvmNetwork ?? preferenceManager.get().activeNetwork,
         );
       }
-      browser.alarms.create('forwardScan', { when: Date.now() + 100 });
+      triggerAccountScans();
     }
     return isRestorable;
   },
@@ -202,6 +193,8 @@ const handlers: Record<string, Handler> = {
         preferenceManager.get().activeEvmNetwork ?? preferenceManager.get().activeNetwork,
       );
     }
+    resetScanRuntime();
+    triggerAccountScans();
   },
   'wallet.getMnemonic': async () => {
     const password = await requireUnlockedWallet('wallet.getMnemonic');
@@ -230,7 +223,9 @@ const handlers: Record<string, Handler> = {
     return await walletManager.getBalance();
   },
   'wallet.getReceivingAddress': async () => {
-    return walletManager.getAddress();
+    const address = walletManager.getAddress();
+    void runHotScan().catch(error => logger.error('Receive address hot scan failed', error));
+    return address;
   },
   'wallet.switchNetwork': async params => {
     const payload = expectObjectParams('wallet.switchNetwork', params);
@@ -360,6 +355,7 @@ const handlers: Record<string, Handler> = {
       await walletManager.logout();
       await chainBalanceCache.clear();
       await chainTransactionHistoryCache.clear();
+      resetScanRuntime();
     } finally {
       // Clear ETH key material from memory
       clearEthereumKeys();

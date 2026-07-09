@@ -25,6 +25,7 @@ export interface ScanManagerConfig {
   staleBatchSize: number;
   electrumBatchSize: number;
   pruneThresholdDays: number;
+  hotReceiveLookahead: number;
 }
 
 export const defaultScanConfig: ScanManagerConfig = {
@@ -34,6 +35,7 @@ export const defaultScanConfig: ScanManagerConfig = {
   staleBatchSize: 900,
   electrumBatchSize: 150,
   pruneThresholdDays: 7,
+  hotReceiveLookahead: 20,
 };
 
 export class ScanManager {
@@ -52,17 +54,44 @@ export class ScanManager {
   public nextChangeIndex = 0;
   public readonly onStatus = createEmitter<ScanEvent>();
   private epoch = 0;
+  private initInflight: { epoch: number; promise: Promise<void> } | null = null;
+  private initQueue: Promise<void> = Promise.resolve();
+  private initializedEpoch: number | null = null;
   // Coalesce concurrent scans so triggers share one Electrum round-trip per
   // (network, accountIndex, changeType). Account/network in the key prevents
   // a scan started under one context from being reused after a switch.
   private forwardInflight = new Map<string, Promise<void>>();
   private backfillInflight = new Map<string, Promise<void>>();
+  private hotReceiveInflight = new Map<string, Promise<void>>();
 
   constructor(config: ScanManagerConfig = defaultScanConfig) {
     this.config = { ...config };
   }
 
-  public async init() {
+  public init(): Promise<void> {
+    const epoch = this.epoch;
+    if (this.initializedEpoch === epoch) return Promise.resolve();
+    const current = this.initInflight;
+    if (current?.epoch === epoch) return current.promise;
+
+    const promise = this.initQueue
+      .catch(() => undefined)
+      .then(async () => {
+        await this.runInit(epoch);
+        if (this.epoch === epoch) this.initializedEpoch = epoch;
+      })
+      .finally(() => {
+        if (this.initInflight?.promise === promise) this.initInflight = null;
+      });
+
+    this.initInflight = { epoch, promise };
+    this.initQueue = promise.catch(() => undefined);
+    return promise;
+  }
+
+  private async runInit(epoch: number): Promise<void> {
+    if (this.epoch !== epoch) return;
+
     // Sync with user preferences
     try {
       const prefs = preferenceManager.get();
@@ -73,9 +102,12 @@ export class ScanManager {
       // ignore if not initialized, use defaults
     }
 
-    await this.loadAddress();
-    await this.loadHistory();
-    await this.loadUtxo();
+    await this.loadAddress(epoch);
+    if (this.epoch !== epoch) return;
+    await this.loadHistory(epoch);
+    if (this.epoch !== epoch) return;
+    await this.loadUtxo(epoch);
+    if (this.epoch !== epoch) return;
     this.initHighestScanned();
     this.initHighestUsed();
     console.log(`Highest Scanned (Receive|Change): ${this.highestScannedReceive} | ${this.highestScannedChange}`);
@@ -151,6 +183,28 @@ export class ScanManager {
     });
     this.backfillInflight.set(key, p);
     return p;
+  }
+
+  public scanHotReceiveAddresses(): Promise<void> {
+    const ctx = this.currentContext();
+    if (!ctx || electrumService.status !== 'connected') return Promise.resolve();
+    const key = this.contextKey(ctx, ChangeType.External);
+    const existing = this.hotReceiveInflight.get(key);
+    if (existing) return existing;
+    const p: Promise<void> = this.runHotReceiveScan(ctx).finally(() => {
+      if (this.hotReceiveInflight.get(key) === p) this.hotReceiveInflight.delete(key);
+    });
+    this.hotReceiveInflight.set(key, p);
+    return p;
+  }
+
+  private async runHotReceiveScan(ctx: ScanContext): Promise<void> {
+    const count = Math.max(1, this.config.hotReceiveLookahead);
+    const startIndex = this.nextReceiveIndex;
+    const endIndex = startIndex + count - 1;
+    await this.derive(startIndex, endIndex, ChangeType.External, ctx);
+    if (!this.isCurrentContext(ctx)) return;
+    await this.scan(this.hotReceiveIndices(startIndex, endIndex), ChangeType.External, ctx);
   }
 
   private contextKey(ctx: ScanContext, changeType: ChangeType): string {
@@ -240,6 +294,24 @@ export class ScanManager {
     await this.scan(indicesToScan, changeType, ctx);
   }
 
+  private hotReceiveIndices(startIndex: number, endIndex: number): number[] {
+    const indices = new Set<number>();
+    for (const index of this.liveReceiveIndices()) indices.add(index);
+    for (let index = startIndex; index <= endIndex; index++) indices.add(index);
+    return Array.from(indices).sort((a, b) => a - b);
+  }
+
+  private liveReceiveIndices(): number[] {
+    const indices = new Set<number>();
+    for (const index of this.historyCacheReceive.keys()) {
+      if (this.isLiveIndex(index, this.historyCacheReceive, this.utxoCacheReceive)) indices.add(index);
+    }
+    for (const index of this.utxoCacheReceive.keys()) {
+      if (this.isLiveIndex(index, this.historyCacheReceive, this.utxoCacheReceive)) indices.add(index);
+    }
+    return Array.from(indices);
+  }
+
   private async derive(startIndex: number, endIndex: number, changeType: ChangeType, ctx: ScanContext) {
     logger.log(`Scanning from ${startIndex} to ${endIndex} (${endIndex - startIndex} Indexes)`);
     const addressCache = changeType === ChangeType.External ? this.addressCacheReceive : this.addressCacheChange;
@@ -291,24 +363,20 @@ export class ScanManager {
         indices: batch,
       });
 
-      const scriptHashesPromises = batch.map(async index => {
+      const presentBatch = batch.flatMap(index => {
         const entry = addressCache.get(index);
-        if (!entry) return undefined;
+        if (!entry) return [];
         const scriptHash = addressToScriptHash(entry.address, bitcoinNetwork);
-        return [scriptHash];
+        return [{ index, entry, scriptHash }];
       });
-      const scriptHashes: string[][] = (await Promise.all(scriptHashesPromises)).filter(
-        (item): item is string[] => item !== undefined,
-      );
+      if (presentBatch.length === 0) continue;
+      const scriptHashes = presentBatch.map(({ scriptHash }) => [scriptHash]);
 
       // Scan Histories
       const histories = await electrumService.getHistoryBatch(scriptHashes);
       if (!this.isCurrentContext(ctx)) return;
-      for (let batchIndex = 0; batchIndex < batch.length; batchIndex++) {
-        const hdIndex = batch[batchIndex]; // map back from batch pos -> HD index
-        const entry = addressCache.get(hdIndex);
-        if (!entry) continue;
-
+      for (let batchIndex = 0; batchIndex < presentBatch.length; batchIndex++) {
+        const { index: hdIndex, entry } = presentBatch[batchIndex];
         entry.lastChecked = batchTimestamp;
         const history = histories[batchIndex] ?? [];
         if (history.length > 0) {
@@ -325,11 +393,8 @@ export class ScanManager {
       // Scan Utxo
       const utxosByIndex = await electrumService.getUtxoBatch(scriptHashes);
       if (!this.isCurrentContext(ctx)) return;
-      for (let batchIndex = 0; batchIndex < batch.length; batchIndex++) {
-        const hdIndex = batch[batchIndex];
-        const entry = addressCache.get(hdIndex);
-        if (!entry) continue;
-
+      for (let batchIndex = 0; batchIndex < presentBatch.length; batchIndex++) {
+        const { index: hdIndex } = presentBatch[batchIndex];
         const utxos = utxosByIndex[batchIndex] ?? [];
         if (utxos.length > 0) {
           const changed = this.upsertUtxo(utxoCache, hdIndex, batchTimestamp, utxos);
@@ -477,11 +542,12 @@ export class ScanManager {
     await browser.storage.local.set({ [changeKey]: changeSerialised });
   }
 
-  private async loadAddress() {
+  private async loadAddress(epoch: number = this.epoch) {
     const receiveKey = getCacheKey(CacheType.Address, ChangeType.External);
     const changeKey = getCacheKey(CacheType.Address, ChangeType.Internal);
     const receiveAddresses = await browser.storage.local.get(receiveKey);
     const changeAddresses = await browser.storage.local.get(changeKey);
+    if (this.epoch !== epoch) return;
     if (Object.keys(receiveAddresses).length === 0 || Object.keys(changeAddresses).length === 0) {
       // Save empty address map to initialize data structure
       await this.saveAddress();
@@ -507,11 +573,12 @@ export class ScanManager {
     await browser.storage.local.set({ [changeKey]: changeSerialised });
   }
 
-  private async loadHistory() {
+  private async loadHistory(epoch: number = this.epoch) {
     const receiveKey = getCacheKey(CacheType.History, ChangeType.External);
     const changeKey = getCacheKey(CacheType.History, ChangeType.Internal);
     const receiveHistory = await browser.storage.local.get(receiveKey);
     const changeHistory = await browser.storage.local.get(changeKey);
+    if (this.epoch !== epoch) return;
     if (Object.keys(receiveHistory).length === 0 || Object.keys(changeHistory).length === 0) {
       // Save empty history map to initialize data structure
       await this.saveHistory();
@@ -537,11 +604,12 @@ export class ScanManager {
     await browser.storage.local.set({ [changeKey]: changeSerialised });
   }
 
-  private async loadUtxo() {
+  private async loadUtxo(epoch: number = this.epoch) {
     const receiveKey = getCacheKey(CacheType.Utxo, ChangeType.External);
     const changeKey = getCacheKey(CacheType.Utxo, ChangeType.Internal);
     const receiveUtxo = await browser.storage.local.get(receiveKey);
     const changeUtxo = await browser.storage.local.get(changeKey);
+    if (this.epoch !== epoch) return;
     if (Object.keys(receiveUtxo).length === 0 || Object.keys(changeUtxo).length === 0) {
       // Save empty utxo map to initialize data structure
       await this.saveUtxo();
@@ -579,8 +647,10 @@ export class ScanManager {
 
   public clear() {
     this.epoch++;
+    this.initializedEpoch = null;
     this.forwardInflight.clear();
     this.backfillInflight.clear();
+    this.hotReceiveInflight.clear();
     this.addressCacheReceive.clear();
     this.addressCacheChange.clear();
     this.historyCacheReceive.clear();

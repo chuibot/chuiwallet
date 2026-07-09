@@ -206,7 +206,7 @@ export class WalletManager {
    * Aggregate confirmed/unconfirmed balance for the active account by summing UTXOs
    * from both external(0/receive) and internal(1/change) chains.
    */
-  public async getBalance(): Promise<Balance> {
+  public async getBalance(options: { includeFiat?: boolean } = {}): Promise<Balance> {
     const activeAccount = accountManager.getActiveAccount();
     if (!activeAccount) {
       return { confirmed: 0, unconfirmed: 0, confirmedUsd: 0, unconfirmedUsd: 0 };
@@ -251,6 +251,8 @@ export class WalletManager {
 
     let confirmedUsd = 0;
     let unconfirmedUsd = 0;
+    if (options.includeFiat === false) return { confirmed, unconfirmed, confirmedUsd, unconfirmedUsd };
+
     try {
       const fiatCurrency = preferenceManager.get().fiatCurrency || 'USD';
       const rate = await getBitcoinPrice(fiatCurrency === 'BTC' ? 'USD' : fiatCurrency);
