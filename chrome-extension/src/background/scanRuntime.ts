@@ -1,13 +1,10 @@
 import { accountManager } from '@extension/backend/src/accountManager';
+import { preferenceManager } from '@extension/backend/src/preferenceManager';
 import { scanManager } from '@extension/backend/src/scanManager';
 import { walletManager } from '@extension/backend/src/walletManager';
 import { ChangeType, type ScanEvent } from '@extension/backend/src/types/cache';
 import { logger } from '@extension/backend/src/utils/logger';
-import {
-  emitBalance,
-  getActivePopupPortCount,
-  onPopupSessionChanged,
-} from '@src/background/messaging/port';
+import { emitBalance, getActivePopupPortCount, onPopupSessionChanged } from '@src/background/messaging/port';
 
 const FOREGROUND_HOT_SCAN_MS = 5_000;
 
@@ -17,7 +14,11 @@ let foregroundHotScanTimer: ReturnType<typeof setInterval> | null = null;
 
 function scanKey(): string | null {
   try {
+    const prefs = preferenceManager.get();
     const account = accountManager.getActiveAccount();
+    if (prefs.activeNetwork !== account.network || prefs.activeAccountIndex !== accountManager.activeAccountIndex) {
+      return null;
+    }
     return `${account.network}:${accountManager.activeAccountIndex}:${account.index}`;
   } catch {
     return null;
@@ -55,6 +56,7 @@ export async function ensureScanRuntime(): Promise<boolean> {
   if (!key) return false;
   if (activeScanKey !== key) {
     await scanManager.init();
+    if (scanKey() !== key) return false;
     activeScanKey = key;
   }
   return true;
@@ -82,6 +84,8 @@ export async function runAllScans(): Promise<void> {
 
 export function resetScanRuntime(): void {
   activeScanKey = null;
+  stopForegroundHotPolling();
+  if (getActivePopupPortCount() > 0 && scanKey()) startForegroundHotPolling();
 }
 
 function startForegroundHotPolling(): void {

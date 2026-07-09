@@ -13,6 +13,7 @@ type ScanInternals = {
   addressCacheReceive: Map<number, AddressEntry>;
   historyCacheReceive: Map<number, HistoryEntry>;
   utxoCacheReceive: Map<number, UtxoEntry>;
+  runInit: (epoch: number) => Promise<void>;
   saveHistory: () => Promise<void>;
   saveAddress: () => Promise<void>;
   saveUtxo: () => Promise<void>;
@@ -72,6 +73,73 @@ describe('computeForwardScanWindow', () => {
   it('handles a small gap limit', () => {
     expect(computeForwardScanWindow(0, 1, 0)).toBe(1);
     expect(computeForwardScanWindow(0, 1, 1)).toBe(0);
+  });
+});
+
+describe('ScanManager — init dedupe', () => {
+  let ctxState: CtxState;
+
+  beforeEach(() => {
+    ctxState = { network: Network.Mainnet, activeAccountIndex: 0, hdAccountIndex: 0 };
+    installContext(ctxState);
+  });
+
+  afterEach(() => {
+    accountManager.activeAccountIndex = -1;
+    jest.restoreAllMocks();
+  });
+
+  it('returns the same in-flight promise for concurrent init calls', async () => {
+    const sm = new ScanManager();
+    const spy = jest
+      .spyOn(sm as unknown as ScanInternals, 'runInit')
+      .mockImplementation(() => new Promise(resolve => setTimeout(resolve, 5)));
+
+    const a = sm.init();
+    const b = sm.init();
+
+    expect(a).toBe(b);
+    await a;
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reload after the current epoch is initialized', async () => {
+    const sm = new ScanManager();
+    const spy = jest.spyOn(sm as unknown as ScanInternals, 'runInit').mockResolvedValue(undefined);
+
+    await sm.init();
+    await sm.init();
+
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('serializes init after clear into the next epoch', async () => {
+    const sm = new ScanManager();
+    const order: string[] = [];
+    let releaseFirst!: () => void;
+    const firstStarted = new Promise<void>(resolveStarted => {
+      jest.spyOn(sm as unknown as ScanInternals, 'runInit').mockImplementation(async epoch => {
+        order.push(`start:${epoch}`);
+        if (epoch === 0) {
+          resolveStarted();
+          await new Promise<void>(resolve => {
+            releaseFirst = resolve;
+          });
+        }
+        order.push(`end:${epoch}`);
+      });
+    });
+
+    const first = sm.init();
+    await firstStarted;
+    sm.clear();
+    const second = sm.init();
+    await Promise.resolve();
+
+    expect(order).toEqual(['start:0']);
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(order).toEqual(['start:0', 'end:0', 'start:1', 'end:1']);
   });
 });
 
@@ -243,7 +311,9 @@ describe('ScanManager — hot receive polling', () => {
     const internal = sm as unknown as ScanInternals;
     Object.defineProperty(electrumService, 'status', { value: 'disconnected', configurable: true });
     const scanSpy = jest.spyOn(internal, 'scan').mockResolvedValue();
-    const deriveSpy = jest.spyOn(walletManager, 'deriveAddress').mockReturnValue('bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu');
+    const deriveSpy = jest
+      .spyOn(walletManager, 'deriveAddress')
+      .mockReturnValue('bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu');
 
     await sm.scanHotReceiveAddresses();
 
@@ -256,7 +326,9 @@ describe('ScanManager — hot receive polling', () => {
     const internal = sm as unknown as ScanInternals;
     Object.defineProperty(electrumService, 'status', { value: 'connected', configurable: true });
     jest.spyOn(walletManager, 'deriveAddress').mockReturnValue('bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu');
-    const scanSpy = jest.spyOn(internal, 'scan').mockImplementation(() => new Promise(resolve => setTimeout(resolve, 30)));
+    const scanSpy = jest
+      .spyOn(internal, 'scan')
+      .mockImplementation(() => new Promise(resolve => setTimeout(resolve, 30)));
 
     const a = sm.scanHotReceiveAddresses();
     const b = sm.scanHotReceiveAddresses();

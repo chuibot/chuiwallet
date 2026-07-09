@@ -54,6 +54,9 @@ export class ScanManager {
   public nextChangeIndex = 0;
   public readonly onStatus = createEmitter<ScanEvent>();
   private epoch = 0;
+  private initInflight: { epoch: number; promise: Promise<void> } | null = null;
+  private initQueue: Promise<void> = Promise.resolve();
+  private initializedEpoch: number | null = null;
   // Coalesce concurrent scans so triggers share one Electrum round-trip per
   // (network, accountIndex, changeType). Account/network in the key prevents
   // a scan started under one context from being reused after a switch.
@@ -65,7 +68,30 @@ export class ScanManager {
     this.config = { ...config };
   }
 
-  public async init() {
+  public init(): Promise<void> {
+    const epoch = this.epoch;
+    if (this.initializedEpoch === epoch) return Promise.resolve();
+    const current = this.initInflight;
+    if (current?.epoch === epoch) return current.promise;
+
+    const promise = this.initQueue
+      .catch(() => undefined)
+      .then(async () => {
+        await this.runInit(epoch);
+        if (this.epoch === epoch) this.initializedEpoch = epoch;
+      })
+      .finally(() => {
+        if (this.initInflight?.promise === promise) this.initInflight = null;
+      });
+
+    this.initInflight = { epoch, promise };
+    this.initQueue = promise.catch(() => undefined);
+    return promise;
+  }
+
+  private async runInit(epoch: number): Promise<void> {
+    if (this.epoch !== epoch) return;
+
     // Sync with user preferences
     try {
       const prefs = preferenceManager.get();
@@ -76,9 +102,12 @@ export class ScanManager {
       // ignore if not initialized, use defaults
     }
 
-    await this.loadAddress();
-    await this.loadHistory();
-    await this.loadUtxo();
+    await this.loadAddress(epoch);
+    if (this.epoch !== epoch) return;
+    await this.loadHistory(epoch);
+    if (this.epoch !== epoch) return;
+    await this.loadUtxo(epoch);
+    if (this.epoch !== epoch) return;
     this.initHighestScanned();
     this.initHighestUsed();
     console.log(`Highest Scanned (Receive|Change): ${this.highestScannedReceive} | ${this.highestScannedChange}`);
@@ -513,11 +542,12 @@ export class ScanManager {
     await browser.storage.local.set({ [changeKey]: changeSerialised });
   }
 
-  private async loadAddress() {
+  private async loadAddress(epoch: number = this.epoch) {
     const receiveKey = getCacheKey(CacheType.Address, ChangeType.External);
     const changeKey = getCacheKey(CacheType.Address, ChangeType.Internal);
     const receiveAddresses = await browser.storage.local.get(receiveKey);
     const changeAddresses = await browser.storage.local.get(changeKey);
+    if (this.epoch !== epoch) return;
     if (Object.keys(receiveAddresses).length === 0 || Object.keys(changeAddresses).length === 0) {
       // Save empty address map to initialize data structure
       await this.saveAddress();
@@ -543,11 +573,12 @@ export class ScanManager {
     await browser.storage.local.set({ [changeKey]: changeSerialised });
   }
 
-  private async loadHistory() {
+  private async loadHistory(epoch: number = this.epoch) {
     const receiveKey = getCacheKey(CacheType.History, ChangeType.External);
     const changeKey = getCacheKey(CacheType.History, ChangeType.Internal);
     const receiveHistory = await browser.storage.local.get(receiveKey);
     const changeHistory = await browser.storage.local.get(changeKey);
+    if (this.epoch !== epoch) return;
     if (Object.keys(receiveHistory).length === 0 || Object.keys(changeHistory).length === 0) {
       // Save empty history map to initialize data structure
       await this.saveHistory();
@@ -573,11 +604,12 @@ export class ScanManager {
     await browser.storage.local.set({ [changeKey]: changeSerialised });
   }
 
-  private async loadUtxo() {
+  private async loadUtxo(epoch: number = this.epoch) {
     const receiveKey = getCacheKey(CacheType.Utxo, ChangeType.External);
     const changeKey = getCacheKey(CacheType.Utxo, ChangeType.Internal);
     const receiveUtxo = await browser.storage.local.get(receiveKey);
     const changeUtxo = await browser.storage.local.get(changeKey);
+    if (this.epoch !== epoch) return;
     if (Object.keys(receiveUtxo).length === 0 || Object.keys(changeUtxo).length === 0) {
       // Save empty utxo map to initialize data structure
       await this.saveUtxo();
@@ -615,6 +647,7 @@ export class ScanManager {
 
   public clear() {
     this.epoch++;
+    this.initializedEpoch = null;
     this.forwardInflight.clear();
     this.backfillInflight.clear();
     this.hotReceiveInflight.clear();
