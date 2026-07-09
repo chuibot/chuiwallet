@@ -3,7 +3,7 @@ import type { Account } from '@extension/backend/src/types/wallet';
 import type { TxEntry } from '@extension/backend/src/types/cache';
 import type { ConnectionStatus } from '@extension/backend/src/types/electrum';
 import type { ChainBalance, ChainType } from '@extension/backend/src/adapters/IChainAdapter';
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { sendMessage } from '@src/utils/bridge';
 import { useChuiEvents } from '@src/hooks/useChuiEvents';
 import { defaultPreferences } from '@extension/backend/src/preferenceManager';
@@ -44,6 +44,7 @@ interface WalletContextType {
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
+const CONNECTION_REFRESH_INTERVAL_MS = 5_000;
 
 export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [onboarded, setOnboarded] = useState<boolean>(false);
@@ -57,6 +58,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [chainBalances, _setChainBalances] = useState<Partial<Record<ChainType, ChainBalance>>>({});
   const [chainBalancesLoading, setChainBalancesLoading] = useState<boolean>(false);
   const [hasHydratedChainBalances, setHasHydratedChainBalances] = useState<boolean>(false);
+  const lastConnectionRefreshAt = useRef(0);
   const activeAccount = useMemo<Account | undefined>(() => {
     const i = preferences?.activeAccountIndex ?? 0;
     return accounts[i];
@@ -99,16 +101,28 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   useChuiEvents({
     onConnection: e => {
-      setConnected(e.status as ConnectionStatus);
-      if (preferences.activeAccountIndex >= 0) {
-        refreshBalance();
-        refreshTransactions();
-      }
+      const status = e.status as ConnectionStatus;
+      setConnected(status);
+      if (status === 'disconnected') lastConnectionRefreshAt.current = 0;
+      if (status !== 'connected') return;
+      if (preferences.activeAccountIndex < 0) return;
+      const now = Date.now();
+      if (now - lastConnectionRefreshAt.current < CONNECTION_REFRESH_INTERVAL_MS) return;
+      lastConnectionRefreshAt.current = now;
+      refreshBalance();
+      refreshTransactions();
     },
     onBalance: e => {
       if (e.accountIndex !== preferences.activeAccountIndex) return;
       if (e.network !== preferences.activeNetwork) return;
-      if (e.balance) _setBalance(e.balance);
+      const nextBalance = e.balance;
+      if (nextBalance) {
+        _setBalance(prev => ({
+          ...nextBalance,
+          confirmedUsd: prev?.confirmedUsd ?? nextBalance.confirmedUsd,
+          unconfirmedUsd: prev?.unconfirmedUsd ?? nextBalance.unconfirmedUsd,
+        }));
+      }
       refreshBalance();
     },
     onTx: () => refreshTransactions(),

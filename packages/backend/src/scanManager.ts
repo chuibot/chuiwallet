@@ -334,24 +334,20 @@ export class ScanManager {
         indices: batch,
       });
 
-      const scriptHashesPromises = batch.map(async index => {
+      const presentBatch = batch.flatMap(index => {
         const entry = addressCache.get(index);
-        if (!entry) return undefined;
+        if (!entry) return [];
         const scriptHash = addressToScriptHash(entry.address, bitcoinNetwork);
-        return [scriptHash];
+        return [{ index, entry, scriptHash }];
       });
-      const scriptHashes: string[][] = (await Promise.all(scriptHashesPromises)).filter(
-        (item): item is string[] => item !== undefined,
-      );
+      if (presentBatch.length === 0) continue;
+      const scriptHashes = presentBatch.map(({ scriptHash }) => [scriptHash]);
 
       // Scan Histories
       const histories = await electrumService.getHistoryBatch(scriptHashes);
       if (!this.isCurrentContext(ctx)) return;
-      for (let batchIndex = 0; batchIndex < batch.length; batchIndex++) {
-        const hdIndex = batch[batchIndex]; // map back from batch pos -> HD index
-        const entry = addressCache.get(hdIndex);
-        if (!entry) continue;
-
+      for (let batchIndex = 0; batchIndex < presentBatch.length; batchIndex++) {
+        const { index: hdIndex, entry } = presentBatch[batchIndex];
         entry.lastChecked = batchTimestamp;
         const history = histories[batchIndex] ?? [];
         if (history.length > 0) {
@@ -368,11 +364,8 @@ export class ScanManager {
       // Scan Utxo
       const utxosByIndex = await electrumService.getUtxoBatch(scriptHashes);
       if (!this.isCurrentContext(ctx)) return;
-      for (let batchIndex = 0; batchIndex < batch.length; batchIndex++) {
-        const hdIndex = batch[batchIndex];
-        const entry = addressCache.get(hdIndex);
-        if (!entry) continue;
-
+      for (let batchIndex = 0; batchIndex < presentBatch.length; batchIndex++) {
+        const { index: hdIndex } = presentBatch[batchIndex];
         const utxos = utxosByIndex[batchIndex] ?? [];
         if (utxos.length > 0) {
           const changed = this.upsertUtxo(utxoCache, hdIndex, batchTimestamp, utxos);

@@ -389,4 +389,30 @@ describe('ScanManager — context isolation and stale-fence', () => {
     expect(utxoSpy).not.toHaveBeenCalled();
     expect(events.some(e => e.utxoChanged || e.historyChanged)).toBe(false);
   });
+
+  it('keeps scan results aligned when a sparse batch has a missing address', async () => {
+    const sm = new ScanManager();
+    const internal = sm as unknown as ScanInternals;
+    internal.addressCacheReceive.set(0, {
+      address: 'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu',
+      firstSeen: 0,
+      lastChecked: 0,
+      everUsed: false,
+    });
+    internal.addressCacheReceive.set(2, {
+      address: 'bc1q530dz4h80kwlzywlhx2qn0k6vdtftd93c499yq',
+      firstSeen: 0,
+      lastChecked: 0,
+      everUsed: false,
+    });
+    Object.defineProperty(electrumService, 'status', { value: 'connected', configurable: true });
+    jest.spyOn(electrumService, 'getHistoryBatch').mockResolvedValue([[], [{ tx_hash: 'c'.repeat(64), height: 1 }]]);
+    jest.spyOn(electrumService, 'getUtxoBatch').mockResolvedValue([[], []]);
+
+    const ctx = internal.currentContext();
+    expect(ctx).not.toBeNull();
+    await internal.scan([0, 1, 2], ChangeType.External, ctx);
+
+    expect(internal.historyCacheReceive.get(2)?.txs).toEqual([['c'.repeat(64), 1]]);
+  });
 });
