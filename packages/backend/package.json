@@ -1,6 +1,6 @@
 {
   "name": "@extension/backend",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Chui: A non-custodial Bitcoin wallet backend for merchants (Chrome extension)",
   "private": true,
   "main": "dist/index.js",
