@@ -82,6 +82,5 @@ export function useChuiEvents(handlers: {
         /* empty */
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 }
