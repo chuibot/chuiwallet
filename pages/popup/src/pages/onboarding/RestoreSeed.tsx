@@ -3,13 +3,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { WordColumn } from '@src/components/WordColumn';
 import { Button } from '@src/components/Button';
-import { sendMessage } from '@src/utils/bridge';
 import { getSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
 import { useWalletContext } from '@src/context/WalletContext';
 
 export const RestoreSeed: React.FC = () => {
   const navigate = useNavigate();
-  const { setIsBackedUp } = useWalletContext();
+  const { createWallet, setBackupStatus } = useWalletContext();
   const [seedWords, setSeedWords] = useState<string[]>(Array(12).fill(''));
   const [errorMsg, setErrorMsg] = React.useState('');
   const [isValid, setIsValid] = useState(false);
@@ -68,10 +67,8 @@ export const RestoreSeed: React.FC = () => {
         return;
       }
 
-      await sendMessage('wallet.create', { mnemonic, password });
-      await sendMessage('wallet.setBackupStatus', { isBackedUp: true });
-
-      setIsBackedUp(true);
+      await createWallet({ mnemonic, password });
+      await setBackupStatus(true);
       navigate('/onboard/complete?restored=1');
     })();
   };
