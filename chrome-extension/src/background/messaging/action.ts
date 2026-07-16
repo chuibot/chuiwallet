@@ -195,6 +195,7 @@ const handlers: Record<string, Handler> = {
     }
     resetScanRuntime();
     triggerAccountScans();
+    return { preferences: preferenceManager.get(), accounts: accountManager.accounts };
   },
   'wallet.getMnemonic': async () => {
     const password = await requireUnlockedWallet('wallet.getMnemonic');
