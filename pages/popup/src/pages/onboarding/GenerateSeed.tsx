@@ -2,13 +2,12 @@ import type * as React from 'react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@src/components/Button';
-import { sendMessage } from '@src/utils/bridge';
 import { getSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
 import { useWalletContext } from '@src/context/WalletContext';
 
 export const GenerateSeed: React.FC = () => {
   const navigate = useNavigate();
-  const { init } = useWalletContext();
+  const { createWallet, init } = useWalletContext();
   const [error, setError] = useState<string | null>(null);
   const infoLines = ['Back up your wallet.', 'Never lose it.', 'Never share it with anyone.'];
 
@@ -21,11 +20,11 @@ export const GenerateSeed: React.FC = () => {
         return;
       }
       try {
-        await sendMessage('wallet.create', { password });
+        await createWallet({ password });
       } catch (createErr) {
         if (!String(createErr).includes('WALLET_ALREADY_EXISTS')) throw createErr;
+        await init();
       }
-      await init();
       navigate('/onboard/backup-seed');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create wallet');

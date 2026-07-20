@@ -7,7 +7,7 @@ import Header from '@src/components/Header';
 
 export const VerifySeed = () => {
   const navigate = useNavigate();
-  const { setIsBackedUp } = useWalletContext();
+  const { setBackupStatus } = useWalletContext();
   const [seed, setSeed] = useState('');
   const [input, setInput] = useState('');
   const [failed, setFailed] = useState(false);
@@ -30,8 +30,7 @@ export const VerifySeed = () => {
   };
 
   const handleContinue = async () => {
-    await sendMessage('wallet.setBackupStatus', { isBackedUp: true });
-    setIsBackedUp(true);
+    await setBackupStatus(true);
     navigate('/dashboard');
   };
 

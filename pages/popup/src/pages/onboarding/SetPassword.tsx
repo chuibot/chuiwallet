@@ -7,8 +7,8 @@ import { ButtonOutline } from '@src/components/ButtonOutline';
 import Header from '@src/components/Header';
 import { getPasswordStrength } from '@src/utils';
 import { getSessionPassword, setSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
-import { sendMessage } from '@src/utils/bridge';
 import { ERROR_MESSAGES, MIN_PASSWORD_LENGTH } from '@src/constants';
+import { useWalletContext } from '@src/context/WalletContext';
 
 type Step = 'set-password' | 'choose-method';
 
@@ -21,6 +21,7 @@ export const SetPassword: React.FC = () => {
   const [errorMsg, setErrorMsg] = React.useState('');
   const [noMatchMsg, setNoMatchMsg] = React.useState('');
   const [chooseError, setChooseError] = React.useState<string | null>(null);
+  const { createWallet } = useWalletContext();
   const passwordStrength = getPasswordStrength(password);
 
   // If a session password already exists on mount, skip to choose-method
@@ -93,7 +94,7 @@ export const SetPassword: React.FC = () => {
         setChooseError(ERROR_MESSAGES.PASSWORD_NOT_FOUND);
         return;
       }
-      await sendMessage('wallet.create', { password: pwd });
+      await createWallet({ password: pwd });
       navigate('/onboard/complete');
     } catch (err) {
       setChooseError(err instanceof Error ? err.message : ERROR_MESSAGES.UNEXPECTED_ERROR);

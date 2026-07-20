@@ -3,13 +3,14 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ButtonOutline } from '@src/components/ButtonOutline';
 import Header from '@src/components/Header';
-import { sendMessage } from '@src/utils/bridge';
 import { getSessionPassword } from '@extension/backend/src/utils/sessionStorageHelper';
 import { ERROR_MESSAGES } from '@src/constants';
+import { useWalletContext } from '@src/context/WalletContext';
 
 export const ChooseMethod: React.FC = () => {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
+  const { createWallet } = useWalletContext();
 
   const handleCreateNewWallet = async () => {
     try {
@@ -20,7 +21,7 @@ export const ChooseMethod: React.FC = () => {
         return;
       }
 
-      await sendMessage('wallet.create', { password });
+      await createWallet({ password });
       navigate('/onboard/complete');
     } catch (err) {
       console.error('Failed to initiate wallet creation:', err);
