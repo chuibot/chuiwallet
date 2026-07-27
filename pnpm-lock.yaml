@@ -344,8 +344,8 @@ importers:
         specifier: ^3.5.0
         version: 3.5.0(react@18.3.1)
       react-qr-code:
-        specifier: ^2.0.15
-        version: 2.0.15(react@18.3.1)
+        specifier: ^2.2.0
+        version: 2.2.0(react@18.3.1)
       react-router-dom:
         specifier: ^7.9.5
         version: 7.15.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3351,8 +3351,8 @@ packages:
   pure-rand@6.1.0:
     resolution: {integrity: sha512-bVWawvoZoBYpp6yIoQtQXHZjmz35RSVHnUOTefl8Vcjr8snTPY1wnpSPMWekcFwbxI6gtmT7rSYPFvz71ldiOA==}
 
-  qr.js@0.0.0:
-    resolution: {integrity: sha512-c4iYnWb+k2E+vYpRimHqSu575b1/wKl4XFeJGpFmrJQz5I88v9aY2czh7s0w36srfCM1sXgC/xpoJz5dJfq+OQ==}
+  qrcode-generator@2.0.4:
+    resolution: {integrity: sha512-mZSiP6RnbHl4xL2Ap5HfkjLnmxfKcPWpWe/c+5XxCuetEenqmNFf1FH/ftXPCtFG5/TDobjsjz6sSNL0Sr8Z9g==}
 
   qs@6.14.0:
     resolution: {integrity: sha512-YWWTjgABSKcvs/nWBi9PycY/JiPJqOD4JA6o9Sej2AtvSGarXxKC3OQSk4pAarbdQlKAh5D4FCQkJNkW+GAn3w==}
@@ -3391,8 +3391,8 @@ packages:
     peerDependencies:
       react: '>=16.8.0'
 
-  react-qr-code@2.0.15:
-    resolution: {integrity: sha512-MkZcjEXqVKqXEIMVE0mbcGgDpkfSdd8zhuzXEl9QzYeNcw8Hq2oVIzDLWuZN2PQBwM5PWjc2S31K8Q1UbcFMfw==}
+  react-qr-code@2.2.0:
+    resolution: {integrity: sha512-e5nS0UUN22K3Nf8KBRUzemfdJ6OmnN5w+kbnj1lvJaol9RyVRFeGl05bCkxSN2ZegbLxjjYjX1+mmAoX9+fAhw==}
     peerDependencies:
       react: '*'
 
@@ -7472,7 +7472,7 @@ snapshots:
 
   pure-rand@6.1.0: {}
 
-  qr.js@0.0.0: {}
+  qrcode-generator@2.0.4: {}
 
   qs@6.14.0:
     dependencies:
@@ -7507,10 +7507,10 @@ snapshots:
     dependencies:
       react: 18.3.1
 
-  react-qr-code@2.0.15(react@18.3.1):
+  react-qr-code@2.2.0(react@18.3.1):
     dependencies:
       prop-types: 15.8.1
-      qr.js: 0.0.0
+      qrcode-generator: 2.0.4
       react: 18.3.1
 
   react-router-dom@7.15.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
