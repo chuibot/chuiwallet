@@ -29,7 +29,7 @@
     "@extension/tsconfig": "workspace:*",
     "deepmerge": "^4.3.1",
     "react": "18.3.1",
-    "tsc-alias": "^1.8.10"
+    "tsc-alias": "^1.9.1"
   },
   "dependencies": {
     "clsx": "^2.1.1",
