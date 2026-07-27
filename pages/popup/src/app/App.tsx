@@ -28,8 +28,12 @@ import { Xpub } from '@src/pages/settings/Xpub';
 import Splash from '@src/pages/splash/Splash';
 
 const RequireUnlocked: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { unlocked } = useWalletContext();
+  const { onboarded, unlocked } = useWalletContext();
   const location = useLocation();
+
+  if (!onboarded) {
+    return <Navigate to="/onboard/set-password" replace />;
+  }
 
   if (!unlocked) {
     const next = encodeURIComponent(location.pathname + location.search);
