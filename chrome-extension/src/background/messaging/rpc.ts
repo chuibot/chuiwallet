@@ -58,6 +58,8 @@ type ProviderAddresses = {
 
 const rpcVersion = '2.0';
 const pendingApprovals = new Map<string, PendingApproval>();
+const APPROVAL_WINDOW_WIDTH = 400;
+const APPROVAL_WINDOW_HEIGHT = 660;
 
 const handlers: Record<string, Handler> = {
   getXpub: () => {
@@ -134,8 +136,8 @@ async function requestUserApproval(origin: string, rpc: RpcRequest): Promise<boo
       {
         url: chrome.runtime.getURL(`popup/index.html#/provider/approve?id=${approvalId}`),
         type: 'popup',
-        width: 375,
-        height: 600,
+        width: APPROVAL_WINDOW_WIDTH,
+        height: APPROVAL_WINDOW_HEIGHT,
       },
       window => {
         if (!window) return;
@@ -153,6 +155,14 @@ export async function handle(message: ProviderRpc, sender: Runtime.MessageSender
   try {
     const fn = handlers[rpcRequest.method];
     if (!fn) return rpcErrorResponse(rpcRequest.id, -32601, `Method not found: ${rpcRequest.method}`);
+
+    if (!walletManager.isRestorable()) {
+      return rpcErrorResponse(
+        rpcRequest.id,
+        4100,
+        'Wallet setup is incomplete. Create or restore a wallet before connecting.',
+      );
+    }
 
     const origin = originFromSender(sender);
     if (origin === 'unknown') {

@@ -62,7 +62,7 @@ export const ProviderApproval: React.FC = () => {
 
   const handleReject = async () => {
     if (!approval) return;
-    await sendMessage('provider.resolveApproval', { id: approval.id, reason: 'User rejected' });
+    await sendMessage('provider.rejectApproval', { id: approval.id, reason: 'User rejected' });
     window.close();
   };
 
@@ -79,8 +79,8 @@ export const ProviderApproval: React.FC = () => {
   const isUnknownOrigin = origin === 'unknown';
 
   return (
-    <div className="flex flex-col justify-start items-start text-white bg-dark h-[600px] px-4 pt-12">
-      <div className="absolute top-0 left-0 w-full min-h-[48px] flex gap-5 justify-between items-center p-3 text-xl leading-none text-center whitespace-nowrap bg-dark mb-6">
+    <div className="flex h-full min-h-0 flex-col bg-dark text-white">
+      <div className="flex min-h-[48px] shrink-0 items-center justify-between gap-5 bg-dark p-3 text-center text-xl leading-none whitespace-nowrap">
         <button></button>
 
         <div className="self-stretch w-[262px] font-bold leading-6 text-white">Connection Request</div>
@@ -95,7 +95,7 @@ export const ProviderApproval: React.FC = () => {
         </button>
       </div>
 
-      <div className="mt-6">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-6">
         <div className="text-sm text-white mb-6">
           <div className="font-medium text-white mb-1">Website</div>
           <div className="break-all font-bold">
@@ -116,11 +116,11 @@ export const ProviderApproval: React.FC = () => {
         {methodDescription && <p className="text-sm text-white">{methodDescription}</p>}
       </div>
 
-      <div className="fixed bottom-[19px] w-full">
-        <Button className="flex justify-center gap-2 w-full bg-opacity-0 text-white" onClick={handleReject}>
+      <div className="flex shrink-0 flex-col gap-3 px-4 pt-3 pb-[19px]">
+        <Button className="self-center bg-opacity-0 text-white" onClick={handleReject}>
           Reject
         </Button>
-        <Button className="flex justify-center gap-2 w-full" onClick={handleApprove} disabled={isUnknownOrigin}>
+        <Button className="self-center" onClick={handleApprove} disabled={isUnknownOrigin}>
           Approve
         </Button>
       </div>
