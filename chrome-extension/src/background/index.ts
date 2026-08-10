@@ -12,7 +12,7 @@ import {
   runAllScans,
   runBackfillScan,
   runForwardScan,
-  runHotScan,
+  runPostConnectScan,
 } from '@src/background/scanRuntime';
 
 bitcoin.initEccLib(secp256k1);
@@ -77,7 +77,7 @@ async function init() {
     }
     if (update.status === 'connected') {
       cancelElectrumReconnect();
-      void runHotScan().catch(error => logger.error('Hot scan after reconnect failed', error));
+      void runPostConnectScan().catch(error => logger.error('Post-connect scan failed', error));
       return;
     }
     if (update.status === 'disconnected') {

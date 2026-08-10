@@ -23,7 +23,7 @@ import {
   type IChainAdapter,
 } from '@extension/backend/src/adapters/IChainAdapter';
 import { logger } from '@extension/backend/src/utils/logger';
-import { resetScanRuntime, runAllScans, runHotScan } from '@src/background/scanRuntime';
+import { isActiveFirstSyncRunning, resetScanRuntime, runAllScans, runHotScan } from '@src/background/scanRuntime';
 
 type Handler = (params: unknown, sender: Runtime.MessageSender) => Promise<unknown> | unknown;
 type ParamsRecord = Record<string, unknown>;
@@ -299,6 +299,9 @@ const handlers: Record<string, Handler> = {
   },
   'transactions.get': async () => {
     return await historyService.get();
+  },
+  'scan.status': () => {
+    return { syncing: isActiveFirstSyncRunning() };
   },
   'fee.estimates': async param => {
     if (typeof param !== 'string' || param.trim().length === 0) {

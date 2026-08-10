@@ -25,6 +25,8 @@ interface WalletContextType {
   switchEvmNetwork: (network: Network) => Promise<void>;
   setFiatCurrency: (currency: string) => Promise<void>;
   balance: BalanceData | undefined;
+  /** True while the background runs a full scan pass for the active account. */
+  balanceSyncing: boolean;
   refreshBalance: () => void;
   transactions: TxEntry[];
   refreshTransactions: () => void;
@@ -59,6 +61,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [preferences, setPreferences] = useState<Preferences>(defaultPreferences);
   const [accounts, _setAccounts] = useState<Account[]>([]);
   const [balance, _setBalance] = useState<BalanceData>();
+  const [balanceSyncing, setBalanceSyncing] = useState<boolean>(false);
   const [transactions, _setTransactions] = useState<TxEntry[]>([]);
   const [chainBalances, _setChainBalances] = useState<Partial<Record<ChainType, ChainBalance>>>({});
   const [chainBalancesLoading, setChainBalancesLoading] = useState<boolean>(false);
@@ -108,11 +111,22 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setPreferences(nextPreferences);
   };
 
+  // Catches scans already in flight when the popup opens; SYNC events cover transitions after.
+  const refreshScanStatus = async () => {
+    try {
+      const status = await sendMessage<{ syncing: boolean }>('scan.status');
+      setBalanceSyncing(status.syncing);
+    } catch (e) {
+      console.error('Failed to fetch scan status', e);
+    }
+  };
+
   const hydrateSession = async ({ preferences, accounts }: WalletSession) => {
     setUnlocked(true);
     setIsBackedUp(preferences.isWalletBackedUp);
     applyPreferences(preferences);
     _setAccounts(accounts);
+    void refreshScanStatus();
     const hasCachedChainBalances = await loadCachedChainBalances();
     if (!hasCachedChainBalances) {
       _setChainBalances({});
@@ -155,6 +169,13 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       lastConnectionRefreshAt.current = now;
       refreshBalance();
       refreshTransactions();
+    },
+    onSync: e => {
+      if (e.accountIndex !== preferencesRef.current.activeAccountIndex) return;
+      if (e.network !== preferencesRef.current.activeNetwork) return;
+      const syncing = e.syncing === true;
+      setBalanceSyncing(syncing);
+      if (!syncing) refreshBalance();
     },
     onBalance: e => {
       if (e.accountIndex !== preferencesRef.current.activeAccountIndex) return;
@@ -235,6 +256,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const switchAccount = async (accountIndex: number) => {
     const nextPreferences: Preferences = await sendMessage('accounts.switch', { accountIndex });
     applyPreferences(nextPreferences);
+    void refreshScanStatus();
     await refreshAccounts();
     refreshBalance();
     const hasCachedChainBalances = await loadCachedChainBalances();
@@ -250,6 +272,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const result = await sendMessage<{ preferences: Preferences; accounts: Account[] }>('accounts.create');
     applyPreferences(result.preferences);
     _setAccounts(result.accounts);
+    void refreshScanStatus();
     refreshBalance();
     const hasCachedChainBalances = await loadCachedChainBalances();
     if (!hasCachedChainBalances) {
@@ -264,6 +287,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await sendMessage('wallet.switchNetwork', { network });
     const nextPreferences: Preferences = await sendMessage('preferences.get');
     applyPreferences(nextPreferences);
+    void refreshScanStatus();
     await refreshAccounts();
     refreshBalance();
     const hasCachedChainBalances = await loadCachedChainBalances();
@@ -303,6 +327,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const lock = async () => {
     return (async () => {
       await sendMessage('wallet.lock');
+      setBalanceSyncing(false);
       setUnlocked(false);
     })();
   };
@@ -316,6 +341,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       applyPreferences(defaultPreferences);
       _setAccounts([]);
       _setBalance(undefined);
+      setBalanceSyncing(false);
       _setTransactions([]);
       _setChainBalances({});
       setChainBalancesLoading(false);
@@ -340,6 +366,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         switchEvmNetwork,
         setFiatCurrency,
         balance,
+        balanceSyncing,
         transactions,
         setOnboarded,
         setUnlocked,

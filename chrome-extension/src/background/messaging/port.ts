@@ -11,6 +11,7 @@ type ChuiPortBroadcastMessage =
   | { type: 'SNAPSHOT'; data: unknown }
   | { type: 'CONNECTION'; status: ConnectionStatus; detail?: string; ts: number }
   | { type: 'BALANCE'; accountIndex: number; network: Network; balance: Balance; ts: number }
+  | { type: 'SYNC'; accountIndex: number; network: Network; syncing: boolean; ts: number }
   | { type: 'TX'; accountIndex: number; tx: unknown; ts: number }
   | { type: 'PONG'; t: number };
 
@@ -60,6 +61,10 @@ export function emitConnection(status: ConnectionStatus, detail?: string) {
 
 export function emitBalance(accountIndex: number, network: Network, balance: Balance) {
   broadcast({ type: 'BALANCE', accountIndex, network, balance, ts: Date.now() });
+}
+
+export function emitSync(accountIndex: number, network: Network, syncing: boolean) {
+  broadcast({ type: 'SYNC', accountIndex, network, syncing, ts: Date.now() });
 }
 
 export function emitTx(accountIndex: number, tx: unknown) {
