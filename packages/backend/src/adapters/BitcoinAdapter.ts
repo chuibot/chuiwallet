@@ -119,6 +119,7 @@ export class BitcoinAdapter implements IChainAdapter {
     const { amountSats, feeSats } = await this.walletManager.getMaxSendAmount(to, feeRate);
     return {
       amount: amountSats / 1e8,
+      amountString: this.formatSatsAsBtc(amountSats),
       fee: feeSats / 1e8,
     };
   }
@@ -141,6 +142,15 @@ export class BitcoinAdapter implements IChainAdapter {
         feeRate: est.sats,
       },
     }));
+  }
+
+  /** Exact sats → BTC decimal string, never going through a float. */
+  private formatSatsAsBtc(sats: number): string {
+    const sign = sats < 0 ? '-' : '';
+    const absolute = BigInt(Math.abs(Math.trunc(sats)));
+    const whole = absolute / BigInt(1e8);
+    const fraction = (absolute % BigInt(1e8)).toString().padStart(8, '0').replace(/0+$/, '');
+    return fraction ? `${sign}${whole}.${fraction}` : `${sign}${whole}`;
   }
 
   private parseBtcAmountToSats(amount: string): number {

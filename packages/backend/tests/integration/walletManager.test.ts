@@ -282,6 +282,104 @@ describe('WalletManager — full lifecycle (integration)', () => {
     expect(preferenceManager.get().activeAccountIndex).toBe(1);
   });
 
+  describe('active account selection', () => {
+    it('restoreIfPossible() keeps the account the user selected', async () => {
+      await walletManager.createWallet(MNEMONIC, PASSWORD);
+      await walletManager.createAccount();
+      expect(preferenceManager.get().activeAccountIndex).toBe(1);
+
+      wallet.clear();
+      await walletManager.restoreIfPossible(PASSWORD);
+
+      expect(preferenceManager.get().activeAccountIndex).toBe(1);
+      expect(accountManager.activeAccountIndex).toBe(1);
+    });
+
+    it('restoreIfPossible() leaves the preference and the account manager on the same account', async () => {
+      await walletManager.createWallet(MNEMONIC, PASSWORD);
+      await walletManager.createAccount();
+
+      // A background restart rebuilds the account manager from the stored preference;
+      // the restore that follows must not move one of them without the other.
+      wallet.clear();
+      await accountManager.init(preferenceManager.get().activeAccountIndex);
+      await walletManager.restoreIfPossible(PASSWORD);
+
+      const activeAccount = accountManager.getActiveAccount();
+      expect(preferenceManager.get().activeAccountIndex).toBe(accountManager.activeAccountIndex);
+      expect(walletManager.getXpub()).toBe(walletManager.getAccountXpub(accountManager.activeAccountIndex));
+      expect(getCacheKey(CacheType.Utxo, ChangeType.External)).toContain(`_${activeAccount.index}`);
+      expect(walletManager.getAddress(ChangeType.External)).toBe(
+        wallet.deriveAddress(activeAccount, 0, scanManager.nextReceiveIndex),
+      );
+    });
+
+    it('restoreIfPossible() falls back to the network default when the selection is stale', async () => {
+      await walletManager.createWallet(MNEMONIC, PASSWORD);
+      await preferenceManager.update({ activeAccountIndex: 7 });
+
+      wallet.clear();
+      await walletManager.restoreIfPossible(PASSWORD);
+
+      expect(preferenceManager.get().activeAccountIndex).toBe(0);
+      expect(accountManager.activeAccountIndex).toBe(0);
+    });
+
+    it('exposes each account xpub and EVM address index without changing the active account', async () => {
+      await walletManager.createWallet(MNEMONIC, PASSWORD);
+      await walletManager.createAccount();
+
+      expect(walletManager.getAccountXpub(0)).not.toBe(walletManager.getAccountXpub(1));
+      expect(walletManager.getEvmAddressIndex(0)).toBe(0);
+      expect(walletManager.getEvmAddressIndex(1)).toBe(1);
+      expect(await walletManager.getAccountAddress(0, ChangeType.External)).toMatch(/^bc1q/);
+      expect(await walletManager.getAccountAddress(0, ChangeType.External)).not.toBe(
+        await walletManager.getAccountAddress(1, ChangeType.External),
+      );
+      expect(accountManager.activeAccountIndex).toBe(1);
+      expect(preferenceManager.get().activeAccountIndex).toBe(1);
+    });
+
+    it('getAccountAddress() reads the requested account own scan cache, not the active one', async () => {
+      await walletManager.createWallet(MNEMONIC, PASSWORD);
+      const firstAccount = accountManager.accounts[0];
+      await walletManager.createAccount();
+
+      // Account #1 has used addresses up to index 3 while account #2 (active) has none.
+      const historyKey = `${CacheType.History}_${firstAccount.network}_${ChangeType.External}_${firstAccount.index}`;
+      await chrome.storage.local.set({
+        [historyKey]: [
+          [0, { lastChecked: 0, txs: [['a'.repeat(64), 1]] }],
+          [3, { lastChecked: 0, txs: [['b'.repeat(64), 2]] }],
+        ],
+      });
+
+      expect(await walletManager.getAccountAddress(0, ChangeType.External)).toBe(
+        wallet.deriveAddress(firstAccount, 0, 4),
+      );
+      expect(await walletManager.getAccountAddress(1, ChangeType.External)).toBe(
+        wallet.deriveAddress(accountManager.accounts[1], 0, 0),
+      );
+      expect(accountManager.activeAccountIndex).toBe(1);
+    });
+
+    it('getEvmAddressIndex() tracks the HD index, not the position in the account list', async () => {
+      await walletManager.createWallet(MNEMONIC, PASSWORD);
+      // A testnet account sitting between two mainnet ones shifts list positions but must not
+      // move the EVM address of the mainnet account that follows it.
+      await accountManager.add({
+        name: 'Account #1',
+        index: 0,
+        network: Network.Testnet,
+        xpub: accountManager.accounts[0].xpub,
+        scriptType: ScriptType.P2WPKH,
+      });
+      await accountManager.add(wallet.deriveAccount(1));
+
+      expect(walletManager.getEvmAddressIndex(2)).toBe(1);
+    });
+  });
+
   it('logout() wipes the wallet, accounts, prefs, and caches', async () => {
     await walletManager.createWallet(MNEMONIC, PASSWORD);
     await walletManager.logout();

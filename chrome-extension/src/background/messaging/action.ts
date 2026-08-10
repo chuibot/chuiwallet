@@ -140,15 +140,32 @@ function triggerAccountScans(): void {
   void runAllScans().catch(error => logger.error('Failed to trigger account scans', error));
 }
 
+function activeEvmNetwork(): Network {
+  const preferences = preferenceManager.get();
+  return preferences.activeEvmNetwork ?? preferences.activeNetwork;
+}
+
 /**
- * Centralized helper to initialize EthereumAdapter.
+ * Point the EthereumAdapter at the active account on the current EVM network.
  * Called on wallet restore, create, account switch/create, and network switch.
  */
-async function hydrateEthAdapter(mnemonic: string, addressIndex: number, network: Network): Promise<void> {
+async function hydrateEthAdapter(mnemonic: string): Promise<void> {
   const ethAdapter = getEthereumAdapter();
   if (!ethAdapter) return;
-  ethAdapter.initWithMnemonic(mnemonic, addressIndex);
-  await ethAdapter.init(network);
+  const addressIndex = walletManager.getEvmAddressIndex();
+  if (addressIndex !== null) {
+    ethAdapter.initWithMnemonic(mnemonic, addressIndex);
+  }
+  await ethAdapter.init(activeEvmNetwork());
+}
+
+/** Re-derive the EVM address for whichever account is active now. No-op while locked. */
+async function rehydrateEthAdapterForActiveAccount(): Promise<void> {
+  const sessionPassword = await getSessionPassword();
+  if (!sessionPassword) return;
+  const mnemonic = await walletManager.getMnemonic(sessionPassword);
+  if (!mnemonic) return;
+  await hydrateEthAdapter(mnemonic);
 }
 
 const handlers: Record<string, Handler> = {
@@ -159,14 +176,7 @@ const handlers: Record<string, Handler> = {
     const sessionPassword = await getSessionPassword();
     const isRestorable = await walletManager.restoreIfPossible(sessionPassword);
     if (isRestorable) {
-      const mnemonic = await walletManager.getMnemonic(sessionPassword!);
-      if (mnemonic) {
-        await hydrateEthAdapter(
-          mnemonic,
-          walletManager.getActiveAccountListIndex(),
-          preferenceManager.get().activeEvmNetwork ?? preferenceManager.get().activeNetwork,
-        );
-      }
+      await rehydrateEthAdapterForActiveAccount();
       triggerAccountScans();
     }
     return isRestorable;
@@ -187,11 +197,7 @@ const handlers: Record<string, Handler> = {
     await setSessionPassword(password);
     const mnemonicToHydrate = mnemonic ?? (await walletManager.getMnemonic(password));
     if (mnemonicToHydrate) {
-      await hydrateEthAdapter(
-        mnemonicToHydrate,
-        0,
-        preferenceManager.get().activeEvmNetwork ?? preferenceManager.get().activeNetwork,
-      );
+      await hydrateEthAdapter(mnemonicToHydrate);
     }
     resetScanRuntime();
     triggerAccountScans();
@@ -236,17 +242,7 @@ const handlers: Record<string, Handler> = {
       throw new ActionError('WALLET_LOCKED', 'wallet.switchNetwork is unavailable while wallet is locked');
     }
 
-    const sessionPassword = await getSessionPassword();
-    if (sessionPassword) {
-      const mnemonic = await walletManager.getMnemonic(sessionPassword);
-      if (mnemonic) {
-        await hydrateEthAdapter(
-          mnemonic,
-          walletManager.getActiveAccountListIndex(),
-          preferenceManager.get().activeEvmNetwork ?? preferenceManager.get().activeNetwork,
-        );
-      }
-    }
+    await rehydrateEthAdapterForActiveAccount();
 
     triggerAccountScans();
     return success;
@@ -256,18 +252,10 @@ const handlers: Record<string, Handler> = {
     const network = expectEnumParam('wallet.switchEvmNetwork', payload, 'network', Object.values(Network));
     await walletManager.switchEvmNetwork(network);
 
-    // Re-initialise the Ethereum adapter on the new network
     const ethAdapter = getEthereumAdapter();
     if (ethAdapter) {
       await ethAdapter.init(network);
-
-      const sessionPassword = await getSessionPassword();
-      if (sessionPassword) {
-        const mnemonic = await walletManager.getMnemonic(sessionPassword);
-        if (mnemonic) {
-          ethAdapter.initWithMnemonic(mnemonic, walletManager.getActiveAccountListIndex());
-        }
-      }
+      await rehydrateEthAdapterForActiveAccount();
     }
 
     return true;
@@ -295,17 +283,7 @@ const handlers: Record<string, Handler> = {
     const accountIndex = expectNumberParam('accounts.switch', payload, 'accountIndex', { integer: true, min: 0 });
     const preferences = await walletManager.switchAccount(accountIndex);
 
-    const sessionPassword = await getSessionPassword();
-    if (sessionPassword) {
-      const mnemonic = await walletManager.getMnemonic(sessionPassword);
-      if (mnemonic) {
-        await hydrateEthAdapter(
-          mnemonic,
-          accountIndex,
-          preferenceManager.get().activeEvmNetwork ?? preferenceManager.get().activeNetwork,
-        );
-      }
-    }
+    await rehydrateEthAdapterForActiveAccount();
 
     triggerAccountScans();
     return preferences;
@@ -314,17 +292,7 @@ const handlers: Record<string, Handler> = {
     await requireUnlockedWallet('accounts.create');
     const preferences = await walletManager.createAccount();
 
-    const sessionPassword = await getSessionPassword();
-    if (sessionPassword) {
-      const mnemonic = await walletManager.getMnemonic(sessionPassword);
-      if (mnemonic) {
-        await hydrateEthAdapter(
-          mnemonic,
-          walletManager.getActiveAccountListIndex(),
-          preferenceManager.get().activeEvmNetwork ?? preferenceManager.get().activeNetwork,
-        );
-      }
-    }
+    await rehydrateEthAdapterForActiveAccount();
 
     triggerAccountScans();
     return { preferences, accounts: accountManager.accounts };
@@ -371,7 +339,11 @@ const handlers: Record<string, Handler> = {
     const payload = expectObjectParams('provider.resolveApproval', params);
     const id = expectStringParam('provider.resolveApproval', payload, 'id');
     const approved = expectBooleanParam('provider.resolveApproval', payload, 'approved');
-    resolveApproval(id, approved);
+    const accountIndex = expectNumberParam('provider.resolveApproval', payload, 'accountIndex', {
+      integer: true,
+      min: 0,
+    });
+    resolveApproval(id, approved, accountIndex);
     return true;
   },
   'provider.rejectApproval': async params => {

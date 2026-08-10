@@ -1,9 +1,17 @@
 import { CacheType, ChangeType } from '../types/cache';
 import { accountManager } from '../accountManager';
+import type { Account } from '../types/wallet';
+
+export function getAccountCacheKey(
+  account: Pick<Account, 'network' | 'index'>,
+  type: string = CacheType.Address,
+  chain: string = ChangeType.External,
+): string {
+  return `${type}_${account.network}_${chain}_${account.index}`;
+}
 
 export function getCacheKey(type: string = CacheType.Address, chain: string = ChangeType.External): string {
-  const activeAccount = accountManager.getActiveAccount();
-  return `${type}_${activeAccount.network}_${chain}_${activeAccount.index}`;
+  return getAccountCacheKey(accountManager.getActiveAccount(), type, chain);
 }
 
 export function selectByChain<T>(external: T, internal: T, changeType: ChangeType): T {
