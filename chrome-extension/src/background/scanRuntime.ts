@@ -137,6 +137,10 @@ export async function runAllScans(): Promise<void> {
 
   const key = syncContextKey(ctx);
   const indicated = electrumService.status === 'connected' && !(await isContextSynced(key));
+  const stillActiveContext = () => {
+    const current = syncContext();
+    return current !== null && syncContextKey(current) === key;
+  };
 
   if (indicated) {
     const inflight = (firstSyncInflight.get(key) ?? 0) + 1;
@@ -146,8 +150,10 @@ export async function runAllScans(): Promise<void> {
   try {
     await runHotScan();
     await Promise.all([runBackfillScan(), runForwardScan()]);
-    // Connection may have dropped mid-pass — only a pass that finishes connected counts.
-    if (indicated && electrumService.status === 'connected') {
+    // Only a pass that finished on this account, still connected, counts as its first sync.
+    // Switching accounts mid-pass makes the scans return without doing anything, and marking
+    // that as synced would leave the abandoned account with no indicator on the way back.
+    if (indicated && stillActiveContext() && electrumService.status === 'connected') {
       await markContextSynced(key);
     }
   } finally {

@@ -37,17 +37,6 @@ function formatInputAmount(value: number, digits: number): string {
   return value.toFixed(digits).replace(/\.?0+$/, '');
 }
 
-/**
- * Cut a decimal string down to `digits` places without rounding. Rounding a max-send amount
- * up — which toFixed does half the time — pushes it past the balance and the send is rejected.
- */
-function truncateDecimalString(value: string, digits: number): string {
-  const [whole, fraction = ''] = value.split('.');
-  const truncated = fraction.slice(0, digits).replace(/0+$/, '');
-
-  return truncated ? `${whole}.${truncated}` : whole;
-}
-
 function normalizeDecimalAmount(value: string): string {
   const trimmedValue = value.trim();
 
@@ -344,7 +333,9 @@ export const SendOptions: React.FC = () => {
       });
       if (requestId !== maxSendRequestRef.current) return;
 
-      const maxAmount = truncateDecimalString(estimate.amountString, assetDigits);
+      // Sent verbatim: the backend derived it from integer units, so trimming it here would
+      // strand the difference and re-introduce the rounding this string exists to avoid.
+      const maxAmount = estimate.amountString;
       const hasSendableAmount = Number.parseFloat(maxAmount) > 0;
       const lacksGas = usesSeparateFeeAsset && availableGasBalance !== null && availableGasBalance < estimate.fee;
 

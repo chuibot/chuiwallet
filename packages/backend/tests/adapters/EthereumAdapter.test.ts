@@ -193,6 +193,19 @@ describe('EthereumAdapter — estimateMaxSend', () => {
 
   // The node rejects the transaction unless value + gasLimit * maxFeePerGas fits inside the
   // balance, so the quoted max must never round up past it.
+  // The quote is what the popup sends verbatim; anything trimmed off is stranded in the account.
+  it('quotes the sweep to the wei, leaving nothing behind', async () => {
+    const balanceWei = BigInt('1234567890123456789');
+    const adapter = adapterWithBalance(balanceWei);
+
+    const estimate = await adapter.estimateMaxSend('0x2222222222222222222222222222222222222222', {
+      gasLimit: GAS_LIMIT,
+      maxFeePerGasWei: MAX_FEE_PER_GAS_WEI,
+    });
+
+    expect(ethers.parseEther(estimate.amountString)).toBe(balanceWei - RESERVE_WEI);
+  });
+
   it('quotes an amount the balance still covers once gas is added, down to the wei', async () => {
     const balanceWei = BigInt('1234567890123456789');
     const adapter = adapterWithBalance(balanceWei);
