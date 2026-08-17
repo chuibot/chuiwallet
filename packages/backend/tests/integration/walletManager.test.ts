@@ -282,6 +282,48 @@ describe('WalletManager — full lifecycle (integration)', () => {
     expect(preferenceManager.get().activeAccountIndex).toBe(1);
   });
 
+  describe('switchNetwork rollback', () => {
+    async function setupTwoNetworkWallet(): Promise<void> {
+      await walletManager.createWallet(MNEMONIC, PASSWORD);
+      await setSessionPassword(PASSWORD);
+      await walletManager.createAccount();
+      jest.spyOn(scanManager, 'init').mockResolvedValue();
+      jest.spyOn(historyService, 'reset').mockImplementation(() => {});
+    }
+
+    afterEach(() => jest.restoreAllMocks());
+
+    it('restores the previous network and account when the new network will not connect', async () => {
+      await setupTwoNetworkWallet();
+      const previous = { ...preferenceManager.get() };
+
+      jest.spyOn(electrumService, 'disconnect').mockImplementation(() => {});
+      jest.spyOn(electrumService, 'init').mockResolvedValue(electrumService);
+      jest.spyOn(electrumService, 'connect').mockRejectedValue(new Error('No healthy servers found'));
+
+      await expect(walletManager.switchNetwork(Network.Testnet)).rejects.toThrow(/No healthy servers/);
+
+      expect(preferenceManager.get().activeNetwork).toBe(previous.activeNetwork);
+      expect(preferenceManager.get().activeAccountIndex).toBe(previous.activeAccountIndex);
+      expect(accountManager.activeAccountIndex).toBe(previous.activeAccountIndex);
+      expect(accountManager.getActiveAccount().network).toBe(previous.activeNetwork);
+    });
+
+    it('tags the teardown so the background does not race a reconnect during the switch', async () => {
+      await setupTwoNetworkWallet();
+      const reasons: (string | undefined)[] = [];
+      jest.spyOn(electrumService, 'disconnect').mockImplementation((reason?: string) => {
+        reasons.push(reason);
+      });
+      jest.spyOn(electrumService, 'init').mockResolvedValue(electrumService);
+      jest.spyOn(electrumService, 'connect').mockRejectedValue(new Error('No healthy servers found'));
+
+      await expect(walletManager.switchNetwork(Network.Testnet)).rejects.toThrow();
+
+      expect(reasons).toEqual(['switchNetwork', 'switchNetwork']);
+    });
+  });
+
   describe('active account selection', () => {
     it('restoreIfPossible() keeps the account the user selected', async () => {
       await walletManager.createWallet(MNEMONIC, PASSWORD);
