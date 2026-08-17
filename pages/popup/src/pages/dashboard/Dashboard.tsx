@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ConnectionNotice } from '@src/components/ConnectionNotice';
 import { CryptoBalance } from '@src/components/CryptoBalance';
 import { useWalletContext } from '@src/context/WalletContext';
 import { capitalize, formatNumber } from '@src/utils';
@@ -12,6 +13,7 @@ export const Dashboard: React.FC = () => {
   const {
     preferences,
     balance,
+    balanceSyncing,
     activeAccount,
     connected,
     refreshBalance,
@@ -59,6 +61,8 @@ export const Dashboard: React.FC = () => {
   const balanceLoading = balance === undefined || !hasHydratedChainBalances;
   const btcBalanceLoading = balance === undefined;
   const chainBalanceLoading = !hasHydratedChainBalances;
+  // Numbers are visible but may still climb: this account's first discovery scan is running.
+  const balanceRefreshing = !balanceLoading && balanceSyncing;
 
   return (
     <div className="relative flex flex-col items-center text-white bg-dark h-full px-4 pb-[19px]">
@@ -99,6 +103,14 @@ export const Dashboard: React.FC = () => {
       <div className="flex flex-col mt-10 max-w-full leading-none text-center text-white">
         <div className="flex gap-px justify-center items-center w-full text-lg">
           <div className="self-stretch my-auto">Total Balance</div>
+          {balanceRefreshing && (
+            <div
+              role="status"
+              aria-label="Syncing balance"
+              title="Syncing balance"
+              className="ml-2 size-3.5 shrink-0 animate-spin rounded-full border-2 border-white/30 border-t-white"
+            />
+          )}
         </div>
         <div className="flex justify-center items-end mt-2 text-5xl font-bold uppercase cursor-pointer gap-[8px] flex-wrap max-w-[320px]">
           {balanceLoading ? (
@@ -138,6 +150,8 @@ export const Dashboard: React.FC = () => {
           )}
         </>
       )}
+
+      <ConnectionNotice className="mt-3" />
 
       {!balanceLoading && balance && balance.unconfirmed > 0 && (
         <div className="mt-2 text-sm leading-none text-center text-neutral-400">

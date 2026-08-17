@@ -1,16 +1,31 @@
+import browser from 'webextension-polyfill';
 import type { ExtendedServerConfig, ServerConfig, TipHeader } from '../types/electrum';
-import { DefaultPort, Network } from '../types/electrum';
+import { Network } from '../types/electrum';
 import { parseMerkleRoot } from '../utils/merkle';
+import { ELECTRUM_CLIENT_NAME, ELECTRUM_PROTOCOL_VERSION } from './electrumHandshake';
 
+/**
+ * Public WebSocket-capable Electrum peers, one per operator. Ports are not interchangeable:
+ * several operators serve Bitcoin Cash on 50004 and Bitcoin on another port, so an entry is
+ * only valid once its checkpoint block has been verified (see CHAIN_CHECKPOINTS).
+ */
 export const availableServerList: ServerConfig[] = [
-  { host: 'bitcoinserver.nl', port: 50004, useTls: true, network: Network.Mainnet },
   { host: 'btc.electroncash.dk', port: 60004, useTls: true, network: Network.Mainnet },
-  { host: 'node.xbt.eu', port: DefaultPort.TLS, useTls: true, network: Network.Mainnet },
-  { host: 'us11.einfachmalnettsein.de', port: DefaultPort.TLS, useTls: true, network: Network.Mainnet },
-  { host: 'b.1209k.com', port: DefaultPort.TLS, useTls: true, network: Network.Mainnet },
+  { host: '0xrpc.io', port: 50004, useTls: true, network: Network.Mainnet },
+  { host: 'bitcoin.grey.pw', port: 50004, useTls: true, network: Network.Mainnet },
+  { host: 'e.keff.org', port: 50004, useTls: true, network: Network.Mainnet },
+  { host: 'mempool.8333.mobi', port: 50004, useTls: true, network: Network.Mainnet },
   { host: 'testnet4.electrs.btcscan.net', port: 443, useTls: true, network: Network.Testnet },
   { host: 'testnet4.electrum.blockonomics.co', port: 443, useTls: true, network: Network.Testnet },
 ];
+
+/** How many of the fastest servers are candidates for selection. */
+const SELECTION_SPREAD = 3;
+
+// The MV3 worker restarts every few minutes; without this every restart re-probes the whole
+// list, which is both slow and a lot of connections to third-party operators.
+const scanCacheKey = (network: Network) => `electrumScanCache:${network}`;
+const SCAN_CACHE_TTL_MS = 10 * 60_000;
 
 function median(vals: number[]): number {
   const sorted = [...vals].sort((a, b) => a - b);
@@ -139,22 +154,62 @@ export async function getConsensusTip(servers: ExtendedServerConfig[]): Promise<
   return { height: med, merkle_root: parseMerkleRoot(trustworthy.hex) };
 }
 
+/**
+ * Choose among the fastest few rather than always the single fastest: a deterministic pick is
+ * effectively the nearest server every session, handing one operator the wallet's full
+ * address graph over time.
+ */
+export function pickServer(rankedServers: ExtendedServerConfig[]): ExtendedServerConfig {
+  const candidates = rankedServers.slice(0, SELECTION_SPREAD);
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+type ServerScanCache = { servers: ExtendedServerConfig[]; ts: number };
+
+async function readScanCache(network: Network): Promise<ExtendedServerConfig[] | null> {
+  const key = scanCacheKey(network);
+  try {
+    const stored = await browser.storage.session.get([key]);
+    const cached = stored[key] as ServerScanCache | undefined;
+    if (!cached || Date.now() - cached.ts > SCAN_CACHE_TTL_MS) return null;
+    return cached.servers?.length ? cached.servers : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeScanCache(network: Network, servers: ExtendedServerConfig[]): Promise<void> {
+  try {
+    await browser.storage.session.set({
+      [scanCacheKey(network)]: { servers, ts: Date.now() } satisfies ServerScanCache,
+    });
+  } catch {
+    // A cache miss only costs an extra scan.
+  }
+}
+
+/**
+ * @param refresh Skip the cache. Callers rotating through a failing pool must pass this, or the
+ *   rescan would replay the same stale list that just failed.
+ */
 export async function selectBestServer(
   network: Network,
+  { refresh = false }: { refresh?: boolean } = {},
 ): Promise<{ server: ExtendedServerConfig; healthyServers: ExtendedServerConfig[] }> {
   const serverList = availableServerList.filter(server => server.network === network);
   if (serverList.length === 0) {
     throw new Error(`No servers available for ${network}`);
   }
 
-  const scannedServers = await scanServers(serverList);
-  const healthyServers = scannedServers.filter(server => server.healthy);
+  const cached = refresh ? null : await readScanCache(network);
+  const healthyServers = cached ?? (await scanServers(serverList)).filter(server => server.healthy);
   if (healthyServers.length === 0) {
     throw new Error('No healthy servers found');
   }
 
   healthyServers.sort((a, b) => a.latency! - b.latency!);
-  return { server: healthyServers[0], healthyServers };
+  if (!cached) await writeScanCache(network, healthyServers);
+  return { server: pickServer(healthyServers), healthyServers };
 }
 
 export async function scanServers(servers: ExtendedServerConfig[]): Promise<ExtendedServerConfig[]> {
@@ -166,35 +221,60 @@ export async function scanServers(servers: ExtendedServerConfig[]): Promise<Exte
   );
 }
 
+const PROBE_ID = 1;
+
 export async function measureServerLatency(server: ExtendedServerConfig): Promise<number> {
   const protocol = server.useTls ? 'wss://' : 'ws://';
   const url = `${protocol}${server.host}:${server.port}`;
   return new Promise<number>(resolve => {
     const socket = new WebSocket(url);
     const start = performance.now();
+    let buffer = '';
     // Use a timeout to consider the server unresponsive if it takes too long.
     const timeout = setTimeout(() => {
       socket.close();
       resolve(Number.MAX_SAFE_INTEGER);
     }, 5000); // 5 seconds
 
+    const settle = (latency: number) => {
+      clearTimeout(timeout);
+      socket.close();
+      resolve(latency);
+    };
+
     socket.onopen = () => {
-      // Optionally send a lightweight RPC call like server.version here.
-      socket.send(JSON.stringify({ id: 1, method: 'server.version', params: [] }));
+      socket.send(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: PROBE_ID,
+          method: 'server.version',
+          params: [ELECTRUM_CLIENT_NAME, ELECTRUM_PROTOCOL_VERSION],
+        }),
+      );
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    // Only a JSON-RPC answer to our own probe counts, so a server that merely pushes
+    // notifications cannot pass as healthy.
     socket.onmessage = (event: MessageEvent) => {
-      clearTimeout(timeout);
-      const end = performance.now();
-      socket.close();
-      resolve(end - start);
+      buffer += typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data as ArrayBuffer);
+      for (const frame of buffer.split('\n')) {
+        const trimmed = frame.trim();
+        if (!trimmed) continue;
+        let parsed: { id?: unknown; result?: unknown; error?: unknown };
+        try {
+          parsed = JSON.parse(trimmed);
+        } catch {
+          continue; // incomplete frame, keep buffering
+        }
+        if (parsed.id !== PROBE_ID) continue;
+        settle(parsed.error || parsed.result === undefined ? Number.MAX_SAFE_INTEGER : performance.now() - start);
+        return;
+      }
     };
 
-    socket.onerror = () => {
-      clearTimeout(timeout);
-      socket.close();
-      resolve(Number.MAX_SAFE_INTEGER);
-    };
+    socket.onerror = () => settle(Number.MAX_SAFE_INTEGER);
+    // A server that opens then closes without answering would otherwise hold the whole
+    // scan open for the full timeout.
+    socket.onclose = () => settle(Number.MAX_SAFE_INTEGER);
   });
 }

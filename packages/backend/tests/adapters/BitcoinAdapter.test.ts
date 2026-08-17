@@ -203,7 +203,17 @@ describe('BitcoinAdapter — sendPayment + estimateFee', () => {
     const a = new BitcoinAdapter(wallet, electrum, scan, history);
     const estimate = await a.estimateMaxSend('bc1qrecv', { feeRate: 7 });
     expect(wallet.getMaxSendAmount).toHaveBeenCalledWith('bc1qrecv', 7);
-    expect(estimate).toEqual({ amount: 1.9999875, fee: 0.0000125 });
+    expect(estimate).toEqual({ amount: 1.9999875, amountString: '1.9999875', fee: 0.0000125 });
+  });
+
+  it('quotes a sweep the send path parses back to the same satoshi', async () => {
+    const { wallet, electrum, scan, history } = makeStubs();
+    const a = new BitcoinAdapter(wallet, electrum, scan, history);
+
+    const estimate = await a.estimateMaxSend('bc1qrecv', { feeRate: 7 });
+    await a.sendPayment('bc1qrecv', estimate.amountString, { feeRate: 7, isMax: true });
+
+    expect(wallet.sendPayment).toHaveBeenCalledWith('bc1qrecv', 199_998_750, 7, true);
   });
 
   it('rejects amounts with too many decimals', async () => {

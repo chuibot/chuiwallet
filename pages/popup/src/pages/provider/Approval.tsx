@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { sendMessage } from '@src/utils/bridge';
 import { Button } from '@src/components/Button';
+import { ConnectionNotice } from '@src/components/ConnectionNotice';
+import { Dropdown } from '@src/components/Dropdown';
 import type * as React from 'react';
 
 type RpcRequest = {
@@ -11,10 +13,17 @@ type RpcRequest = {
   params?: unknown;
 };
 
+type ApprovalAccount = {
+  listIndex: number;
+  name: string;
+};
+
 type ApprovalData = {
   id: string;
   origin: string;
   rpc: RpcRequest;
+  accounts: ApprovalAccount[];
+  activeAccountListIndex: number;
 };
 
 const METHOD_COPY: Record<string, string> = {
@@ -33,6 +42,7 @@ export const ProviderApproval: React.FC = () => {
 
   const [loading, setLoading] = useState(true);
   const [approval, setApproval] = useState<ApprovalData | null>(null);
+  const [selectedAccountIndex, setSelectedAccountIndex] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -46,6 +56,8 @@ export const ProviderApproval: React.FC = () => {
       try {
         const data = await sendMessage<ApprovalData>('provider.getApproval', { id: approvalId });
         setApproval(data);
+        const preselected = data.accounts.find(account => account.listIndex === data.activeAccountListIndex);
+        setSelectedAccountIndex((preselected ?? data.accounts[0])?.listIndex ?? null);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -55,8 +67,12 @@ export const ProviderApproval: React.FC = () => {
   }, [approvalId]);
 
   const handleApprove = async () => {
-    if (!approval) return;
-    await sendMessage('provider.resolveApproval', { id: approval.id, approved: true });
+    if (!approval || selectedAccountIndex === null) return;
+    await sendMessage('provider.resolveApproval', {
+      id: approval.id,
+      approved: true,
+      accountIndex: selectedAccountIndex,
+    });
     window.close();
   };
 
@@ -74,9 +90,11 @@ export const ProviderApproval: React.FC = () => {
     return <div className="p-4 text-sm text-red-500">Error loading request: {error ?? 'Unknown error'}</div>;
   }
 
-  const { origin, rpc } = approval;
+  const { origin, rpc, accounts } = approval;
   const methodDescription = METHOD_COPY[rpc.method];
   const isUnknownOrigin = origin === 'unknown';
+  const selectedAccount = accounts.find(account => account.listIndex === selectedAccountIndex);
+  const hasAccountChoice = accounts.length > 1;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-dark text-white">
@@ -113,14 +131,38 @@ export const ProviderApproval: React.FC = () => {
           <div className="font-bold">{rpc.method}</div>
         </div>
 
+        <div className="text-sm text-white mb-6">
+          <div className="font-medium text-white mb-1">Connect with</div>
+          {hasAccountChoice ? (
+            <Dropdown
+              options={accounts.map(account => account.name)}
+              selected={selectedAccount?.name}
+              label="Select account"
+              onSelect={name => {
+                const picked = accounts.find(account => account.name === name);
+                if (picked) setSelectedAccountIndex(picked.listIndex);
+              }}
+            />
+          ) : (
+            <div className="font-bold">{selectedAccount?.name ?? 'No account available'}</div>
+          )}
+          {hasAccountChoice && (
+            <p className="mt-2 text-xs text-foreground-79">
+              Only this account is shared. Choosing one here does not switch your wallet.
+            </p>
+          )}
+        </div>
+
         {methodDescription && <p className="text-sm text-white">{methodDescription}</p>}
+
+        <ConnectionNotice className="mt-6 !text-left" />
       </div>
 
       <div className="flex shrink-0 flex-col gap-3 px-4 pt-3 pb-[19px]">
         <Button className="self-center bg-opacity-0 text-white" onClick={handleReject}>
           Reject
         </Button>
-        <Button className="self-center" onClick={handleApprove} disabled={isUnknownOrigin}>
+        <Button className="self-center" onClick={handleApprove} disabled={isUnknownOrigin || !selectedAccount}>
           Approve
         </Button>
       </div>

@@ -85,6 +85,11 @@ export interface ChainFeeEstimate {
 export interface ChainMaxSendEstimate {
   /** Max sendable amount in display units, after the fee */
   amount: number;
+  /**
+   * The same amount as an exact decimal string. Send this rather than re-formatting `amount`:
+   * a float round-trip can round the sweep up past the balance and get the transaction rejected.
+   */
+  amountString: string;
   /** Fee in display units */
   fee: number;
 }

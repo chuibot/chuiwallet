@@ -7,6 +7,7 @@ type ChuiPortEvent = {
   accountIndex?: number;
   network?: Network;
   balance?: BalanceData;
+  syncing?: boolean;
   ts?: number;
 };
 
@@ -16,6 +17,7 @@ const RECONNECT_MS = 500;
 export function useChuiEvents(handlers: {
   onSnapshot?: (d: ChuiPortEvent) => void;
   onBalance?: (e: ChuiPortEvent) => void;
+  onSync?: (e: ChuiPortEvent) => void;
   onTx?: (e: ChuiPortEvent) => void;
   onConnection?: (e: ChuiPortEvent) => void;
 }) {
@@ -48,6 +50,7 @@ export function useChuiEvents(handlers: {
       port.onMessage.addListener((msg: ChuiPortEvent) => {
         const current = handlersRef.current;
         if (msg.type === 'BALANCE') current.onBalance?.(msg);
+        else if (msg.type === 'SYNC') current.onSync?.(msg);
         else if (msg.type === 'TX') current.onTx?.(msg);
         else if (msg.type === 'CONNECTION') current.onConnection?.(msg);
       });

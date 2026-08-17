@@ -12,12 +12,12 @@ import { wallet } from './modules/wallet';
 import { accountManager } from './accountManager';
 import { defaultPreferences, preferenceManager } from './preferenceManager';
 import { scanManager } from './scanManager';
-import { electrumService } from './modules/electrumService';
+import { SupersededConnectError, electrumService } from './modules/electrumService';
 import { historyService } from './modules/txHistoryService';
 import { feeService } from './modules/feeService';
 import { logger } from './utils/logger';
 import { selectUtxo } from './modules/utxoSelection';
-import { getCacheKey, selectByChain } from './utils/cache';
+import { getAccountCacheKey, getCacheKey, selectByChain } from './utils/cache';
 import { buildSpendPsbt } from './utils/psbt';
 import { getBitcoinPrice } from './modules/blockonomics';
 import { scriptTypeFromAddress } from './utils/crypto';
@@ -76,6 +76,9 @@ export class WalletManager {
       historyService.reset();
       return true;
     } catch (err) {
+      // A newer switch already owns the connection and the preferences; rolling back here
+      // would overwrite its state with ours.
+      if (err instanceof SupersededConnectError) throw err;
       // A failed electrumService.connect() emits a reasonless 'disconnected'
       // which the background listener treats as a real drop and starts
       // reconnecting against the failed target. Re-tag the teardown with
@@ -108,6 +111,10 @@ export class WalletManager {
       }
       if (restoredElectrum) {
         void electrumService.connect().catch(error => logger.error('rollback reconnect failed', error));
+      } else {
+        // The 'switchNetwork' teardown above told the background to stop retrying. Without a
+        // reasonless event here nothing would ever reconnect.
+        electrumService.disconnect();
       }
       throw err;
     }
@@ -151,6 +158,7 @@ export class WalletManager {
         historyService.reset();
         return preferenceManager.get();
       } catch (err) {
+        if (err instanceof SupersededConnectError) throw err;
         // Re-tag the teardown so the background cancels any auto-reconnect
         // that the failed connect()'s reasonless 'disconnected' triggered.
         electrumService.disconnect('switchNetwork');
@@ -176,8 +184,7 @@ export class WalletManager {
       }
     }
 
-    await preferenceManager.update({ activeAccountIndex: accountListIndex });
-    await accountManager.init(accountListIndex);
+    await this.setActiveAccountIndex(accountListIndex);
     scanManager.clear();
     await scanManager.init();
     historyService.reset();
@@ -316,7 +323,12 @@ export class WalletManager {
 
     const [store, tipHeader] = await Promise.all([
       browser.storage.local.get([rxUtxoKey, chUtxoKey, rxAddrKey, chAddrKey]),
-      electrumService.getTipHeader().catch(() => null),
+      // Without a tip there is no merkle cross-check below, so say so rather than
+      // degrading silently.
+      electrumService.getTipHeader().catch(err => {
+        logger.warn('Tip consensus unavailable — UTXO merkle verification skipped', err);
+        return null;
+      }),
     ]);
     const tipHeight = tipHeader?.height ?? 0;
 
@@ -468,22 +480,54 @@ export class WalletManager {
 
   /** Account-level zpub/ypub for the active account. Null if locked or no active account. */
   public getXpub() {
+    return this.getAccountXpub(accountManager.activeAccountIndex);
+  }
+
+  /** Account-level zpub/ypub for any account, without making it active. */
+  public getAccountXpub(listIndex: number): string | null {
     // master xpub is null when the wallet is locked, so bail before exporting anything
     if (!wallet.getXpub()) return null;
 
-    let activeAccount;
-    try {
-      activeAccount = accountManager.getActiveAccount();
-    } catch {
-      return null; // no active account (e.g. after logout)
-    }
+    const account = accountManager.accounts[listIndex];
+    if (!account) return null;
 
     // has to be the account node (depth 3), anything higher won't match the receive addresses
-    if (bs58check.decode(activeAccount.xpub)[4] !== 3) {
+    if (bs58check.decode(account.xpub)[4] !== 3) {
       throw new Error('Refusing to export non-account-level extended public key');
     }
 
-    return convertToSlip0132(activeAccount.xpub, activeAccount.scriptType, activeAccount.network);
+    return convertToSlip0132(account.xpub, account.scriptType, account.network);
+  }
+
+  /**
+   * Next unused receive/change address for any account, without making it active.
+   * Reads that account's own scan cache so a dApp request never moves the wallet's selection.
+   */
+  public async getAccountAddress(listIndex: number, changeType: ChangeType): Promise<string | null> {
+    const account = accountManager.accounts[listIndex];
+    if (!account) return null;
+
+    if (listIndex === accountManager.activeAccountIndex) {
+      return this.getAddress(changeType) ?? null;
+    }
+
+    const historyKey = getAccountCacheKey(account, CacheType.History, changeType);
+    const stored = await browser.storage.local.get(historyKey);
+    const entries = stored[historyKey];
+    const highestUsed = Array.isArray(entries)
+      ? (entries as [number, unknown][]).reduce((highest, [index]) => Math.max(highest, index), -1)
+      : -1;
+
+    return wallet.deriveAddress(account, changeType === ChangeType.External ? 0 : 1, highestUsed + 1) ?? null;
+  }
+
+  /**
+   * BIP-44 address index the EVM adapter derives for an account (m/44'/60'/0'/0/{index}).
+   * Keyed off the account's HD index, not its position in the list, so the EVM address
+   * stays put when accounts on another network are added or the network is switched.
+   */
+  public getEvmAddressIndex(listIndex: number = accountManager.activeAccountIndex): number | null {
+    return accountManager.accounts[listIndex]?.index ?? null;
   }
 
   /**
@@ -499,8 +543,9 @@ export class WalletManager {
    * @param index
    */
   public deriveAddress(chain: number, index: number): string | undefined {
-    const activeIndex = this.getActiveAccountListIndex();
-    const activeAccount = accountManager.accounts[activeIndex];
+    // Derived through the account manager, the same source the UTXO cache keys and the
+    // signing paths use, so an address can never belong to a different account than the coins.
+    const activeAccount = accountManager.accounts[accountManager.activeAccountIndex];
     if (!activeAccount) {
       throw new Error('No active account available');
     }
@@ -556,7 +601,7 @@ export class WalletManager {
     }
     const account = wallet.deriveAccount(nextIndex);
     const activeAccountIndex = await accountManager.add(account);
-    await preferenceManager.update({ activeAccountIndex: activeAccountIndex });
+    await this.setActiveAccountIndex(activeAccountIndex);
   }
 
   public async createAccount() {
@@ -569,12 +614,25 @@ export class WalletManager {
   }
 
   /**
-   * Ensures a default account (index 0) exists for the active network, deriving and adding it if necessary.
-   * @param {boolean} [forceCreate=false] - If true, creates the account even if one exists.
+   * Ensures the active account index points at a real account on the active network,
+   * deriving account 0 when the network has none yet.
+   *
+   * An already-valid selection is kept: this runs on every restore, so overwriting it
+   * would silently drop the user's chosen account back to the first one.
+   * @param {boolean} [forceCreate=false] - If true, derives and activates account 0 regardless.
    * @private
    */
   private async ensureDefaultAccount(forceCreate: boolean = false): Promise<void> {
     const activeNetwork = preferenceManager.get().activeNetwork;
+
+    if (!forceCreate) {
+      const currentIndex = preferenceManager.get().activeAccountIndex;
+      if (accountManager.accounts[currentIndex]?.network === activeNetwork) {
+        await this.setActiveAccountIndex(currentIndex);
+        return;
+      }
+    }
+
     let defaultAccountIndex = accountManager.accounts.findIndex(a => a.network === activeNetwork && a.index === 0);
 
     if (forceCreate || defaultAccountIndex === -1) {
@@ -582,7 +640,19 @@ export class WalletManager {
       defaultAccountIndex = await accountManager.add(defaultAccount);
     }
 
-    await preferenceManager.update({ activeAccountIndex: defaultAccountIndex });
+    await this.setActiveAccountIndex(defaultAccountIndex);
+  }
+
+  /**
+   * Move the persisted preference and the in-memory account manager together. The UI and the
+   * scan runtime read the preference while derivation and cache keys read the account manager;
+   * if the two drift, the wallet hands out addresses and keys from two different accounts and
+   * scanning stops (both scan guards bail on the mismatch).
+   * @private
+   */
+  private async setActiveAccountIndex(listIndex: number): Promise<void> {
+    await preferenceManager.update({ activeAccountIndex: listIndex });
+    await accountManager.init(listIndex);
   }
 }
 

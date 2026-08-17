@@ -59,8 +59,9 @@ export function ensureChainAdaptersReady(): Promise<void> {
       if (sessionPassword) {
         try {
           const mnemonic = await walletManager.getMnemonic(sessionPassword);
-          if (mnemonic) {
-            ethAdapter.initWithMnemonic(mnemonic, walletManager.getActiveAccountListIndex());
+          const evmAddressIndex = walletManager.getEvmAddressIndex();
+          if (mnemonic && evmAddressIndex !== null) {
+            ethAdapter.initWithMnemonic(mnemonic, evmAddressIndex);
           }
         } catch (error) {
           console.warn('Failed to hydrate Ethereum adapter during bootstrap', error);

@@ -1,4 +1,5 @@
 import type * as React from 'react';
+import { ConnectionNotice } from '@src/components/ConnectionNotice';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AmountInputField } from '@src/components/AmountInputField';
 import { FeeOption } from '@src/components/FeeOption';
@@ -314,9 +315,10 @@ export const SendOptions: React.FC = () => {
     setMaxSendLoading(false);
   };
 
-  // BTC's true max needs real UTXO selection on the backend, since the fee scales with the
-  // input count. Netting a flat fee estimate off the balance under- or over-shoots.
-  const runBtcMaxSend = async () => {
+  // The max always comes from the backend. BTC's fee scales with the real input count, and
+  // ETH's has to clear `value + gas` to the wei, so netting a fee estimate off a displayed
+  // float balance either under- or overshoots — and overshooting gets the send rejected.
+  const runMaxSend = async () => {
     if (!selectedFee || !states?.destinationAddress) return;
     const requestId = ++maxSendRequestRef.current;
     setMaxSendLoading(true);
@@ -324,15 +326,30 @@ export const SendOptions: React.FC = () => {
       const estimate = await sendMessage<ChainMaxSendEstimate>('chain.estimateMaxSend', {
         chain: meta.chain,
         to: states.destinationAddress,
-        options: selectedFee.sendOptions,
+        options: {
+          ...selectedFee.sendOptions,
+          ...(meta.tokenSymbol ? { tokenSymbol: meta.tokenSymbol } : {}),
+        },
       });
       if (requestId !== maxSendRequestRef.current) return;
-      const maxAmount = Math.max(estimate.amount, 0);
-      setError(maxAmount <= 0 ? 'Insufficient balance' : '');
+
+      // Sent verbatim: the backend derived it from integer units, so trimming it here would
+      // strand the difference and re-introduce the rounding this string exists to avoid.
+      const maxAmount = estimate.amountString;
+      const hasSendableAmount = Number.parseFloat(maxAmount) > 0;
+      const lacksGas = usesSeparateFeeAsset && availableGasBalance !== null && availableGasBalance < estimate.fee;
+
       setIsMaxSend(true);
       setMaxSendFee(estimate.fee);
       setLastEditedField('asset');
-      setAssetAmount(formatInputAmount(maxAmount, assetDigits));
+      setAssetAmount(hasSendableAmount ? maxAmount : '');
+      setError(
+        lacksGas
+          ? `Insufficient ${meta.networkFeeSymbol} for network fee`
+          : hasSendableAmount
+            ? ''
+            : 'Insufficient balance',
+      );
     } catch (maxSendError) {
       if (requestId !== maxSendRequestRef.current) return;
       console.error('Failed to compute max send amount', maxSendError);
@@ -346,40 +363,24 @@ export const SendOptions: React.FC = () => {
     }
   };
 
-  // Native account-based chains (ETH): the fee is paid from the same balance, so the max is
-  // simply balance minus the flat gas estimate.
-  const applyNativeMaxSend = () => {
-    if (availableBalance === null || !selectedFee) return;
-    const maxAmount = Math.max(availableBalance - selectedFee.fee, 0);
-    setError(maxAmount <= 0 ? 'Insufficient balance' : '');
-    setIsMaxSend(true);
-    setMaxSendFee(selectedFee.fee);
-    setLastEditedField('asset');
-    setAssetAmount(formatInputAmount(maxAmount, assetDigits));
-  };
-
   // Re-derive the max amount if the user switches fee speed after hitting "Send Max" —
   // a higher rate can eat into the amount a lower rate had left affordable.
   useEffect(() => {
-    if (!isMaxSend || usesSeparateFeeAsset || !selectedFee || !states?.destinationAddress) return;
-    if (meta.chain === ChainType.Bitcoin) {
-      void runBtcMaxSend();
-    } else {
-      applyNativeMaxSend();
-    }
+    if (!isMaxSend || !selectedFee || !states?.destinationAddress) return;
+    void runMaxSend();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFeeIndex]);
 
   const handleFeeSelect = (index: number) => {
     if (index === selectedFeeIndex) return;
     // Drop the amount that was netted against the old fee so it can't be sent before the
-    // re-estimate lands. BTC re-estimates async, so hold the loading state until it returns.
-    if (isMaxSend && !usesSeparateFeeAsset) {
+    // re-estimate lands.
+    if (isMaxSend) {
       maxSendRequestRef.current++;
       setMaxSendFee(null);
       setAssetAmount('');
       setUsdAmount('');
-      setMaxSendLoading(meta.chain === ChainType.Bitcoin);
+      setMaxSendLoading(true);
     }
     setSelectedFeeIndex(index);
   };
@@ -402,7 +403,9 @@ export const SendOptions: React.FC = () => {
     }
 
     if (usesSeparateFeeAsset) {
-      if (availableBalance < parsedAssetAmount) {
+      // A max send's amount came from a fresh on-chain read, so re-checking it against the
+      // cached balance can only reject an amount that is in fact affordable.
+      if (!isMaxSend && availableBalance < parsedAssetAmount) {
         setError(`Insufficient ${meta.symbol} balance`);
         return;
       }
@@ -427,13 +430,10 @@ export const SendOptions: React.FC = () => {
     }
 
     // For a max send, show the fee the amount was actually netted against, not the flat estimate.
-    const feeAmount = isMaxSend && maxSendFee !== null ? maxSendFee : selectedFee.fee;
-    const feeUsd =
-      isMaxSend && maxSendFee !== null
-        ? fiatRate !== null
-          ? maxSendFee * fiatRate
-          : undefined
-        : selectedFee.fiatAmount;
+    // Only when the fee shares the asset — fiatRate prices the asset, not a separate gas token.
+    const showsNettedFee = isMaxSend && !usesSeparateFeeAsset && maxSendFee !== null;
+    const feeAmount = showsNettedFee ? maxSendFee : selectedFee.fee;
+    const feeUsd = showsNettedFee ? (fiatRate !== null ? maxSendFee * fiatRate : undefined) : selectedFee.fiatAmount;
 
     navigate(`/send/${currency}/preview`, {
       state: {
@@ -494,26 +494,7 @@ export const SendOptions: React.FC = () => {
       return;
     }
 
-    // Separate-fee assets (e.g. USDT paying gas in ETH): the whole balance is sendable, the
-    // fee is covered by a different asset, so there's nothing to net off.
-    if (usesSeparateFeeAsset) {
-      const maxAmount = Math.max(availableBalance, 0);
-      if (availableGasBalance !== null && availableGasBalance < selectedFee.fee) {
-        setError(`Insufficient ${meta.networkFeeSymbol} for network fee`);
-      } else {
-        setError(maxAmount <= 0 ? 'Insufficient balance' : '');
-      }
-      clearMaxSend();
-      setLastEditedField('asset');
-      setAssetAmount(formatInputAmount(maxAmount, assetDigits));
-      return;
-    }
-
-    if (meta.chain === ChainType.Bitcoin) {
-      void runBtcMaxSend();
-    } else {
-      applyNativeMaxSend();
-    }
+    void runMaxSend();
   };
 
   if (!currency || !isSupportedSendCurrency(currency) || !states?.destinationAddress) {
@@ -523,6 +504,7 @@ export const SendOptions: React.FC = () => {
   return (
     <div className="relative flex flex-col items-center text-white bg-dark h-full px-4 pt-12 pb-[19px]">
       <Header title={`Send ${currencyMapping[currency]}`} />
+      <ConnectionNotice className="mt-3" />
 
       <div className="flex flex-col mt-8 w-full text-lg font-bold leading-8 text-white">
         <div className="z-10 self-start">Amount to send</div>

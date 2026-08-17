@@ -1,4 +1,5 @@
 import type { ChainSendOptions } from '@extension/backend/src/adapters/IChainAdapter';
+import { ConnectionNotice } from '@src/components/ConnectionNotice';
 import { ChainType } from '@extension/backend/src/adapters/IChainAdapter';
 import type { Currencies } from '@src/types';
 import { currencyMapping } from '@src/types';
@@ -123,6 +124,7 @@ export function SendPreview() {
   return (
     <div className="flex flex-col items-center text-white bg-dark h-full px-4 pt-12 pb-[19px]">
       <Header title="Confirm Transaction" />
+      <ConnectionNotice className="mt-3" />
 
       <div className="flex flex-col mt-14 w-full text-lg flex-1 overflow-y-auto min-h-0">
         <div className="flex flex-col w-full leading-none shrink-0">

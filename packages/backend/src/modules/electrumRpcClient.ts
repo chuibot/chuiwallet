@@ -1,10 +1,25 @@
 import type { ConnectionStatus, ConnectionUpdate, ExtendedServerConfig, ServerConfig } from '../types/electrum';
 import { logger } from '../utils/logger';
 import { createEmitter } from '../utils/emitter';
+import {
+  CHAIN_CHECKPOINTS,
+  ELECTRUM_CLIENT_NAME,
+  ELECTRUM_PROTOCOL_VERSION,
+  isCheckpointHeader,
+} from './electrumHandshake';
+
+/** Marks a `disconnected` event caused by a wedged server, so callers can cool that host off. */
+export const REQUEST_TIMEOUT_DETAIL = 'request-timeout';
 
 type RequestResolver = {
   resolve: (result: unknown) => void;
   reject: (error: Error) => void;
+};
+
+export type RequestOptions = {
+  timeoutMs?: number;
+  /** Broadcasts opt out: the transaction may already be in the mempool, so retrying is unsafe. */
+  disconnectOnTimeout?: boolean;
 };
 
 type JsonRpcObject = {
@@ -30,10 +45,14 @@ function isJsonRpcResponse(value: unknown): value is JsonRpcResponse {
 /**
  * Client for making RPC calls to an Electrum server over WebSocket.
  * Handles connection, disconnection, and request/response management.
- * Todo: Improve failover switch connection
  */
 export class ElectrumRpcClient {
-  private static readonly CONNECT_TIMEOUT_MS = 10_000;
+  static readonly CONNECT_TIMEOUT_MS = 10_000;
+  static readonly REQUEST_TIMEOUT_MS = 20_000;
+  // Chrome suspends the service worker after ~30s of inactivity, so a longer ceiling would
+  // never fire for background scans. Batches get extra room since they fan out per scripthash.
+  private static readonly BATCH_TIMEOUT_PER_ITEM_MS = 100;
+  private static readonly BATCH_TIMEOUT_MAX_MS = 28_000;
 
   private server: ServerConfig | ExtendedServerConfig;
   private socket: WebSocket | null;
@@ -98,11 +117,22 @@ export class ElectrumRpcClient {
           return;
         }
         opened = true;
-        settled = true;
-        clearTimeout(timeout);
-        logger.log(`Connected to Electrum server at ${wsUrl}`);
-        this.setStatus('connected');
-        resolve(this);
+        // The connect watchdog is deliberately still running: it spans the handshake, so a
+        // server that goes quiet mid-negotiation still settles this promise.
+        this.completeHandshake(wsUrl)
+          .then(() => {
+            if (settled) return;
+            if (!isCurrentSocket()) {
+              fail(new Error(`WebSocket replaced during handshake: ${wsUrl}`));
+              return;
+            }
+            settled = true;
+            clearTimeout(timeout);
+            logger.log(`Connected to Electrum server at ${wsUrl}`);
+            this.setStatus('connected');
+            resolve(this);
+          })
+          .catch((error: Error) => fail(error));
       };
 
       socket.onmessage = (event: MessageEvent) => {
@@ -137,14 +167,34 @@ export class ElectrumRpcClient {
    * Disconnects from the Electrum server by closing the WebSocket.
    * All pending requests will be rejected upon closure.
    */
-  public disconnect() {
+  public disconnect(detail?: string) {
     if (!this.socket) return;
     this.requests.forEach(request => request.reject(new Error('Websocket closed')));
     this.requests.clear();
     this.socket.close();
     this.socket = null;
     this.buffer = '';
-    this.setStatus('disconnected');
+    this.setStatus('disconnected', detail);
+  }
+
+  /**
+   * Prove the peer is usable before reporting it connected: it must speak JSON-RPC and serve
+   * the checkpoint block for the configured network.
+   */
+  private async completeHandshake(wsUrl: string): Promise<void> {
+    // The connect watchdog owns teardown here; a handshake timeout must not also disconnect.
+    const options: RequestOptions = {
+      timeoutMs: ElectrumRpcClient.CONNECT_TIMEOUT_MS,
+      disconnectOnTimeout: false,
+    };
+
+    await this.sendRequest('server.version', [ELECTRUM_CLIENT_NAME, ELECTRUM_PROTOCOL_VERSION], options);
+
+    const checkpoint = CHAIN_CHECKPOINTS[this.server.network];
+    const header = await this.sendRequest('blockchain.block.header', [checkpoint.height], options);
+    if (typeof header !== 'string' || !isCheckpointHeader(header, this.server.network)) {
+      throw new Error(`Server is not serving the expected chain at height ${checkpoint.height}: ${wsUrl}`);
+    }
   }
 
   /**
@@ -236,13 +286,42 @@ export class ElectrumRpcClient {
    * @param {unknown[]} [params=[]] - Optional parameters for the RPC call.
    * @returns {Promise<unknown>} A promise that resolves with the RPC result or rejects on error.
    */
-  public async sendRequest(method: string, params: unknown[] = []): Promise<unknown> {
+  public async sendRequest(method: string, params: unknown[] = [], options: RequestOptions = {}): Promise<unknown> {
     this.assertSocketConnection();
-    return new Promise((resolve, reject) => {
-      const id = ++this.runningRequestId;
-      const request = JSON.stringify(this.rpcRequestObject(id, method, params));
-      this.requests.set(id, { resolve, reject });
-      this.socket?.send(request);
+    const id = ++this.runningRequestId;
+    const request = JSON.stringify(this.rpcRequestObject(id, method, params));
+    const pending = this.trackRequest(id, method, options.timeoutMs ?? ElectrumRpcClient.REQUEST_TIMEOUT_MS, options);
+    this.socket?.send(request);
+    return pending;
+  }
+
+  /**
+   * Register a resolver for `id` and arm its timeout. The timer handle lives in the resolver
+   * closure so every settle path clears it — an orphaned timer would later tear down whichever
+   * healthy connection had replaced this one.
+   */
+  private trackRequest(id: number, method: string, timeoutMs: number, options: RequestOptions): Promise<unknown> {
+    return new Promise<unknown>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.requests.delete(id);
+        reject(new Error(`Electrum request timed out after ${timeoutMs}ms: ${method}`));
+        if (options.disconnectOnTimeout === false) return;
+        // A server that stops answering is unusable even though the socket is still open.
+        // Dropping it lets the service fail over instead of hanging every later scan.
+        logger.warn(`Electrum request timed out, dropping connection: ${method}`);
+        this.disconnect(REQUEST_TIMEOUT_DETAIL);
+      }, timeoutMs);
+
+      this.requests.set(id, {
+        resolve: result => {
+          clearTimeout(timer);
+          resolve(result);
+        },
+        reject: error => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
     });
   }
 
@@ -252,23 +331,30 @@ export class ElectrumRpcClient {
    * @param {unknown[][]} paramSets - An array of parameter sets for the batch calls.
    * @returns {Promise<unknown[]>} A promise that resolves with an array of results in the order of the input paramSets.
    */
-  public async sendBatchRequest(method: string, paramSets: unknown[][] = []): Promise<unknown[]> {
+  public async sendBatchRequest(
+    method: string,
+    paramSets: unknown[][] = [],
+    options: RequestOptions = {},
+  ): Promise<unknown[]> {
     this.assertSocketConnection();
+    const timeoutMs = options.timeoutMs ?? ElectrumRpcClient.batchTimeoutMs(paramSets.length);
     const batchRequests = paramSets.map(params => {
       const id = ++this.runningRequestId;
       return this.rpcRequestObject(id, method, params);
     });
 
-    const requestResolvers = batchRequests.map(
-      ({ id }) =>
-        new Promise<unknown>((resolve, reject) => {
-          this.requests.set(id, { resolve, reject });
-        }),
-    );
+    const requestResolvers = batchRequests.map(({ id }) => this.trackRequest(id, method, timeoutMs, options));
 
     const requestJson = JSON.stringify(batchRequests);
     this.socket?.send(requestJson);
     return Promise.all(requestResolvers);
+  }
+
+  private static batchTimeoutMs(count: number): number {
+    return Math.min(
+      ElectrumRpcClient.BATCH_TIMEOUT_MAX_MS,
+      ElectrumRpcClient.REQUEST_TIMEOUT_MS + count * ElectrumRpcClient.BATCH_TIMEOUT_PER_ITEM_MS,
+    );
   }
 
   private rpcRequestObject(id: number, method: string, params: unknown[]): JsonRpcObject {

@@ -11,6 +11,7 @@ import {
   type ChainTransaction,
   type ChainTransactionHistoryOptions,
   type ChainFeeEstimate,
+  type ChainMaxSendEstimate,
   type ChainSendOptions,
 } from './IChainAdapter';
 import { ERC20_TOKEN_DEFINITIONS, type Erc20TokenDefinition } from './erc20TokenDefinitions';
@@ -150,6 +151,11 @@ export class EthereumAdapter implements IChainAdapter {
     this.rpcApiKey = config?.rpcApiKey;
   }
 
+  /**
+   * @param addressIndex Wallet account's HD index — each account gets its own EVM address at
+   *   m/44'/60'/0'/0/{index}. Must be the account's own index, not its position in the account
+   *   list, or the address moves when accounts on another network are added.
+   */
   initWithMnemonic(mnemonic: string, addressIndex: number = 0): void {
     this.activeAddressIndex = addressIndex;
     // m/44'/60'/0'/0 is the standard BIP-44 path for Ethereum
@@ -192,10 +198,10 @@ export class EthereumAdapter implements IChainAdapter {
     if (!this.hdNode) {
       throw new Error('EthereumAdapter not initialized with mnemonic');
     }
-    // hdNode is rooted at m/44'/60'/0'/0, so deriveChild gives us m/44'/60'/0'/0/{index}
-    // For multi-account: we'd need to derive from the mnemonic directly with accountIndex
-    // in the path: m/44'/60'/{accountIndex}'/0/{addressIndex}
-    // For now, using single-account derivation (accountIndex 0) with addressIndex
+    // hdNode is rooted at m/44'/60'/0'/0, so deriveChild gives us m/44'/60'/0'/0/{index}.
+    // Wallet accounts are separated by addressIndex rather than the hardened account level,
+    // hence accountIndex is unused here.
+    void accountIndex;
     return this.hdNode.deriveChild(addressIndex).address;
   }
 
@@ -460,6 +466,66 @@ export class EthereumAdapter implements IChainAdapter {
         timeEstimate: 1,
       };
     });
+  }
+
+  /**
+   * Max sendable amount for the fee tier in `options`.
+   *
+   * Done entirely in wei: a node rejects the transaction unless
+   * `value + gasLimit * maxFeePerGas <= balance`, so netting the fee off a float balance and
+   * re-rounding the result to display precision can overshoot by a few hundred gwei and get
+   * the send bounced as "insufficient funds".
+   */
+  async estimateMaxSend(_to: string, options?: ChainSendOptions): Promise<ChainMaxSendEstimate> {
+    if (!this.provider) throw new Error('Provider not initialized');
+
+    const tokenAddress = this.resolveRequestedTokenAddress(options);
+    if ((options?.tokenSymbol || options?.tokenAddress) && !tokenAddress) {
+      throw new Error(`${options?.tokenSymbol ?? 'Token'} is unavailable on this network`);
+    }
+
+    const address = this.getReceivingAddress();
+    const gasLimit = options?.gasLimit
+      ? this.parsePositiveBigInt(options.gasLimit, 'gas limit')
+      : BigInt(tokenAddress ? 65000 : 21000);
+    const reserveWei = (await this.resolveReserveGasPriceWei(options)) * gasLimit;
+    const fee = parseFloat(ethers.formatEther(reserveWei));
+
+    if (tokenAddress) {
+      // Gas is paid in ETH, so the whole token balance is sendable.
+      const contract = new ethers.Contract(tokenAddress, ERC20_ABI, this.provider);
+      const definedDecimals = this.getErc20TokenDefinition(options?.tokenSymbol)?.decimals;
+      const [rawBalance, decimals] = await Promise.all([
+        contract.balanceOf(address) as Promise<bigint>,
+        definedDecimals === undefined ? (contract.decimals() as Promise<number>) : Promise.resolve(definedDecimals),
+      ]);
+      const amountString = ethers.formatUnits(rawBalance, Number(decimals));
+      return { amount: parseFloat(amountString), amountString, fee };
+    }
+
+    const balanceWei = await this.provider.getBalance(address);
+    const maxWei = balanceWei > reserveWei ? balanceWei - reserveWei : BigInt(0);
+    const amountString = ethers.formatEther(maxWei);
+    return { amount: parseFloat(amountString), amountString, fee };
+  }
+
+  /** Per-gas price the balance must cover up front — the EIP-1559 cap, not the effective price. */
+  private async resolveReserveGasPriceWei(options?: ChainSendOptions): Promise<bigint> {
+    if (options?.maxFeePerGasWei) {
+      return this.parsePositiveBigInt(options.maxFeePerGasWei, 'max fee per gas');
+    }
+
+    if (options?.gasPriceWei) {
+      return this.parsePositiveBigInt(options.gasPriceWei, 'gas price');
+    }
+
+    const feeData = await this.provider!.getFeeData();
+    const gasPrice = feeData.maxFeePerGas ?? feeData.gasPrice;
+    if (!gasPrice || gasPrice <= BigInt(0)) {
+      throw new Error('Unable to estimate Ethereum network fee');
+    }
+
+    return gasPrice;
   }
 
   async sendPayment(

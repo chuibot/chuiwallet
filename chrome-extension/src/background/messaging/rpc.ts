@@ -1,7 +1,10 @@
 import type { Runtime } from 'webextension-polyfill';
 import type { ProviderRpc } from '@src/background/messaging/index';
+import type { EthereumAdapter } from '@extension/backend/src/adapters/EthereumAdapter';
+import { accountManager } from '@extension/backend/src/accountManager';
 import { chainRegistry } from '@extension/backend/src/adapters/ChainRegistry';
 import { ChainType } from '@extension/backend/src/adapters/IChainAdapter';
+import { preferenceManager } from '@extension/backend/src/preferenceManager';
 import { ChangeType } from '@extension/backend/src/types/cache';
 import { walletManager } from '@extension/backend/src/walletManager';
 
@@ -34,16 +37,25 @@ export type RpcErrorResponse = {
 
 export type RpcResponse = RpcSuccessResponse | RpcErrorResponse;
 
+/** Account the user picked in the approval window; -1 means the request was rejected. */
+type ApprovalOutcome = { approved: boolean; accountListIndex: number };
+
 type PendingApproval = {
   id: string;
   origin: string;
   rpc: RpcRequest;
   windowId?: number;
-  resolve: (approved: boolean) => void;
+  resolve: (outcome: ApprovalOutcome) => void;
   reject: (err: string) => void;
 };
 
-type Handler = (params: unknown, sender: Runtime.MessageSender) => Promise<unknown> | unknown;
+/** Account offered in the approval window. `listIndex` is what the popup sends back. */
+export type ApprovalAccount = {
+  listIndex: number;
+  name: string;
+};
+
+type Handler = (accountListIndex: number) => Promise<unknown> | unknown;
 
 type ProviderAddresses = {
   bitcoin: {
@@ -62,19 +74,19 @@ const APPROVAL_WINDOW_WIDTH = 400;
 const APPROVAL_WINDOW_HEIGHT = 660;
 
 const handlers: Record<string, Handler> = {
-  getXpub: () => {
-    return walletManager.getXpub();
+  getXpub: accountListIndex => {
+    return walletManager.getAccountXpub(accountListIndex);
   },
-  getAddresses: async () => {
-    return getAddresses();
+  getAddresses: async accountListIndex => {
+    return getAddresses(accountListIndex);
   },
-  getXpubAddresses: async () => {
-    const addresses = await getAddresses();
+  getXpubAddresses: async accountListIndex => {
+    const addresses = await getAddresses(accountListIndex);
     return {
       ...addresses,
       bitcoin: {
         ...addresses.bitcoin,
-        xpub: walletManager.getXpub(),
+        xpub: walletManager.getAccountXpub(accountListIndex),
       },
     };
   },
@@ -86,14 +98,29 @@ function generateApprovalId(): string {
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
 
+const rejected: ApprovalOutcome = { approved: false, accountListIndex: -1 };
+
 chrome.windows.onRemoved.addListener(windowId => {
   for (const [approvalId, item] of pendingApprovals.entries()) {
     if (item.windowId === windowId) {
       pendingApprovals.delete(approvalId);
-      item.resolve(false);
+      item.resolve(rejected);
     }
   }
 });
+
+/** Accounts a dApp may be pointed at: the active network's, in the order the popup lists them. */
+function connectableAccounts(): ApprovalAccount[] {
+  const activeNetwork = preferenceManager.get().activeNetwork;
+  return accountManager.accounts
+    .map((account, listIndex) => ({ listIndex, name: account.name, network: account.network }))
+    .filter(({ network }) => network === activeNetwork)
+    .map(({ listIndex, name }) => ({ listIndex, name }));
+}
+
+function isConnectableAccount(accountListIndex: number): boolean {
+  return connectableAccounts().some(account => account.listIndex === accountListIndex);
+}
 
 export function getApprovalRequest(approvalId: string) {
   const item = pendingApprovals.get(approvalId);
@@ -102,14 +129,25 @@ export function getApprovalRequest(approvalId: string) {
     id: item.id,
     origin: item.origin,
     rpc: item.rpc,
+    accounts: connectableAccounts(),
+    activeAccountListIndex: accountManager.activeAccountIndex,
   };
 }
 
-export function resolveApproval(approvalId: string, approved: boolean) {
+/**
+ * Resolve with the account the user chose. The choice applies to this request only — the
+ * wallet's own active account is deliberately left alone so a dApp can read one account
+ * while the user keeps working in another.
+ */
+export function resolveApproval(approvalId: string, approved: boolean, accountListIndex: number) {
   const item = pendingApprovals.get(approvalId);
   if (!item) return;
   pendingApprovals.delete(approvalId);
-  item.resolve(approved);
+  if (approved && !isConnectableAccount(accountListIndex)) {
+    item.resolve(rejected);
+    return;
+  }
+  item.resolve({ approved, accountListIndex });
 }
 
 export function rejectApproval(approvalId: string, reason: string) {
@@ -117,13 +155,13 @@ export function rejectApproval(approvalId: string, reason: string) {
   if (!item) return;
   void reason;
   pendingApprovals.delete(approvalId);
-  item.resolve(false);
+  item.resolve(rejected);
 }
 
-async function requestUserApproval(origin: string, rpc: RpcRequest): Promise<boolean> {
+async function requestUserApproval(origin: string, rpc: RpcRequest): Promise<ApprovalOutcome> {
   const approvalId = generateApprovalId();
 
-  return await new Promise<boolean>((resolve, reject) => {
+  return await new Promise<ApprovalOutcome>((resolve, reject) => {
     pendingApprovals.set(approvalId, {
       id: approvalId,
       origin,
@@ -168,12 +206,12 @@ export async function handle(message: ProviderRpc, sender: Runtime.MessageSender
     if (origin === 'unknown') {
       return rpcErrorResponse(rpcRequest.id, 4001, 'Request from non-web origin rejected');
     }
-    const approved = await requestUserApproval(origin, rpcRequest);
+    const { approved, accountListIndex } = await requestUserApproval(origin, rpcRequest);
     if (!approved) {
       return rpcErrorResponse(rpcRequest.id, 4001, 'User rejected the request');
     }
 
-    const data = await fn(rpcRequest.params, sender);
+    const data = await fn(accountListIndex);
     return rpcSuccessResponse(rpcRequest.id, data);
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
@@ -199,34 +237,35 @@ function originFromSender(sender: Runtime.MessageSender): string {
   }
 }
 
-async function getAddresses(): Promise<ProviderAddresses> {
+async function getAddresses(accountListIndex: number): Promise<ProviderAddresses> {
+  const [receivingAddress, changeAddress] = await Promise.all([
+    getBitcoinAddress(accountListIndex, ChangeType.External),
+    getBitcoinAddress(accountListIndex, ChangeType.Internal),
+  ]);
+
   return {
-    bitcoin: {
-      receivingAddress: getBitcoinAddress(ChangeType.External),
-      changeAddress: getBitcoinAddress(ChangeType.Internal),
-    },
-    evm: {
-      address: getEvmAddress(),
-    },
+    bitcoin: { receivingAddress, changeAddress },
+    evm: { address: getEvmAddress(accountListIndex) },
   };
 }
 
-function getBitcoinAddress(changeType: ChangeType): string | null {
+async function getBitcoinAddress(accountListIndex: number, changeType: ChangeType): Promise<string | null> {
   try {
-    return walletManager.getAddress(changeType) ?? null;
+    return await walletManager.getAccountAddress(accountListIndex, changeType);
   } catch {
     return null;
   }
 }
 
-function getEvmAddress(): string | null {
-  const adapter = chainRegistry.get(ChainType.Ethereum);
-  if (!adapter) {
+function getEvmAddress(accountListIndex: number): string | null {
+  const adapter = chainRegistry.get(ChainType.Ethereum) as EthereumAdapter | undefined;
+  const addressIndex = walletManager.getEvmAddressIndex(accountListIndex);
+  if (!adapter || addressIndex === null) {
     return null;
   }
 
   try {
-    return adapter.getReceivingAddress();
+    return adapter.deriveAddress(0, addressIndex);
   } catch {
     return null;
   }
