@@ -67,8 +67,9 @@ function scheduleElectrumReconnect() {
 async function init() {
   await ensureChainAdaptersReady();
 
-  await electrumService.init(preferenceManager.get().activeNetwork);
-
+  // Subscribe and arm the alarms before the first connection attempt: when server selection
+  // throws (every server down), the listener is what turns a failure into a retry, and the
+  // alarms are what keep scanning once a later attempt succeeds.
   electrumService.onStatus.on(update => {
     emitConnection(update.status, update.detail);
     if (update.reason === 'switchNetwork') {
@@ -84,8 +85,10 @@ async function init() {
       scheduleElectrumReconnect();
     }
   });
-  await electrumService.connect();
   setupAlarms();
+
+  await electrumService.init(preferenceManager.get().activeNetwork);
+  await electrumService.connect();
   await runAllScans();
 }
 
@@ -94,6 +97,9 @@ registerScanRuntime();
 (async () => {
   await init().catch(error => {
     logger.error(error);
+    // init()/connect() throwing leaves nothing connected and no status event pending, so
+    // nothing would drive the backoff.
+    scheduleElectrumReconnect();
   });
 })();
 

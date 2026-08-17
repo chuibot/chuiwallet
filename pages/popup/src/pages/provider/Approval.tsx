@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { sendMessage } from '@src/utils/bridge';
 import { Button } from '@src/components/Button';
+import { ConnectionNotice } from '@src/components/ConnectionNotice';
 import { Dropdown } from '@src/components/Dropdown';
 import type * as React from 'react';
 
@@ -153,6 +154,8 @@ export const ProviderApproval: React.FC = () => {
         </div>
 
         {methodDescription && <p className="text-sm text-white">{methodDescription}</p>}
+
+        <ConnectionNotice className="mt-6 !text-left" />
       </div>
 
       <div className="flex shrink-0 flex-col gap-3 px-4 pt-3 pb-[19px]">

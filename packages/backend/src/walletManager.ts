@@ -12,7 +12,7 @@ import { wallet } from './modules/wallet';
 import { accountManager } from './accountManager';
 import { defaultPreferences, preferenceManager } from './preferenceManager';
 import { scanManager } from './scanManager';
-import { electrumService } from './modules/electrumService';
+import { SupersededConnectError, electrumService } from './modules/electrumService';
 import { historyService } from './modules/txHistoryService';
 import { feeService } from './modules/feeService';
 import { logger } from './utils/logger';
@@ -76,6 +76,9 @@ export class WalletManager {
       historyService.reset();
       return true;
     } catch (err) {
+      // A newer switch already owns the connection and the preferences; rolling back here
+      // would overwrite its state with ours.
+      if (err instanceof SupersededConnectError) throw err;
       // A failed electrumService.connect() emits a reasonless 'disconnected'
       // which the background listener treats as a real drop and starts
       // reconnecting against the failed target. Re-tag the teardown with
@@ -108,6 +111,10 @@ export class WalletManager {
       }
       if (restoredElectrum) {
         void electrumService.connect().catch(error => logger.error('rollback reconnect failed', error));
+      } else {
+        // The 'switchNetwork' teardown above told the background to stop retrying. Without a
+        // reasonless event here nothing would ever reconnect.
+        electrumService.disconnect();
       }
       throw err;
     }
@@ -151,6 +158,7 @@ export class WalletManager {
         historyService.reset();
         return preferenceManager.get();
       } catch (err) {
+        if (err instanceof SupersededConnectError) throw err;
         // Re-tag the teardown so the background cancels any auto-reconnect
         // that the failed connect()'s reasonless 'disconnected' triggered.
         electrumService.disconnect('switchNetwork');
@@ -315,7 +323,12 @@ export class WalletManager {
 
     const [store, tipHeader] = await Promise.all([
       browser.storage.local.get([rxUtxoKey, chUtxoKey, rxAddrKey, chAddrKey]),
-      electrumService.getTipHeader().catch(() => null),
+      // Without a tip there is no merkle cross-check below, so say so rather than
+      // degrading silently.
+      electrumService.getTipHeader().catch(err => {
+        logger.warn('Tip consensus unavailable — UTXO merkle verification skipped', err);
+        return null;
+      }),
     ]);
     const tipHeight = tipHeader?.height ?? 0;
 

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ConnectionNotice } from '@src/components/ConnectionNotice';
 import { CryptoBalance } from '@src/components/CryptoBalance';
 import { useWalletContext } from '@src/context/WalletContext';
 import { capitalize, formatNumber } from '@src/utils';
@@ -149,6 +150,8 @@ export const Dashboard: React.FC = () => {
           )}
         </>
       )}
+
+      <ConnectionNotice className="mt-3" />
 
       {!balanceLoading && balance && balance.unconfirmed > 0 && (
         <div className="mt-2 text-sm leading-none text-center text-neutral-400">

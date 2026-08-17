@@ -1,4 +1,5 @@
 import type * as React from 'react';
+import { ConnectionNotice } from '@src/components/ConnectionNotice';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AmountInputField } from '@src/components/AmountInputField';
 import { FeeOption } from '@src/components/FeeOption';
@@ -512,6 +513,7 @@ export const SendOptions: React.FC = () => {
   return (
     <div className="relative flex flex-col items-center text-white bg-dark h-full px-4 pt-12 pb-[19px]">
       <Header title={`Send ${currencyMapping[currency]}`} />
+      <ConnectionNotice className="mt-3" />
 
       <div className="flex flex-col mt-8 w-full text-lg font-bold leading-8 text-white">
         <div className="z-10 self-start">Amount to send</div>

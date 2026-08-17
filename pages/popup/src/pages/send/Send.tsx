@@ -1,4 +1,5 @@
 import { AddressInputField } from '@src/components/AddressInputField';
+import { ConnectionNotice } from '@src/components/ConnectionNotice';
 import { Button } from '@src/components/Button';
 import Header from '@src/components/Header';
 import { useWalletContext } from '@src/context/WalletContext';
@@ -123,6 +124,7 @@ export const Send: React.FC = () => {
   return (
     <div className="relative flex flex-col items-center text-white bg-dark h-full px-4 pt-12 pb-[19px]">
       <Header title={`Send ${currencyMapping[currency!]}`} />
+      <ConnectionNotice className="mt-3" />
 
       <img
         loading="lazy"
