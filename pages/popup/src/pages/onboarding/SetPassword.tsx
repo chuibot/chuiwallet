@@ -63,11 +63,6 @@ export const SetPassword: React.FC = () => {
       return;
     }
 
-    if (!termsAccepted) {
-      setErrorMsg(ERROR_MESSAGES.PLEASE_ACCEPT_TERMS);
-      return;
-    }
-
     await setSessionPassword(password);
     setStep('choose-method');
   };
@@ -120,7 +115,7 @@ export const SetPassword: React.FC = () => {
 
   return (
     <div className="relative flex flex-col h-screen px-5 pt-12 pb-[19px] bg-dark">
-      <div className="flex flex-col flex-1">
+      <div className="flex overflow-y-auto flex-col flex-1 pb-4 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-neutral-700">
         <div className="flex flex-col items-center self-center max-w-full text-center w-full">
           <h1 className="w-full text-2xl font-bold leading-loose text-white max-sm:text-2xl">Set up a password</h1>
           <div className="mt-3 w-full text-lg leading-6 text-foreground max-sm:text-base">
@@ -167,13 +162,13 @@ export const SetPassword: React.FC = () => {
               onBeforeTosOpen={handleTosLinkClick}
               initialChecked={termsAccepted}
             />
-
-            {errorMsg && <span className="mt-1 text-xs text-primary-red font-light">{errorMsg}</span>}
           </div>
         </div>
       </div>
 
-      <Button className="absolute w-full bottom-[19px]" onClick={handleNext} tabIndex={0}>
+      {errorMsg && <span className="shrink-0 pb-2 text-xs text-primary-red font-light">{errorMsg}</span>}
+
+      <Button className="shrink-0 w-full" onClick={handleNext} disabled={!termsAccepted} tabIndex={0}>
         Next
       </Button>
     </div>
