@@ -31,7 +31,7 @@
     "@extension/vite-config": "workspace:*",
     "@laynezh/vite-plugin-lib-assets": "^0.6.1",
     "@types/webextension-polyfill": "^0.12.5",
-    "@types/ws": "^8.5.13",
+    "@types/ws": "^8.18.1",
     "cross-env": "^7.0.3"
   }
 }
