@@ -290,14 +290,17 @@ describe('EthereumAdapter — balance reads', () => {
     },
   });
 
-  /** Mainnet adapter whose endpoints map, in list order, to the given fake RPCs. */
-  async function adapterWithRpcs(rpcs: FakeRpc[]): Promise<{ adapter: EthereumAdapter; createdUrls: string[] }> {
+  /** Mainnet adapter whose endpoints map, in list order, to the given fake RPCs. Other URLs get `otherRpc`. */
+  async function adapterWithRpcs(
+    rpcs: FakeRpc[],
+    otherRpc?: FakeRpc,
+  ): Promise<{ adapter: EthereumAdapter; createdUrls: string[] }> {
     const adapter = new EthereumAdapter();
     adapter.initWithMnemonic(TEST_MNEMONIC, 0);
     const createdUrls: string[] = [];
-    (adapter as unknown as { createProvider: (url: string) => FakeRpc }).createProvider = url => {
+    (adapter as unknown as { createProvider: (url: string) => FakeRpc | undefined }).createProvider = url => {
       createdUrls.push(url);
-      return rpcs[MAINNET_RPC_URLS.indexOf(url)];
+      return rpcs[MAINNET_RPC_URLS.indexOf(url)] ?? otherRpc;
     };
     await adapter.init(Network.Mainnet);
     return { adapter, createdUrls };
@@ -336,6 +339,34 @@ describe('EthereumAdapter — balance reads', () => {
     expect(createdUrls).toEqual([MAINNET_RPC_URLS[0], MAINNET_RPC_URLS[1]]);
   });
 
+  it('does not let overlapping reads skip the endpoint that works', async () => {
+    const { adapter, createdUrls } = await adapterWithRpcs([downRpc(), healthyRpc(), downRpc()]);
+
+    const results = await Promise.allSettled([adapter.getBalance(), adapter.getBalance()]);
+    expect(results.map(result => result.status)).toEqual(['fulfilled', 'fulfilled']);
+
+    const providersCreated = createdUrls.length;
+    await adapter.getBalance();
+    expect(createdUrls).toHaveLength(providersCreated);
+  });
+
+  it('rejects a refresh that spans a network switch instead of caching mixed networks', async () => {
+    const switcher: { adapter?: EthereumAdapter } = {};
+    const switchesNetworkMidRead: FakeRpc = {
+      ...healthyRpc(),
+      getBalance: async () => {
+        await switcher.adapter?.init(Network.Testnet);
+        return BigInt(0);
+      },
+    };
+    const { adapter } = await adapterWithRpcs([switchesNetworkMidRead, healthyRpc(), healthyRpc()], healthyRpc());
+    switcher.adapter = adapter;
+    const address = adapter.getReceivingAddress();
+
+    await expect(adapter.getBalance()).rejects.toThrow('network changed');
+    expect(await chainBalanceCache.get({ chain: ChainType.Ethereum, network: Network.Mainnet, address })).toBeNull();
+  });
+
   it('moves on when an endpoint stalls', async () => {
     jest.useFakeTimers();
     const stalled: FakeRpc = { getBalance: () => new Promise<bigint>(() => {}), call: () => new Promise(() => {}) };
@@ -367,6 +398,35 @@ describe('EthereumAdapter — balance reads', () => {
   });
 });
 
+describe('EthereumAdapter — RPC request timeouts', () => {
+  const ETHERS_DEFAULT_TIMEOUT_MS = 300_000;
+
+  it('bounds every request made through a read provider', async () => {
+    const adapter = new EthereumAdapter();
+    await adapter.init(Network.Mainnet);
+
+    const provider = (adapter as unknown as { provider: ethers.JsonRpcProvider }).provider;
+    expect(provider._getConnection().timeout).toBe(8_000);
+  });
+
+  it("keeps ethers' default timeout for sends so a slow broadcast is not reported as failed", async () => {
+    const adapter = new EthereumAdapter();
+    adapter.initWithMnemonic(TEST_MNEMONIC, 0);
+    await adapter.init(Network.Mainnet);
+    const createProvider = jest.spyOn(
+      adapter as unknown as { createProvider: (url: string, timeoutMs?: number) => ethers.JsonRpcProvider },
+      'createProvider',
+    );
+
+    await expect(adapter.sendPayment('0x2222222222222222222222222222222222222222', '0')).rejects.toThrow(
+      'greater than 0',
+    );
+
+    const sendProvider = createProvider.mock.results.at(-1)?.value as ethers.JsonRpcProvider;
+    expect(sendProvider._getConnection().timeout).toBe(ETHERS_DEFAULT_TIMEOUT_MS);
+  });
+});
+
 describe('EthereumAdapter — transaction history', () => {
   beforeAll(() => installFetchMock());
   afterAll(() => restoreFetch());
@@ -376,6 +436,8 @@ describe('EthereumAdapter — transaction history', () => {
     resetFetchMock();
     await chainTransactionHistoryCache.clear();
   });
+
+  afterEach(() => jest.useRealTimers());
 
   async function usdtAdapter(): Promise<EthereumAdapter> {
     const adapter = new EthereumAdapter();
@@ -396,6 +458,29 @@ describe('EthereumAdapter — transaction history', () => {
     const adapter = await usdtAdapter();
 
     await expect(adapter.getTransactionHistory({ tokenSymbol: 'USDT' })).rejects.toThrow('HTTP 503');
+  });
+
+  it('rejects a response body that is not an indexer payload', async () => {
+    mockFetch('blockscout.com', () => jsonResponse(null));
+    const adapter = await usdtAdapter();
+
+    await expect(adapter.getTransactionHistory({ tokenSymbol: 'USDT' })).rejects.toThrow('malformed');
+  });
+
+  it('gives up on an indexer request that stalls', async () => {
+    jest.useFakeTimers();
+    mockFetch(
+      'blockscout.com',
+      (_url, init) =>
+        new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('indexer request aborted')));
+        }),
+    );
+    const adapter = await usdtAdapter();
+
+    const assertion = expect(adapter.getTransactionHistory({ tokenSymbol: 'USDT' })).rejects.toThrow('aborted');
+    await jest.advanceTimersByTimeAsync(10_000);
+    await assertion;
   });
 
   it('treats status "0" with an empty result as an empty history', async () => {

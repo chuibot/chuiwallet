@@ -30,6 +30,8 @@ const WEI_RATE_DECIMAL_MAX_LEN = 30;
 const SAFE_INT_DECIMAL_MAX_LEN = 15;
 /** ethers waits up to 5 minutes by default; a blocked endpoint should hand over to the next one well before that. */
 const RPC_READ_TIMEOUT_MS = 8_000;
+/** fetch() never times out on its own, so a stalled indexer would never reach the error state. */
+const INDEXER_TIMEOUT_MS = 10_000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -135,6 +137,8 @@ export class EthereumAdapter implements IChainAdapter {
   private provider: ethers.JsonRpcProvider | null = null;
   private rpcUrls: readonly string[] = [];
   private rpcUrlIndex = 0;
+  /** Bumped by init(), so reads that span a network or account switch can tell. */
+  private rpcGeneration = 0;
   private hdNode: ethers.HDNodeWallet | null = null;
   private activeAddressIndex = 0;
   private network: Network = Network.Mainnet;
@@ -180,46 +184,50 @@ export class EthereumAdapter implements IChainAdapter {
 
   async init(network: Network): Promise<void> {
     this.network = network;
+    this.rpcGeneration += 1;
 
     const publicRpcUrls = EthereumAdapter.PUBLIC_RPC[network];
     this.rpcUrls = this.rpcApiKey
       ? [EthereumAdapter.INFURA_RPC[network] + this.rpcApiKey, ...publicRpcUrls]
       : [...publicRpcUrls];
     this.rpcUrlIndex = 0;
-    this.provider = this.createProvider(this.rpcUrls[0]);
+    this.provider = this.createProvider(this.rpcUrls[0], RPC_READ_TIMEOUT_MS);
   }
 
-  private createProvider(rpcUrl: string): ethers.JsonRpcProvider {
+  /** `timeoutMs` bounds each HTTP request, so a stalled endpoint doesn't hold requests for ethers' 5-minute default. */
+  private createProvider(rpcUrl: string, timeoutMs?: number): ethers.JsonRpcProvider {
+    const request = new ethers.FetchRequest(rpcUrl);
+    if (timeoutMs !== undefined) request.timeout = timeoutMs;
     const rpcNetwork = EthereumAdapter.RPC_NETWORK[this.network];
-    return new ethers.JsonRpcProvider(rpcUrl, rpcNetwork, { staticNetwork: rpcNetwork });
-  }
-
-  private useNextRpcUrl(): ethers.JsonRpcProvider {
-    this.rpcUrlIndex = (this.rpcUrlIndex + 1) % this.rpcUrls.length;
-    this.provider = this.createProvider(this.rpcUrls[this.rpcUrlIndex]);
-    return this.provider;
+    return new ethers.JsonRpcProvider(request, rpcNetwork, { staticNetwork: rpcNetwork });
   }
 
   /**
-   * Run an idempotent read, moving to the next RPC endpoint when one fails or stalls. The endpoint
-   * that answers stays active, so fee estimates and sends use it too.
+   * Run an idempotent read, trying each RPC endpoint in turn from the active one. An endpoint becomes
+   * active (and so used for fees and sends) only once it answers, so overlapping reads can't skip a healthy one.
    */
   private async readWithFallback<T>(read: (provider: ethers.JsonRpcProvider) => Promise<T>): Promise<T> {
-    const rpcUrls = this.rpcUrls;
-    let lastError: unknown = new Error('Provider not initialized');
+    const { provider: activeProvider, rpcUrls, rpcUrlIndex: startIndex, rpcGeneration } = this;
+    if (!activeProvider) throw new Error('Provider not initialized');
+    let lastError: unknown;
 
-    for (let attempt = 0; attempt < rpcUrls.length; attempt++) {
-      // init() ran mid-read, so the next endpoint may belong to another network.
-      if (this.rpcUrls !== rpcUrls || !this.provider) break;
-      const provider = attempt === 0 ? this.provider : this.useNextRpcUrl();
-      // Host only: an Infura URL carries the API key in its path.
-      const rpcHost = new URL(rpcUrls[this.rpcUrlIndex]).host;
+    for (let offset = 0; offset < rpcUrls.length; offset++) {
+      const index = (startIndex + offset) % rpcUrls.length;
+      const provider = offset === 0 ? activeProvider : this.createProvider(rpcUrls[index], RPC_READ_TIMEOUT_MS);
       try {
-        return await withTimeout(read(provider), RPC_READ_TIMEOUT_MS);
+        const result = await withTimeout(read(provider), RPC_READ_TIMEOUT_MS);
+        if (rpcGeneration === this.rpcGeneration) {
+          this.provider = provider;
+          this.rpcUrlIndex = index;
+        }
+        return result;
       } catch (error) {
-        console.warn(`Ethereum RPC read failed on ${rpcHost}`, error);
+        // Host only: an Infura URL carries the API key in its path.
+        console.warn(`Ethereum RPC read failed on ${new URL(rpcUrls[index]).host}`, error);
         lastError = error;
       }
+      // init() ran mid-read, so the remaining endpoints may belong to another network.
+      if (rpcGeneration !== this.rpcGeneration) break;
     }
 
     throw lastError;
@@ -265,6 +273,7 @@ export class EthereumAdapter implements IChainAdapter {
     if (!this.provider) throw new Error('Provider not initialized');
     const address = this.getReceivingAddress();
     const balanceScope = this.getBalanceScope(address);
+    const rpcGeneration = this.rpcGeneration;
 
     const priceIds = this.getTrackedPriceIds();
     const fiatCurrency = preferenceManager.get().fiatCurrency || 'USD';
@@ -281,6 +290,10 @@ export class EthereumAdapter implements IChainAdapter {
     const tokenBalances = await this.readWithFallback(provider =>
       this.getErc20Balances(provider, address, priceByAssetId),
     );
+    // The two reads could straddle init(), mixing networks under a cache key that fits neither.
+    if (rpcGeneration !== this.rpcGeneration) {
+      throw new Error('Ethereum network changed during balance refresh');
+    }
 
     const nextBalance = {
       confirmed: ethBalanceFloat,
@@ -401,22 +414,26 @@ export class EthereumAdapter implements IChainAdapter {
     tokenAddress?: string,
   ): Promise<ChainTransaction[]> {
     const baseUrl = EthereumAdapter.BLOCK_EXPLORER_API[this.network];
+    const controller = new AbortController();
+    // Cleared only after the body is read, so a response that stalls mid-body is also abandoned.
+    const timer = setTimeout(() => controller.abort(), INDEXER_TIMEOUT_MS);
     try {
       const action = tokenAddress ? 'tokentx' : 'txlist';
       const contractQuery = tokenAddress ? `&contractaddress=${tokenAddress}` : '';
       const url = `${baseUrl}?module=account&action=${action}&address=${address}${contractQuery}&startblock=0&endblock=99999999&page=1&offset=50&sort=desc`;
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: controller.signal });
       if (!res.ok) throw new Error(`Blockscout HTTP ${res.status}`);
 
       const raw: unknown = await res.json();
-      // An empty history is status "0" with an empty result array; an error has no array.
-      if (isRecord(raw) && raw.status !== '1' && !Array.isArray(raw.result)) {
-        throw new Error(`Blockscout error: ${String(raw.message ?? raw.result)}`);
-      }
+      // An empty history is status "0" with an empty result array; errors carry no array.
+      if (!isRecord(raw)) throw new Error('Blockscout returned a malformed response');
+      if (!Array.isArray(raw.result)) throw new Error(`Blockscout error: ${String(raw.message ?? raw.result)}`);
       return parseIndexerTransactions(raw, tokenAddress);
     } catch (e) {
       console.warn('Failed to fetch ETH transaction history from indexer', e);
       throw e;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -597,7 +614,9 @@ export class EthereumAdapter implements IChainAdapter {
   ): Promise<string> {
     if (!this.provider || !this.hdNode) throw new Error('Not initialized');
 
-    const wallet = this.hdNode.deriveChild(this.activeAddressIndex).connect(this.provider);
+    // Keeps ethers' default timeout: a broadcast that times out after the node accepted it invites a duplicate send.
+    const sendProvider = this.createProvider(this.rpcUrls[this.rpcUrlIndex]);
+    const wallet = this.hdNode.deriveChild(this.activeAddressIndex).connect(sendProvider);
     const normalizedAmount = this.normalizeDisplayAmount(amount);
     const overrides = this.buildTransactionOverrides(options);
 
