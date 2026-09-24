@@ -1,5 +1,5 @@
 import type { Network } from '../types/electrum';
-import { ChainType, type IChainAdapter } from './IChainAdapter';
+import type { ChainBalance, ChainBalancesResult, ChainType, IChainAdapter } from './IChainAdapter';
 
 /**
  * Central registry for managing chain adapters.
@@ -49,24 +49,23 @@ export class ChainRegistry {
     await Promise.all(tasks);
   }
 
-  /** Fetch balances from all adapters in parallel (partial results if one fails) */
-  async getAllBalances(): Promise<Record<string, Awaited<ReturnType<IChainAdapter['getBalance']>>>> {
+  /** Fetch balances from all adapters in parallel; chains that fail are reported in `failedChains`. */
+  async getAllBalances(): Promise<ChainBalancesResult> {
     const adapters = this.getAll();
-    const results = await Promise.allSettled(
-      adapters.map(async adapter => ({
-        chainType: adapter.chainType,
-        balance: await adapter.getBalance(),
-      })),
-    );
+    const results = await Promise.allSettled(adapters.map(adapter => adapter.getBalance()));
 
-    const balances: Record<string, Awaited<ReturnType<IChainAdapter['getBalance']>>> = {};
-    for (const result of results) {
+    const balances: Partial<Record<ChainType, ChainBalance>> = {};
+    const failedChains: ChainType[] = [];
+    results.forEach((result, index) => {
+      const { chainType } = adapters[index];
       if (result.status === 'fulfilled') {
-        balances[result.value.chainType] = result.value.balance;
+        balances[chainType] = result.value;
+      } else {
+        console.warn(`Failed to fetch ${chainType} balance`, result.reason);
+        failedChains.push(chainType);
       }
-      // Rejected adapters are silently skipped — partial balances returned
-    }
-    return balances;
+    });
+    return { balances, failedChains };
   }
 
   /** Fetch cached balances from adapters that support local snapshots */

@@ -32,6 +32,12 @@ export interface ChainBalance {
   tokens?: Record<string, TokenBalance>;
 }
 
+export interface ChainBalancesResult {
+  balances: Partial<Record<ChainType, ChainBalance>>;
+  /** Chains whose balance could not be read this time. */
+  failedChains: ChainType[];
+}
+
 /**
  * Normalized transaction record across chains
  */

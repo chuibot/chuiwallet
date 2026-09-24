@@ -58,4 +58,19 @@ describe('ChainBalanceCache', () => {
     expect(all.keep_me).toBe('preserved');
     expect(Object.keys(all).some(k => k.startsWith('chain_balance:'))).toBe(false);
   });
+
+  it('set() keeps the balance in memory when the storage write fails', async () => {
+    const cache = new ChainBalanceCache();
+    const scope = { chain: ChainType.Ethereum, network: Network.Mainnet, address: '0xA' };
+    const setSpy = jest
+      .spyOn(chrome.storage.local, 'set')
+      .mockImplementation(() => Promise.reject(new Error('QUOTA_BYTES quota exceeded')));
+
+    try {
+      await expect(cache.set(scope, sampleBalance)).resolves.toBeUndefined();
+      expect(await cache.get(scope)).toEqual(sampleBalance);
+    } finally {
+      setSpy.mockRestore();
+    }
+  });
 });

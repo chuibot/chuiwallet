@@ -70,11 +70,16 @@ export class ChainTransactionHistoryCache {
     return transactions;
   }
 
+  /** Best effort: the in-memory map is already updated, so a failed write only loses persistence. */
   private async save(scope: ChainHistoryScope, cache: Map<string, ChainTransaction>): Promise<void> {
     const cacheKey = this.getStorageKey(scope);
-    await browser.storage.local.set({
-      [cacheKey]: Array.from(cache.entries()),
-    });
+    try {
+      await browser.storage.local.set({
+        [cacheKey]: Array.from(cache.entries()),
+      });
+    } catch (error) {
+      console.warn('Failed to persist chain transaction history', error);
+    }
   }
 
   private getStorageKey(scope: ChainHistoryScope): string {

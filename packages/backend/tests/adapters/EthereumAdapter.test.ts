@@ -1,8 +1,12 @@
 import { ethers } from 'ethers';
 import { resetChromeStorage } from '../helpers/chromeMock';
+import { installFetchMock, jsonResponse, mockFetch, resetFetchMock, restoreFetch } from '../helpers/fetchMock';
 import { EthereumAdapter, parseIndexerTransactions } from '../../src/adapters/EthereumAdapter';
 import { ChainType } from '../../src/adapters/IChainAdapter';
 import { ERC20_TOKEN_DEFINITIONS, getErc20ContractAddress } from '../../src/adapters/erc20TokenDefinitions';
+import { assetPriceService } from '../../src/modules/assetPriceService';
+import { chainBalanceCache } from '../../src/modules/chainBalanceCache';
+import { chainTransactionHistoryCache } from '../../src/modules/chainTransactionHistoryCache';
 import { Network } from '../../src/types/electrum';
 import { preferenceManager, defaultPreferences } from '../../src/preferenceManager';
 
@@ -261,5 +265,143 @@ describe('EthereumAdapter — estimateMaxSend', () => {
     await expect(
       adapter.estimateMaxSend('0x2222222222222222222222222222222222222222', { tokenSymbol: 'NOPE' }),
     ).rejects.toThrow(/unavailable on this network/);
+  });
+});
+
+describe('EthereumAdapter — balance reads', () => {
+  const USDT_RAW = BigInt('1054470000'); // 1,054.47 USDT
+  const MAINNET_RPC_URLS = (EthereumAdapter as unknown as { PUBLIC_RPC: Record<Network, string[]> }).PUBLIC_RPC[
+    Network.Mainnet
+  ];
+
+  type FakeRpc = { getBalance: () => Promise<bigint>; call: () => Promise<string> };
+
+  const healthyRpc = (usdtRaw = USDT_RAW): FakeRpc => ({
+    getBalance: async () => BigInt(0),
+    call: async () => ethers.AbiCoder.defaultAbiCoder().encode(['uint256'], [usdtRaw]),
+  });
+
+  const downRpc = (): FakeRpc => ({
+    getBalance: async () => {
+      throw new Error('rpc down');
+    },
+    call: async () => {
+      throw new Error('rpc down');
+    },
+  });
+
+  /** Mainnet adapter whose endpoints map, in list order, to the given fake RPCs. */
+  async function adapterWithRpcs(rpcs: FakeRpc[]): Promise<{ adapter: EthereumAdapter; createdUrls: string[] }> {
+    const adapter = new EthereumAdapter();
+    adapter.initWithMnemonic(TEST_MNEMONIC, 0);
+    const createdUrls: string[] = [];
+    (adapter as unknown as { createProvider: (url: string) => FakeRpc }).createProvider = url => {
+      createdUrls.push(url);
+      return rpcs[MAINNET_RPC_URLS.indexOf(url)];
+    };
+    await adapter.init(Network.Mainnet);
+    return { adapter, createdUrls };
+  }
+
+  beforeEach(async () => {
+    resetChromeStorage();
+    await chainBalanceCache.clear();
+    Object.defineProperty(preferenceManager, 'preferences', {
+      value: { ...defaultPreferences },
+      writable: true,
+      configurable: true,
+    });
+    jest.spyOn(assetPriceService, 'getUsdPrices').mockResolvedValue({ ethereum: 2000, tether: 1 });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  it('reads the USDT balance on-chain', async () => {
+    const { adapter } = await adapterWithRpcs([healthyRpc(), healthyRpc(), healthyRpc()]);
+
+    const balance = await adapter.getBalance();
+
+    expect(balance.tokens?.USDT.balance).toBe(1054.47);
+    expect(balance.tokens?.USDT.balanceFiat).toBe(1054.47);
+  });
+
+  it('falls back to the next endpoint and stays on the one that answered', async () => {
+    const { adapter, createdUrls } = await adapterWithRpcs([downRpc(), healthyRpc(), healthyRpc()]);
+
+    expect((await adapter.getBalance()).tokens?.USDT.balance).toBe(1054.47);
+    expect((await adapter.getBalance()).tokens?.USDT.balance).toBe(1054.47);
+    expect(createdUrls).toEqual([MAINNET_RPC_URLS[0], MAINNET_RPC_URLS[1]]);
+  });
+
+  it('moves on when an endpoint stalls', async () => {
+    jest.useFakeTimers();
+    const stalled: FakeRpc = { getBalance: () => new Promise<bigint>(() => {}), call: () => new Promise(() => {}) };
+    const { adapter } = await adapterWithRpcs([stalled, healthyRpc(), healthyRpc()]);
+
+    const pending = adapter.getBalance();
+    await jest.advanceTimersByTimeAsync(8_000);
+
+    expect((await pending).tokens?.USDT.balance).toBe(1054.47);
+  });
+
+  it('rejects instead of reporting zero when the token read fails everywhere', async () => {
+    const tokenReadFails = (): FakeRpc => ({ ...healthyRpc(), call: downRpc().call });
+    const { adapter } = await adapterWithRpcs([tokenReadFails(), tokenReadFails(), tokenReadFails()]);
+
+    await expect(adapter.getBalance()).rejects.toThrow('rpc down');
+    expect(await adapter.getCachedBalance()).toBeNull();
+  });
+
+  it('returns the balance it read even when saving it to storage fails', async () => {
+    const { adapter } = await adapterWithRpcs([healthyRpc(), healthyRpc(), healthyRpc()]);
+    jest
+      .spyOn(chrome.storage.local, 'set')
+      .mockImplementation(() => Promise.reject(new Error('QUOTA_BYTES quota exceeded')));
+
+    const balance = await adapter.getBalance();
+
+    expect(balance.tokens?.USDT.balance).toBe(1054.47);
+  });
+});
+
+describe('EthereumAdapter — transaction history', () => {
+  beforeAll(() => installFetchMock());
+  afterAll(() => restoreFetch());
+
+  beforeEach(async () => {
+    resetChromeStorage();
+    resetFetchMock();
+    await chainTransactionHistoryCache.clear();
+  });
+
+  async function usdtAdapter(): Promise<EthereumAdapter> {
+    const adapter = new EthereumAdapter();
+    adapter.initWithMnemonic(TEST_MNEMONIC, 0);
+    await adapter.init(Network.Mainnet);
+    return adapter;
+  }
+
+  it('rejects when the indexer returns an error, so the popup can say so', async () => {
+    mockFetch('blockscout.com', () => jsonResponse({ status: '0', message: 'Max rate limit reached', result: null }));
+    const adapter = await usdtAdapter();
+
+    await expect(adapter.getTransactionHistory({ tokenSymbol: 'USDT' })).rejects.toThrow('Max rate limit reached');
+  });
+
+  it('rejects when the indexer is unreachable', async () => {
+    mockFetch('blockscout.com', () => jsonResponse({}, { status: 503 }));
+    const adapter = await usdtAdapter();
+
+    await expect(adapter.getTransactionHistory({ tokenSymbol: 'USDT' })).rejects.toThrow('HTTP 503');
+  });
+
+  it('treats status "0" with an empty result as an empty history', async () => {
+    mockFetch('blockscout.com', () => jsonResponse({ status: '0', message: 'No transactions found', result: [] }));
+    const adapter = await usdtAdapter();
+
+    await expect(adapter.getTransactionHistory({ tokenSymbol: 'USDT' })).resolves.toEqual([]);
   });
 });

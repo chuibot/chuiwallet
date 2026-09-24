@@ -28,6 +28,16 @@ const MAX_FORMAT_UNITS_DECIMALS = 80;
 const UINT256_DECIMAL_MAX_LEN = 78;
 const WEI_RATE_DECIMAL_MAX_LEN = 30;
 const SAFE_INT_DECIMAL_MAX_LEN = 15;
+/** ethers waits up to 5 minutes by default; a blocked endpoint should hand over to the next one well before that. */
+const RPC_READ_TIMEOUT_MS = 8_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`RPC request timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 type RawIndexerTx = {
   hash: string;
@@ -123,6 +133,8 @@ export class EthereumAdapter implements IChainAdapter {
   readonly displayName = 'Ethereum';
 
   private provider: ethers.JsonRpcProvider | null = null;
+  private rpcUrls: readonly string[] = [];
+  private rpcUrlIndex = 0;
   private hdNode: ethers.HDNodeWallet | null = null;
   private activeAddressIndex = 0;
   private network: Network = Network.Mainnet;
@@ -130,10 +142,14 @@ export class EthereumAdapter implements IChainAdapter {
   /** Optional Infura/Alchemy project ID injected via constructor */
   private rpcApiKey: string | undefined;
 
-  /** Public RPC fallbacks — no API key required */
-  private static readonly PUBLIC_RPC: Record<Network, string> = {
-    [Network.Mainnet]: 'https://ethereum-rpc.publicnode.com',
-    [Network.Testnet]: 'https://ethereum-sepolia-rpc.publicnode.com',
+  /** Public RPCs, no API key required. Tried in order when a read fails. */
+  private static readonly PUBLIC_RPC: Record<Network, readonly string[]> = {
+    [Network.Mainnet]: ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org', 'https://1rpc.io/eth'],
+    [Network.Testnet]: [
+      'https://ethereum-sepolia-rpc.publicnode.com',
+      'https://sepolia.gateway.tenderly.co',
+      'https://0xrpc.io/sep',
+    ],
   };
 
   /** Static network definitions prevent ethers from retry-looping on startup discovery. */
@@ -165,12 +181,48 @@ export class EthereumAdapter implements IChainAdapter {
   async init(network: Network): Promise<void> {
     this.network = network;
 
-    const rpcUrl = this.rpcApiKey
-      ? EthereumAdapter.INFURA_RPC[network] + this.rpcApiKey
-      : EthereumAdapter.PUBLIC_RPC[network];
-    const rpcNetwork = EthereumAdapter.RPC_NETWORK[network];
+    const publicRpcUrls = EthereumAdapter.PUBLIC_RPC[network];
+    this.rpcUrls = this.rpcApiKey
+      ? [EthereumAdapter.INFURA_RPC[network] + this.rpcApiKey, ...publicRpcUrls]
+      : [...publicRpcUrls];
+    this.rpcUrlIndex = 0;
+    this.provider = this.createProvider(this.rpcUrls[0]);
+  }
 
-    this.provider = new ethers.JsonRpcProvider(rpcUrl, rpcNetwork, { staticNetwork: rpcNetwork });
+  private createProvider(rpcUrl: string): ethers.JsonRpcProvider {
+    const rpcNetwork = EthereumAdapter.RPC_NETWORK[this.network];
+    return new ethers.JsonRpcProvider(rpcUrl, rpcNetwork, { staticNetwork: rpcNetwork });
+  }
+
+  private useNextRpcUrl(): ethers.JsonRpcProvider {
+    this.rpcUrlIndex = (this.rpcUrlIndex + 1) % this.rpcUrls.length;
+    this.provider = this.createProvider(this.rpcUrls[this.rpcUrlIndex]);
+    return this.provider;
+  }
+
+  /**
+   * Run an idempotent read, moving to the next RPC endpoint when one fails or stalls. The endpoint
+   * that answers stays active, so fee estimates and sends use it too.
+   */
+  private async readWithFallback<T>(read: (provider: ethers.JsonRpcProvider) => Promise<T>): Promise<T> {
+    const rpcUrls = this.rpcUrls;
+    let lastError: unknown = new Error('Provider not initialized');
+
+    for (let attempt = 0; attempt < rpcUrls.length; attempt++) {
+      // init() ran mid-read, so the next endpoint may belong to another network.
+      if (this.rpcUrls !== rpcUrls || !this.provider) break;
+      const provider = attempt === 0 ? this.provider : this.useNextRpcUrl();
+      // Host only: an Infura URL carries the API key in its path.
+      const rpcHost = new URL(rpcUrls[this.rpcUrlIndex]).host;
+      try {
+        return await withTimeout(read(provider), RPC_READ_TIMEOUT_MS);
+      } catch (error) {
+        console.warn(`Ethereum RPC read failed on ${rpcHost}`, error);
+        lastError = error;
+      }
+    }
+
+    throw lastError;
   }
 
   async connect(): Promise<void> {
@@ -218,7 +270,7 @@ export class EthereumAdapter implements IChainAdapter {
     const fiatCurrency = preferenceManager.get().fiatCurrency || 'USD';
     const vsCurrency = fiatCurrency === 'BTC' ? 'usd' : fiatCurrency.toLowerCase();
     const [ethBalanceWei, priceByAssetId] = await Promise.all([
-      this.provider.getBalance(address),
+      this.readWithFallback(provider => provider.getBalance(address)),
       assetPriceService.getUsdPrices(priceIds, vsCurrency),
     ]);
     const ethPriceUsd = priceByAssetId.ethereum ?? 0;
@@ -226,7 +278,9 @@ export class EthereumAdapter implements IChainAdapter {
     const ethBalanceFloat = parseFloat(ethers.formatEther(ethBalanceWei));
     const ethBalanceUsd = ethBalanceFloat * ethPriceUsd;
 
-    const tokenBalances = await this.getErc20Balances(address, priceByAssetId);
+    const tokenBalances = await this.readWithFallback(provider =>
+      this.getErc20Balances(provider, address, priceByAssetId),
+    );
 
     const nextBalance = {
       confirmed: ethBalanceFloat,
@@ -265,13 +319,17 @@ export class EthereumAdapter implements IChainAdapter {
       return cachedTransactions;
     }
 
+    let latestTransactions: ChainTransaction[];
     try {
-      const latestTransactions = await this.fetchTransactionHistoryFromIndexer(historyScope.address, tokenAddress);
-      const mergedTransactions = await chainTransactionHistoryCache.merge(historyScope, latestTransactions);
-      return await this.reconcilePendingTransactions(historyScope, mergedTransactions);
-    } catch {
-      return await this.reconcilePendingTransactions(historyScope, cachedTransactions);
+      latestTransactions = await this.fetchTransactionHistoryFromIndexer(historyScope.address, tokenAddress);
+    } catch (error) {
+      // Pending sends can still settle over RPC while the indexer is down; the cache keeps the result.
+      await this.reconcilePendingTransactions(historyScope, cachedTransactions);
+      throw error;
     }
+
+    const mergedTransactions = await chainTransactionHistoryCache.merge(historyScope, latestTransactions);
+    return await this.reconcilePendingTransactions(historyScope, mergedTransactions);
   }
 
   async getCachedTransactionHistory(options?: ChainTransactionHistoryOptions): Promise<ChainTransaction[]> {
@@ -351,6 +409,10 @@ export class EthereumAdapter implements IChainAdapter {
       if (!res.ok) throw new Error(`Blockscout HTTP ${res.status}`);
 
       const raw: unknown = await res.json();
+      // An empty history is status "0" with an empty result array; an error has no array.
+      if (isRecord(raw) && raw.status !== '1' && !Array.isArray(raw.result)) {
+        throw new Error(`Blockscout error: ${String(raw.message ?? raw.result)}`);
+      }
       return parseIndexerTransactions(raw, tokenAddress);
     } catch (e) {
       console.warn('Failed to fetch ETH transaction history from indexer', e);
@@ -772,70 +834,41 @@ export class EthereumAdapter implements IChainAdapter {
     return this.resolveTokenContractAddress(options.tokenSymbol);
   }
 
+  /** Rejects if any token read fails, so a failed read never shows up as a zero balance. */
   private async getErc20Balances(
+    provider: ethers.JsonRpcProvider,
     address: string,
     priceByAssetId: Record<string, number>,
   ): Promise<NonNullable<ChainBalance['tokens']>> {
-    if (!this.provider) {
-      return {};
-    }
-
-    const tokenDefinitions = this.getSupportedErc20Tokens();
     const tokenEntries = await Promise.all(
-      tokenDefinitions.map(async tokenDefinition => {
+      this.getSupportedErc20Tokens().map(async tokenDefinition => {
         const contractAddress = tokenDefinition.contracts[this.network];
-        const fallbackDecimals = tokenDefinition.decimals ?? 18;
+        const fiatRate = tokenDefinition.coingeckoId ? priceByAssetId[tokenDefinition.coingeckoId] : undefined;
+        let balance = 0;
+        let decimals = tokenDefinition.decimals ?? 18;
 
-        if (!contractAddress) {
-          const fiatRate = tokenDefinition.coingeckoId ? priceByAssetId[tokenDefinition.coingeckoId] : undefined;
-          return [
-            tokenDefinition.symbol,
-            {
-              symbol: tokenDefinition.symbol,
-              balance: 0,
-              decimals: fallbackDecimals,
-              fiatRate,
-              balanceFiat: fiatRate ? 0 : undefined,
-            },
-          ] as const;
-        }
-
-        try {
-          const contract = new ethers.Contract(contractAddress, ERC20_ABI, this.provider);
+        if (contractAddress) {
+          const contract = new ethers.Contract(contractAddress, ERC20_ABI, provider);
           const [rawBalance, onChainDecimals] = await Promise.all([
             contract.balanceOf(address) as Promise<bigint>,
             tokenDefinition.decimals === undefined
               ? (contract.decimals() as Promise<number>)
               : Promise.resolve(tokenDefinition.decimals),
           ]);
-
-          const resolvedDecimals = Number(onChainDecimals);
-          const balance = parseFloat(ethers.formatUnits(rawBalance, resolvedDecimals));
-          const fiatRate = tokenDefinition.coingeckoId ? priceByAssetId[tokenDefinition.coingeckoId] : undefined;
-          return [
-            tokenDefinition.symbol,
-            {
-              symbol: tokenDefinition.symbol,
-              balance,
-              decimals: resolvedDecimals,
-              fiatRate,
-              balanceFiat: fiatRate ? balance * fiatRate : undefined,
-            },
-          ] as const;
-        } catch (e) {
-          console.warn(`Failed to fetch ${tokenDefinition.symbol} balance`, e);
-          const fiatRate = tokenDefinition.coingeckoId ? priceByAssetId[tokenDefinition.coingeckoId] : undefined;
-          return [
-            tokenDefinition.symbol,
-            {
-              symbol: tokenDefinition.symbol,
-              balance: 0,
-              decimals: fallbackDecimals,
-              fiatRate,
-              balanceFiat: fiatRate ? 0 : undefined,
-            },
-          ] as const;
+          decimals = Number(onChainDecimals);
+          balance = parseFloat(ethers.formatUnits(rawBalance, decimals));
         }
+
+        return [
+          tokenDefinition.symbol,
+          {
+            symbol: tokenDefinition.symbol,
+            balance,
+            decimals,
+            fiatRate,
+            balanceFiat: fiatRate ? balance * fiatRate : undefined,
+          },
+        ] as const;
       }),
     );
 

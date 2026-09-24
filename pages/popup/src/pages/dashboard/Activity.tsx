@@ -1,6 +1,7 @@
 import type * as React from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { CryptoButton } from '@src/components/CryptoButton';
+import { RefreshButton } from '@src/components/RefreshButton';
 import { useWalletContext } from '@src/context/WalletContext';
 import { useEffect, useState, useMemo } from 'react';
 import { formatNumber } from '@src/utils';
@@ -83,7 +84,18 @@ export const Activity: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { currency } = useParams<{ currency: string }>();
-  const { transactions, refreshTransactions, preferences, balance, chainBalances } = useWalletContext();
+  const {
+    transactions,
+    refreshTransactions,
+    preferences,
+    balance,
+    balanceSyncing,
+    refreshBalance,
+    chainBalances,
+    chainBalancesLoading,
+    failedChains,
+    refreshChainBalances,
+  } = useWalletContext();
 
   const meta = getCurrencyMeta(currency);
   const activityStates = (location.state as ActivityStates) ?? {};
@@ -92,6 +104,8 @@ export const Activity: React.FC = () => {
   // Chain transaction state for ETH/USDT
   const [chainTxs, setChainTxs] = useState<ChainTransaction[]>([]);
   const [chainTxsLoading, setChainTxsLoading] = useState(false);
+  const [chainTxsFailed, setChainTxsFailed] = useState(false);
+  const [historyReloadKey, setHistoryReloadKey] = useState(0);
   const [userEthAddress, setUserEthAddress] = useState('');
   const chainHistoryOptions = useMemo(() => getTransactionHistoryOptionsForCurrency(currency), [currency]);
   const tokenFiatRate = meta.tokenSymbol ? (chainBalances[meta.chain]?.tokens?.[meta.tokenSymbol]?.fiatRate ?? 0) : 0;
@@ -110,13 +124,14 @@ export const Activity: React.FC = () => {
         : 'Sepolia'
       : undefined;
 
-  // Derive display balance from state (BTC) or chainBalances (ETH/USDT)
+  // Derive display balance from context (BTC) or chainBalances (ETH/USDT)
   let displayBalance = 0;
   let displayBalanceUsd = 0;
+  const chainBalanceUnavailable = currency !== 'btc' && !chainBalances[meta.chain] && failedChains.includes(meta.chain);
 
   if (currency === 'btc') {
-    displayBalance = activityStates.balance ?? balance?.confirmed ?? 0;
-    displayBalanceUsd = activityStates.balanceUsd ?? balance?.confirmedUsd ?? 0;
+    displayBalance = balance?.confirmed ?? activityStates.balance ?? 0;
+    displayBalanceUsd = balance?.confirmedUsd ?? activityStates.balanceUsd ?? 0;
   } else if (currency === 'eth') {
     const ethBalance = chainBalances[ChainType.Ethereum];
     displayBalance = ethBalance?.confirmed ?? 0;
@@ -133,6 +148,16 @@ export const Activity: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preferences?.activeAccountIndex]);
 
+  const handleRefresh = () => {
+    if (currency === 'btc') {
+      refreshBalance();
+      refreshTransactions();
+      return;
+    }
+    void refreshChainBalances();
+    setHistoryReloadKey(key => key + 1);
+  };
+
   // Fetch chain transaction history and user address for ETH/USDT
   useEffect(() => {
     if (!currency || currency === 'btc') {
@@ -143,6 +168,7 @@ export const Activity: React.FC = () => {
 
     setChainTxs([]);
     setChainTxsLoading(true);
+    setChainTxsFailed(false);
 
     sendMessage<string>('chain.getReceivingAddress', { chain: ChainType.Ethereum })
       .then(addr => {
@@ -191,8 +217,9 @@ export const Activity: React.FC = () => {
         }
       } catch (latestError) {
         console.error('Failed to refresh chain transactions', latestError);
-        if (!cancelled && !hasCachedTransactions) {
-          setChainTxs([]);
+        if (!cancelled) {
+          setChainTxsFailed(true);
+          if (!hasCachedTransactions) setChainTxs([]);
         }
       } finally {
         if (!cancelled) {
@@ -204,7 +231,7 @@ export const Activity: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [chainHistoryOptions, currency, meta.chain]);
+  }, [chainHistoryOptions, currency, meta.chain, historyReloadKey]);
 
   // Derive ETH price from chain balances for network-fee conversion in tx history
   const ethPriceUsd = useMemo(() => {
@@ -235,6 +262,7 @@ export const Activity: React.FC = () => {
   );
 
   const loading = currency === 'btc' ? transactions == null : chainTxsLoading;
+  const refreshing = currency === 'btc' ? balanceSyncing : chainBalancesLoading || chainTxsLoading;
 
   return (
     <div className="flex flex-col items-center text-white bg-dark h-full px-4 pt-12 pb-[19px]">
@@ -255,6 +283,7 @@ export const Activity: React.FC = () => {
       <div className="flex flex-col mt-10 max-w-full leading-none text-center text-white">
         <div className="flex gap-px justify-center items-center w-full text-lg">
           <div className="self-stretch my-auto">Total Balance</div>
+          <RefreshButton className="ml-2" refreshing={refreshing} onClick={handleRefresh} />
         </div>
         <div className="flex justify-center items-end mt-2 text-5xl font-bold uppercase cursor-pointer gap-[8px] flex-wrap max-w-[320px]">
           <span>
@@ -262,7 +291,9 @@ export const Activity: React.FC = () => {
               ? preferences?.fiatCurrency !== 'BTC'
                 ? formatNumber(displayBalanceUsd)
                 : formatNumber(displayBalance / 1e8, 8)
-              : formatNumber(displayBalance, meta.displayPrecision)}
+              : chainBalanceUnavailable
+                ? '—'
+                : formatNumber(displayBalance, meta.displayPrecision)}
           </span>
           <span className="text-xl">{currency === 'btc' ? preferences?.fiatCurrency : meta.symbol}</span>
         </div>
@@ -273,11 +304,13 @@ export const Activity: React.FC = () => {
           ? preferences?.fiatCurrency !== 'BTC'
             ? `${formatNumber(displayBalance / 1e8, 8)} BTC`
             : `${formatNumber(displayBalanceUsd)} ${preferences?.fiatCurrency || 'USD'}`
-          : meta.tokenSymbol
-            ? tokenFiatRate > 0
-              ? `≈ ${formatNumber(displayBalanceUsd)} ${preferences?.fiatCurrency || 'USD'}`
-              : `${preferences?.fiatCurrency || 'USD'} unavailable`
-            : `≈ ${formatNumber(displayBalanceUsd)} ${preferences?.fiatCurrency || 'USD'}`}
+          : chainBalanceUnavailable
+            ? `— ${preferences?.fiatCurrency || 'USD'}`
+            : meta.tokenSymbol
+              ? tokenFiatRate > 0
+                ? `≈ ${formatNumber(displayBalanceUsd)} ${preferences?.fiatCurrency || 'USD'}`
+                : `${preferences?.fiatCurrency || 'USD'} unavailable`
+              : `≈ ${formatNumber(displayBalanceUsd)} ${preferences?.fiatCurrency || 'USD'}`}
       </div>
 
       {tokenContractAddress && networkIcon && (
@@ -321,8 +354,11 @@ export const Activity: React.FC = () => {
             {currency === 'btc' && (
               <span className="text-white text-sm">{formatNumber(transactions?.length || 0)} total</span>
             )}
-            {currency !== 'btc' && chainTxEntries.length > 0 && (
+            {currency !== 'btc' && chainTxEntries.length > 0 && !chainTxsFailed && (
               <span className="text-white text-sm">{chainTxEntries.length} total</span>
+            )}
+            {currency !== 'btc' && chainTxEntries.length > 0 && chainTxsFailed && (
+              <span className="text-amber-400 text-xs">Couldn&apos;t refresh. Showing saved activity.</span>
             )}
           </div>
           {loading ? (
@@ -333,6 +369,13 @@ export const Activity: React.FC = () => {
             </>
           ) : currency === 'btc' ? (
             <TransactionActivityList transactions={transactions} />
+          ) : chainTxsFailed && chainTxEntries.length === 0 ? (
+            <div className="flex flex-col gap-2 items-center justify-center h-[calc(100vh-356px)] text-gray-400 text-base">
+              Couldn&apos;t load activity.
+              <button type="button" className="text-sm text-primary-yellow underline" onClick={handleRefresh}>
+                Try again
+              </button>
+            </div>
           ) : (
             <TransactionActivityList
               transactions={chainTxEntries}
