@@ -70,6 +70,8 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [failedChains, setFailedChains] = useState<ChainType[]>([]);
   const [hasHydratedChainBalances, setHasHydratedChainBalances] = useState<boolean>(false);
   const lastConnectionRefreshAt = useRef(0);
+  // Refreshes overlap (the Dashboard mounts while the session hydrates), so only the latest one may update state.
+  const chainBalanceRequestId = useRef(0);
   const preferencesRef = useRef(defaultPreferences);
   preferencesRef.current = preferences;
   const activeAccount = useMemo<Account | undefined>(() => {
@@ -94,9 +96,12 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const refreshChainBalances = async () => {
+    const requestId = ++chainBalanceRequestId.current;
+    const isLatest = () => requestId === chainBalanceRequestId.current;
     setChainBalancesLoading(true);
     try {
       const { balances, failedChains } = await sendMessage<ChainBalancesResult>('chain.getAllBalances');
+      if (!isLatest()) return;
       _setChainBalances(currentBalances => ({
         ...currentBalances,
         ...balances,
@@ -104,15 +109,19 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setFailedChains(failedChains);
     } catch (e) {
       console.error('Failed to fetch chain balances', e);
-      setFailedChains(Object.values(ChainType));
+      if (isLatest()) setFailedChains(Object.values(ChainType));
     } finally {
-      setChainBalancesLoading(false);
-      setHasHydratedChainBalances(true);
+      if (isLatest()) {
+        setChainBalancesLoading(false);
+        setHasHydratedChainBalances(true);
+      }
     }
   };
 
   /** Show the active account's cached balances straight away, then fetch live ones. */
   const reloadChainBalances = async () => {
+    // Drops results still in flight for the previous account or network.
+    chainBalanceRequestId.current += 1;
     setFailedChains([]);
     const hasCachedChainBalances = await loadCachedChainBalances();
     if (!hasCachedChainBalances) {

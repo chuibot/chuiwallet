@@ -182,14 +182,17 @@ export const Activity: React.FC = () => {
         }
       });
 
+    const loadSavedTransactions = () =>
+      sendMessage<ChainTransaction[]>('chain.getCachedTransactionHistory', {
+        chain: meta.chain,
+        ...(chainHistoryOptions ? { options: chainHistoryOptions } : {}),
+      });
+
     (async () => {
       let hasCachedTransactions = false;
 
       try {
-        const cachedTransactions = await sendMessage<ChainTransaction[]>('chain.getCachedTransactionHistory', {
-          chain: meta.chain,
-          ...(chainHistoryOptions ? { options: chainHistoryOptions } : {}),
-        });
+        const cachedTransactions = await loadSavedTransactions();
 
         if (cancelled) {
           return;
@@ -217,9 +220,13 @@ export const Activity: React.FC = () => {
         }
       } catch (latestError) {
         console.error('Failed to refresh chain transactions', latestError);
-        if (!cancelled) {
-          setChainTxsFailed(true);
-          if (!hasCachedTransactions) setChainTxs([]);
+        if (!cancelled) setChainTxsFailed(true);
+        // The background may still have settled pending sends over RPC, so show what it saved.
+        try {
+          const savedTransactions = await loadSavedTransactions();
+          if (!cancelled) setChainTxs(savedTransactions ?? []);
+        } catch (savedError) {
+          console.error('Failed to reload saved chain transactions', savedError);
         }
       } finally {
         if (!cancelled) {
