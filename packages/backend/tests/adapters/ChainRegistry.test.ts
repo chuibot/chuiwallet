@@ -106,7 +106,7 @@ describe('ChainRegistry', () => {
     expect(a.disconnectCalls + b.disconnectCalls).toBe(2);
   });
 
-  it('getAllBalances returns successful adapters and silently skips failures', async () => {
+  it('getAllBalances returns successful adapters and reports the ones that failed', async () => {
     const reg = new ChainRegistry();
     reg.register(
       new StubAdapter(ChainType.Bitcoin, {
@@ -120,9 +120,10 @@ describe('ChainRegistry', () => {
         },
       }),
     );
-    const balances = await reg.getAllBalances();
+    const { balances, failedChains } = await reg.getAllBalances();
     expect(balances[ChainType.Bitcoin]).toBeDefined();
     expect(balances[ChainType.Ethereum]).toBeUndefined();
+    expect(failedChains).toEqual([ChainType.Ethereum]);
   });
 
   it('getAllCachedBalances skips adapters without getCachedBalance', async () => {

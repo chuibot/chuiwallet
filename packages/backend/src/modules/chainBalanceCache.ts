@@ -31,12 +31,17 @@ export class ChainBalanceCache {
     return typedBalance;
   }
 
+  /** Persisting is best effort: a failed write (e.g. storage quota) must not discard a balance just read on-chain. */
   async set(scope: ChainBalanceScope, balance: ChainBalance): Promise<void> {
     const cacheKey = this.getStorageKey(scope);
     this.caches.set(cacheKey, balance);
-    await browser.storage.local.set({
-      [cacheKey]: balance,
-    });
+    try {
+      await browser.storage.local.set({
+        [cacheKey]: balance,
+      });
+    } catch (error) {
+      console.warn('Failed to persist chain balance', error);
+    }
   }
 
   async clear(): Promise<void> {

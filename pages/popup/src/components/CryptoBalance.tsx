@@ -7,6 +7,8 @@ export interface CryptoBalanceProps {
   usdAmount: string;
   icon: string;
   isLoading: boolean;
+  /** Shows a warning triangle under the name, with this text as its label. */
+  warning?: string;
   disabled?: boolean;
   onClick?: () => void;
 }
@@ -17,6 +19,7 @@ export const CryptoBalance: React.FC<CryptoBalanceProps> = ({
   usdAmount,
   icon,
   isLoading = false,
+  warning,
   disabled,
   onClick,
 }) => {
@@ -48,8 +51,17 @@ export const CryptoBalance: React.FC<CryptoBalanceProps> = ({
           {isLoading ? (
             <Skeleton className="mt-1.5 !w-[80px] !h-[14px] rounded-sm" />
           ) : (
-            <div className="gap-1 mt-1.5 w-full text-sm leading-none text-right text-foreground flex-grow">
-              {usdAmount}
+            <div className="flex gap-1 items-center mt-1.5 w-full text-sm leading-none text-right text-foreground flex-grow">
+              {warning && (
+                <img
+                  loading="lazy"
+                  src={chrome.runtime.getURL('popup/warning_icon.svg')}
+                  alt={warning}
+                  title={warning}
+                  className="object-contain shrink-0 size-3.5"
+                />
+              )}
+              <span className="ml-auto">{usdAmount}</span>
             </div>
           )}
         </div>

@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ConnectionNotice } from '@src/components/ConnectionNotice';
 import { CryptoBalance } from '@src/components/CryptoBalance';
+import { RefreshButton } from '@src/components/RefreshButton';
 import { useWalletContext } from '@src/context/WalletContext';
 import { capitalize, formatNumber } from '@src/utils';
 import { getCurrencyMeta } from '@src/utils/currencyMeta';
@@ -19,6 +20,8 @@ export const Dashboard: React.FC = () => {
     refreshBalance,
     refreshChainBalances,
     chainBalances,
+    chainBalancesLoading,
+    failedChains,
     hasHydratedChainBalances,
     isBackedUp,
   } = useWalletContext();
@@ -29,16 +32,25 @@ export const Dashboard: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const usdtMeta = getCurrencyMeta('usdt');
-  const usdtTokenBalance = usdtMeta.tokenSymbol
-    ? chainBalances[ChainType.Ethereum]?.tokens?.[usdtMeta.tokenSymbol]
+  const handleRefresh = () => {
+    refreshBalance();
+    void refreshChainBalances();
+  };
+
+  const ethBalance = chainBalances[ChainType.Ethereum];
+  const ethFailed = failedChains.includes(ChainType.Ethereum);
+  // No live or cached figure to show, so print a placeholder instead of 0.
+  const ethUnavailable = !ethBalance && ethFailed;
+  const ethWarning = ethFailed
+    ? "Couldn't reach the Ethereum network, so this balance may be out of date. Use refresh to try again."
     : undefined;
+  const usdtMeta = getCurrencyMeta('usdt');
+  const usdtTokenBalance = usdtMeta.tokenSymbol ? ethBalance?.tokens?.[usdtMeta.tokenSymbol] : undefined;
 
   const totals = React.useMemo(() => {
     const btcConfirmed = balance?.confirmed ?? 0;
     const btcConfirmedUsd = balance?.confirmedUsd ?? 0;
     const btcAmount = btcConfirmed / 1e8;
-    const ethBalance = chainBalances[ChainType.Ethereum];
     const ethConfirmedUsd = ethBalance?.confirmedFiat ?? 0;
     const usdtConfirmedUsd = usdtTokenBalance?.balanceFiat ?? 0;
     const totalUsd = btcConfirmedUsd + ethConfirmedUsd + usdtConfirmedUsd;
@@ -54,7 +66,7 @@ export const Dashboard: React.FC = () => {
       btcFiatRate,
       hasUnpricedTokenBalance,
     };
-  }, [balance, chainBalances, usdtTokenBalance]);
+  }, [balance, chainBalances, ethBalance, usdtTokenBalance]);
 
   const isFiatMode = preferences?.fiatCurrency !== 'BTC';
   const fiatLabel = preferences?.fiatCurrency || 'USD';
@@ -103,13 +115,15 @@ export const Dashboard: React.FC = () => {
       <div className="flex flex-col mt-10 max-w-full leading-none text-center text-white">
         <div className="flex gap-px justify-center items-center w-full text-lg">
           <div className="self-stretch my-auto">Total Balance</div>
-          {balanceRefreshing && (
+          {balanceRefreshing ? (
             <div
               role="status"
               aria-label="Syncing balance"
               title="Syncing balance"
               className="ml-2 size-3.5 shrink-0 animate-spin rounded-full border-2 border-white/30 border-t-white"
             />
+          ) : (
+            <RefreshButton className="ml-2" refreshing={chainBalancesLoading} onClick={handleRefresh} />
           )}
         </div>
         <div className="flex justify-center items-end mt-2 text-5xl font-bold uppercase cursor-pointer gap-[8px] flex-wrap max-w-[320px]">
@@ -120,7 +134,7 @@ export const Dashboard: React.FC = () => {
           ) : (
             <>
               <span>
-                {balance || chainBalances[ChainType.Ethereum]
+                {balance || ethBalance
                   ? isFiatMode
                     ? formatNumber(totals.totalUsd)
                     : formatNumber(totals.totalBtcEquivalent, 8)
@@ -205,17 +219,16 @@ export const Dashboard: React.FC = () => {
         <CryptoBalance
           cryptoName="Ethereum"
           cryptoAmount={
-            chainBalances[ChainType.Ethereum]
-              ? `${formatNumber(chainBalances[ChainType.Ethereum]!.confirmed, 6)} ETH`
-              : '0 ETH'
+            ethBalance ? `${formatNumber(ethBalance.confirmed, 6)} ETH` : ethUnavailable ? '— ETH' : '0 ETH'
           }
           usdAmount={
-            chainBalances[ChainType.Ethereum]
-              ? `${formatNumber(chainBalances[ChainType.Ethereum]!.confirmedFiat)} ${fiatLabel}`
-              : `0 ${fiatLabel}`
+            ethBalance
+              ? `${formatNumber(ethBalance.confirmedFiat)} ${fiatLabel}`
+              : `${ethUnavailable ? '—' : '0'} ${fiatLabel}`
           }
           icon="popup/eth_coin.svg"
           isLoading={chainBalanceLoading}
+          warning={ethWarning}
           onClick={() => navigate('/dashboard/eth/activity')}
         />
         <CryptoBalance
@@ -223,17 +236,18 @@ export const Dashboard: React.FC = () => {
           cryptoAmount={
             usdtTokenBalance
               ? `${formatNumber(usdtTokenBalance.balance, usdtMeta.displayPrecision)} ${usdtMeta.symbol}`
-              : '0 USDT'
+              : `${ethUnavailable ? '—' : '0'} ${usdtMeta.symbol}`
           }
           usdAmount={
             usdtTokenBalance
               ? usdtTokenBalance.balanceFiat !== undefined
                 ? `${formatNumber(usdtTokenBalance.balanceFiat)} ${fiatLabel}`
                 : `${fiatLabel} unavailable`
-              : `0 ${fiatLabel}`
+              : `${ethUnavailable ? '—' : '0'} ${fiatLabel}`
           }
           icon="popup/usdt_coin.svg"
           isLoading={chainBalanceLoading}
+          warning={ethWarning}
           onClick={() => navigate('/dashboard/usdt/activity')}
         />
       </div>

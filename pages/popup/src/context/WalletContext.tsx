@@ -2,7 +2,7 @@ import type { BalanceData, Network, Preferences } from '@src/types';
 import type { Account } from '@extension/backend/src/types/wallet';
 import type { TxEntry } from '@extension/backend/src/types/cache';
 import type { ConnectionStatus } from '@extension/backend/src/types/electrum';
-import type { ChainBalance, ChainType } from '@extension/backend/src/adapters/IChainAdapter';
+import { ChainType, type ChainBalance, type ChainBalancesResult } from '@extension/backend/src/adapters/IChainAdapter';
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { sendMessage } from '@src/utils/bridge';
 import { useChuiEvents } from '@src/hooks/useChuiEvents';
@@ -34,6 +34,8 @@ interface WalletContextType {
   /** Multi-chain balances keyed by ChainType */
   chainBalances: Partial<Record<ChainType, ChainBalance>>;
   chainBalancesLoading: boolean;
+  /** Chains whose last balance refresh failed. Any `chainBalances` entry they have is the last known value. */
+  failedChains: ChainType[];
   hasHydratedChainBalances: boolean;
   refreshChainBalances: () => Promise<void>;
   /** Get receiving address for a specific chain */
@@ -65,8 +67,11 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [transactions, _setTransactions] = useState<TxEntry[]>([]);
   const [chainBalances, _setChainBalances] = useState<Partial<Record<ChainType, ChainBalance>>>({});
   const [chainBalancesLoading, setChainBalancesLoading] = useState<boolean>(false);
+  const [failedChains, setFailedChains] = useState<ChainType[]>([]);
   const [hasHydratedChainBalances, setHasHydratedChainBalances] = useState<boolean>(false);
   const lastConnectionRefreshAt = useRef(0);
+  // Refreshes overlap (the Dashboard mounts while the session hydrates), so only the latest one may update state.
+  const chainBalanceRequestId = useRef(0);
   const preferencesRef = useRef(defaultPreferences);
   preferencesRef.current = preferences;
   const activeAccount = useMemo<Account | undefined>(() => {
@@ -91,19 +96,39 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const refreshChainBalances = async () => {
+    const requestId = ++chainBalanceRequestId.current;
+    const isLatest = () => requestId === chainBalanceRequestId.current;
     setChainBalancesLoading(true);
     try {
-      const balances = await sendMessage<Record<string, ChainBalance>>('chain.getAllBalances');
+      const { balances, failedChains } = await sendMessage<ChainBalancesResult>('chain.getAllBalances');
+      if (!isLatest()) return;
       _setChainBalances(currentBalances => ({
         ...currentBalances,
-        ...(balances as Partial<Record<ChainType, ChainBalance>>),
+        ...balances,
       }));
+      setFailedChains(failedChains);
     } catch (e) {
       console.error('Failed to fetch chain balances', e);
+      if (isLatest()) setFailedChains(Object.values(ChainType));
     } finally {
-      setChainBalancesLoading(false);
-      setHasHydratedChainBalances(true);
+      if (isLatest()) {
+        setChainBalancesLoading(false);
+        setHasHydratedChainBalances(true);
+      }
     }
+  };
+
+  /** Show the active account's cached balances straight away, then fetch live ones. */
+  const reloadChainBalances = async () => {
+    // Drops results still in flight for the previous account or network.
+    chainBalanceRequestId.current += 1;
+    setFailedChains([]);
+    const hasCachedChainBalances = await loadCachedChainBalances();
+    if (!hasCachedChainBalances) {
+      _setChainBalances({});
+      setHasHydratedChainBalances(false);
+    }
+    void refreshChainBalances();
   };
 
   const applyPreferences = (nextPreferences: Preferences) => {
@@ -127,12 +152,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     applyPreferences(preferences);
     _setAccounts(accounts);
     void refreshScanStatus();
-    const hasCachedChainBalances = await loadCachedChainBalances();
-    if (!hasCachedChainBalances) {
-      _setChainBalances({});
-      setHasHydratedChainBalances(false);
-    }
-    void refreshChainBalances();
+    await reloadChainBalances();
   };
 
   const init = async () => {
@@ -259,12 +279,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     void refreshScanStatus();
     await refreshAccounts();
     refreshBalance();
-    const hasCachedChainBalances = await loadCachedChainBalances();
-    if (!hasCachedChainBalances) {
-      _setChainBalances({});
-      setHasHydratedChainBalances(false);
-    }
-    void refreshChainBalances();
+    await reloadChainBalances();
     refreshTransactions();
   };
 
@@ -274,12 +289,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     _setAccounts(result.accounts);
     void refreshScanStatus();
     refreshBalance();
-    const hasCachedChainBalances = await loadCachedChainBalances();
-    if (!hasCachedChainBalances) {
-      _setChainBalances({});
-      setHasHydratedChainBalances(false);
-    }
-    void refreshChainBalances();
+    await reloadChainBalances();
     refreshTransactions();
   };
 
@@ -290,12 +300,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     void refreshScanStatus();
     await refreshAccounts();
     refreshBalance();
-    const hasCachedChainBalances = await loadCachedChainBalances();
-    if (!hasCachedChainBalances) {
-      _setChainBalances({});
-      setHasHydratedChainBalances(false);
-    }
-    void refreshChainBalances();
+    await reloadChainBalances();
     refreshTransactions();
   };
 
@@ -304,12 +309,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const nextPreferences: Preferences = await sendMessage('preferences.get');
     applyPreferences(nextPreferences);
     // Only refresh Ethereum-related state; Bitcoin is unaffected
-    const hasCachedChainBalances = await loadCachedChainBalances();
-    if (!hasCachedChainBalances) {
-      _setChainBalances({});
-      setHasHydratedChainBalances(false);
-    }
-    void refreshChainBalances();
+    await reloadChainBalances();
   };
 
   const setFiatCurrency = async (currency: string) => {
@@ -345,6 +345,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       _setTransactions([]);
       _setChainBalances({});
       setChainBalancesLoading(false);
+      setFailedChains([]);
       setHasHydratedChainBalances(false);
       setUnlocked(false);
     })();
@@ -375,6 +376,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         getReceivingAddress,
         chainBalances,
         chainBalancesLoading,
+        failedChains,
         hasHydratedChainBalances,
         refreshChainBalances,
         getChainReceivingAddress,

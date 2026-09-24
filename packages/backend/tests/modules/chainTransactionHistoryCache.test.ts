@@ -79,4 +79,20 @@ describe('ChainTransactionHistoryCache', () => {
     expect(all.unrelated).toBe('keep');
     expect(Object.keys(all).some(k => k.startsWith('chain_tx_history:'))).toBe(false);
   });
+
+  it('merge() still returns the merged history when the storage write fails', async () => {
+    const cache = new ChainTransactionHistoryCache();
+    const scope = { chain: ChainType.Ethereum, network: Network.Mainnet, address: '0xA' };
+    const setSpy = jest
+      .spyOn(chrome.storage.local, 'set')
+      .mockImplementation(() => Promise.reject(new Error('QUOTA_BYTES quota exceeded')));
+
+    try {
+      const merged = await cache.merge(scope, [tx('0x1', 100)]);
+      expect(merged.map(t => t.hash)).toEqual(['0x1']);
+      expect((await cache.get(scope)).map(t => t.hash)).toEqual(['0x1']);
+    } finally {
+      setSpy.mockRestore();
+    }
+  });
 });
