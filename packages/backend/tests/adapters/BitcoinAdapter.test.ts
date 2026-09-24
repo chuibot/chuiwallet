@@ -21,14 +21,12 @@ function makeStubs() {
   const wallet = {
     deriveAddress: jest.fn().mockReturnValue('bc1qderived'),
     getAddress: jest.fn().mockReturnValue('bc1qreceive'),
-    getBalance: jest.fn(
-      async (): Promise<Balance> => ({
-        confirmed: 200_000_000,
-        unconfirmed: 50_000_000,
-        confirmedUsd: 12_000,
-        unconfirmedUsd: 3_000,
-      }),
-    ),
+    getBalance: jest.fn(async (): Promise<Balance> => ({
+      confirmed: 200_000_000,
+      unconfirmed: 50_000_000,
+      confirmedUsd: 12_000,
+      unconfirmedUsd: 3_000,
+    })),
     getFeeEstimates: jest.fn(async () => [
       { speed: 'slow', sats: 2, btcAmount: 0.0001, usdAmount: 6 },
       { speed: 'medium', sats: 5, btcAmount: 0.0003, usdAmount: 18 },
@@ -40,23 +38,21 @@ function makeStubs() {
   const electrum = { init: jest.fn(), connect: jest.fn(), disconnect: jest.fn() };
   const scan = {};
   const history = {
-    get: jest.fn(
-      async (): Promise<TxEntry[]> => [
-        {
-          type: 'RECEIVE',
-          status: 'CONFIRMED',
-          amountBtc: 0.5,
-          amountUsd: 30_000,
-          feeBtc: 0.0001,
-          feeUsd: 6,
-          timestamp: 1_700_000_000_000,
-          confirmations: 6,
-          transactionHash: 'h0',
-          sender: 'bc1other',
-          receiver: 'bc1qreceive',
-        },
-      ],
-    ),
+    get: jest.fn(async (): Promise<TxEntry[]> => [
+      {
+        type: 'RECEIVE',
+        status: 'CONFIRMED',
+        amountBtc: 0.5,
+        amountUsd: 30_000,
+        feeBtc: 0.0001,
+        feeUsd: 6,
+        timestamp: 1_700_000_000_000,
+        confirmations: 6,
+        transactionHash: 'h0',
+        sender: 'bc1other',
+        receiver: 'bc1qreceive',
+      },
+    ]),
   };
   return {
     wallet: wallet as never,

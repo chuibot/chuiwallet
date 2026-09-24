@@ -470,8 +470,7 @@ const handlers: Record<string, Handler> = {
 };
 
 export type RouterResponse =
-  | { status: 'ok'; data: unknown }
-  | { status: 'error'; error: { code: string; message: string; data?: unknown } };
+  { status: 'ok'; data: unknown } | { status: 'error'; error: { code: string; message: string; data?: unknown } };
 
 export async function handle(message: AppAction, sender: Runtime.MessageSender): Promise<RouterResponse> {
   try {

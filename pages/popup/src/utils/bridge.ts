@@ -1,8 +1,7 @@
 import browser from 'webextension-polyfill';
 
 type RouterResponse =
-  | { status: 'ok'; data: unknown }
-  | { status: 'error'; error: { code: string; message: string; data?: unknown } };
+  { status: 'ok'; data: unknown } | { status: 'error'; error: { code: string; message: string; data?: unknown } };
 
 export class BridgeError extends Error {
   readonly code: string;
