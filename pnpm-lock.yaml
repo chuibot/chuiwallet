@@ -121,8 +121,8 @@ importers:
         specifier: ^4.0.0
         version: 4.0.0
       bitcoinjs-lib:
-        specifier: 6.1.7
-        version: 6.1.7
+        specifier: 6.1.8
+        version: 6.1.8
       webextension-polyfill:
         specifier: ^0.12.0
         version: 0.12.0
@@ -164,8 +164,8 @@ importers:
         specifier: 3.1.0
         version: 3.1.0
       bitcoinjs-lib:
-        specifier: 6.1.7
-        version: 6.1.7
+        specifier: 6.1.8
+        version: 6.1.8
       bs58check:
         specifier: ^4.0.0
         version: 4.0.0
@@ -326,8 +326,8 @@ importers:
         specifier: 3.1.0
         version: 3.1.0
       bitcoinjs-lib:
-        specifier: 6.1.7
-        version: 6.1.7
+        specifier: 6.1.8
+        version: 6.1.8
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -1043,6 +1043,10 @@ packages:
 
   '@noble/hashes@1.7.1':
     resolution: {integrity: sha512-B8XBPsn4vT/KJAGqDzbwztd+6Yte3P4V7iafm24bxgDe/mlRuK6xmWPuCNrKt2vDafZ8MfJLlchDG/vYafQEjQ==}
+    engines: {node: ^14.21.3 || >=16}
+
+  '@noble/hashes@1.8.0':
+    resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
     engines: {node: ^14.21.3 || >=16}
 
   '@nodelib/fs.scandir@2.1.5':
@@ -1974,8 +1978,8 @@ packages:
   bip39@3.1.0:
     resolution: {integrity: sha512-c9kiwdk45Do5GL0vJMe7tS95VjCii65mYAH7DfWl3uW8AVzXKQVUm64i3hzVybBDMp9r7j9iNxR85+ul8MdN/A==}
 
-  bitcoinjs-lib@6.1.7:
-    resolution: {integrity: sha512-tlf/r2DGMbF7ky1MgUqXHzypYHakkEnm0SZP23CJKIqNY/5uNAnMbFhMJdhjrL/7anfb/U8+AlpdjPWjPnAalg==}
+  bitcoinjs-lib@6.1.8:
+    resolution: {integrity: sha512-A6o+yq7BvwlmLj4F0NC5f3XX109rRe5evxi368S9zil5voOtUfiqfiMCzZYKHk4k7iIJ3+NmcQW05Ar4CBlKyg==}
     engines: {node: '>=8.0.0'}
 
   bn.js@4.12.5:
@@ -5192,6 +5196,8 @@ snapshots:
 
   '@noble/hashes@1.7.1': {}
 
+  '@noble/hashes@1.8.0': {}
+
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
       '@nodelib/fs.stat': 2.0.5
@@ -6007,9 +6013,9 @@ snapshots:
     dependencies:
       '@noble/hashes': 1.7.1
 
-  bitcoinjs-lib@6.1.7:
+  bitcoinjs-lib@6.1.8:
     dependencies:
-      '@noble/hashes': 1.7.1
+      '@noble/hashes': 1.8.0
       bech32: 2.0.0
       bip174: 2.1.1
       bs58check: 3.0.1
@@ -6124,7 +6130,7 @@ snapshots:
 
   bs58check@3.0.1:
     dependencies:
-      '@noble/hashes': 1.7.1
+      '@noble/hashes': 1.8.0
       bs58: 5.0.0
 
   bs58check@4.0.0:
