@@ -43,6 +43,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 type RawIndexerTx = {
   hash: string;
+  blockHash?: unknown;
   from: string;
   to: string;
   value: string;
@@ -123,6 +124,7 @@ export function parseIndexerTransactions(raw: unknown, tokenAddress?: string): C
       {
         historyId,
         hash: tx.hash,
+        blockHash: typeof tx.blockHash === 'string' ? tx.blockHash.toLowerCase() : undefined,
         from: tx.from,
         to: tx.to,
         amount: tokenAddress
@@ -142,6 +144,12 @@ export function parseIndexerTransactions(raw: unknown, tokenAddress?: string): C
     ];
   });
 }
+
+type IndexerHistory = {
+  transactions: ChainTransaction[];
+  /** Canonical block per reorged transaction hash; null when the chain no longer has the transaction. */
+  canonicalBlocks: ReadonlyMap<string, string | null>;
+};
 
 export class EthereumAdapter implements IChainAdapter {
   readonly chainType = ChainType.Ethereum;
@@ -353,16 +361,20 @@ export class EthereumAdapter implements IChainAdapter {
       return cachedTransactions;
     }
 
-    let latestTransactions: ChainTransaction[];
+    let latest: IndexerHistory;
     try {
-      latestTransactions = await this.fetchTransactionHistoryFromIndexer(historyScope.address, tokenAddress);
+      latest = await this.fetchTransactionHistoryFromIndexer(historyScope.address, cachedTransactions, tokenAddress);
     } catch (error) {
       // Pending sends can still settle over RPC while the indexer is down; the cache keeps the result.
       await this.reconcilePendingTransactions(historyScope, cachedTransactions);
       throw error;
     }
 
-    const mergedTransactions = await chainTransactionHistoryCache.merge(historyScope, latestTransactions);
+    const isOrphaned = (transaction: ChainTransaction) => {
+      const canonicalBlock = latest.canonicalBlocks.get(transaction.hash.toLowerCase());
+      return canonicalBlock !== undefined && transaction.blockHash !== canonicalBlock;
+    };
+    const mergedTransactions = await chainTransactionHistoryCache.merge(historyScope, latest.transactions, isOrphaned);
     return await this.reconcilePendingTransactions(historyScope, mergedTransactions);
   }
 
@@ -432,12 +444,13 @@ export class EthereumAdapter implements IChainAdapter {
 
   private async fetchTransactionHistoryFromIndexer(
     address: string,
+    cachedTransactions: ChainTransaction[],
     tokenAddress?: string,
-  ): Promise<ChainTransaction[]> {
+  ): Promise<IndexerHistory> {
     let lastError: unknown;
     for (const baseUrl of EthereumAdapter.INDEXER_API[this.network]) {
       try {
-        return await this.fetchFromIndexer(baseUrl, address, tokenAddress);
+        return await this.fetchFromIndexer(baseUrl, address, cachedTransactions, tokenAddress);
       } catch (e) {
         console.warn(`Failed to fetch ETH transaction history from ${new URL(baseUrl).host}`, e);
         lastError = e;
@@ -446,7 +459,12 @@ export class EthereumAdapter implements IChainAdapter {
     throw lastError;
   }
 
-  private async fetchFromIndexer(baseUrl: string, address: string, tokenAddress?: string): Promise<ChainTransaction[]> {
+  private async fetchFromIndexer(
+    baseUrl: string,
+    address: string,
+    cachedTransactions: ChainTransaction[],
+    tokenAddress?: string,
+  ): Promise<IndexerHistory> {
     const host = new URL(baseUrl).host;
     const controller = new AbortController();
     // Cleared only after the body is read, so a response that stalls mid-body is also abandoned.
@@ -462,53 +480,63 @@ export class EthereumAdapter implements IChainAdapter {
       // An empty history is status "0" with an empty result array; errors carry no array.
       if (!isRecord(raw)) throw new Error(`${host} returned a malformed response`);
       if (!Array.isArray(raw.result)) throw new Error(`${host} error: ${String(raw.message ?? raw.result)}`);
-      const rows = await this.dropOrphanedRows(raw.result);
+      const { rows, canonicalBlocks } = await this.dropOrphanedRows(raw.result, cachedTransactions);
       const transactions = parseIndexerTransactions({ ...raw, result: rows }, tokenAddress);
       // Every row failing validation means this indexer's format is off, so let the next one answer.
       if (raw.result.length > 0 && transactions.length === 0) {
         throw new Error(`${host} returned no valid transaction rows`);
       }
-      return transactions;
+      return { transactions, canonicalBlocks };
     } finally {
       clearTimeout(timer);
     }
   }
 
   /**
-   * Some indexers keep rows from blocks orphaned by a reorg, so one transaction can be listed in two blocks with
-   * different events. Keeps the rows from the block the chain settled on, and drops a transaction it can't place.
+   * After a reorg, a transaction can be listed in two blocks with different events: some indexers keep rows from the
+   * orphaned block, and the cache can hold events fetched before the reorg. A receipt settles which block is
+   * canonical; rows from any other block are dropped. Throws when no RPC answers, so the next indexer can be tried.
    */
-  private async dropOrphanedRows(rows: unknown[]): Promise<unknown[]> {
+  private async dropOrphanedRows(
+    rows: unknown[],
+    cachedTransactions: ChainTransaction[],
+  ): Promise<{ rows: unknown[]; canonicalBlocks: Map<string, string | null> }> {
     const blocksByHash = new Map<string, Set<string>>();
+    const addBlock = (hash: string, blockHash: string) => {
+      const key = hash.toLowerCase();
+      blocksByHash.set(key, (blocksByHash.get(key) ?? new Set<string>()).add(blockHash.toLowerCase()));
+    };
+    const rowHashes = new Set<string>();
     for (const row of rows) {
       if (!isRecord(row) || typeof row.hash !== 'string' || typeof row.blockHash !== 'string') continue;
-      const hash = row.hash.toLowerCase();
-      blocksByHash.set(hash, (blocksByHash.get(hash) ?? new Set<string>()).add(row.blockHash.toLowerCase()));
+      rowHashes.add(row.hash.toLowerCase());
+      addBlock(row.hash, row.blockHash);
+    }
+    for (const transaction of cachedTransactions) {
+      if (transaction.blockHash && rowHashes.has(transaction.hash.toLowerCase())) {
+        addBlock(transaction.hash, transaction.blockHash);
+      }
     }
 
     const reorgedHashes = [...blocksByHash].filter(([, blocks]) => blocks.size > 1).map(([hash]) => hash);
-    if (reorgedHashes.length === 0) return rows;
+    if (reorgedHashes.length === 0) return { rows, canonicalBlocks: new Map() };
 
     const canonicalBlocks = new Map(
       await Promise.all(reorgedHashes.map(async hash => [hash, await this.findCanonicalBlockHash(hash)] as const)),
     );
-    return rows.filter(row => {
+    const canonicalRows = rows.filter(row => {
       if (!isRecord(row) || typeof row.hash !== 'string') return true;
       const canonicalBlock = canonicalBlocks.get(row.hash.toLowerCase());
       if (canonicalBlock === undefined) return true;
       return typeof row.blockHash === 'string' && row.blockHash.toLowerCase() === canonicalBlock;
     });
+    return { rows: canonicalRows, canonicalBlocks };
   }
 
-  /** Hash of the canonical block holding the transaction, or null when the chain lacks it or no RPC answers. */
+  /** Hash of the canonical block holding the transaction, or null when the chain doesn't have it. */
   private async findCanonicalBlockHash(hash: string): Promise<string | null> {
-    try {
-      const receipt = await this.readWithFallback(provider => provider.getTransactionReceipt(hash));
-      return receipt?.blockHash.toLowerCase() ?? null;
-    } catch (error) {
-      console.warn(`Could not place reorged transaction ${hash}`, error);
-      return null;
-    }
+    const receipt = await this.readWithFallback(provider => provider.getTransactionReceipt(hash));
+    return receipt?.blockHash.toLowerCase() ?? null;
   }
 
   async estimateFee(_to: string, _amount?: string, options?: ChainSendOptions): Promise<ChainFeeEstimate[]> {

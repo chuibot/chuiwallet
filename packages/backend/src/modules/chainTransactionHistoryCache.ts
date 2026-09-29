@@ -19,8 +19,18 @@ export class ChainTransactionHistoryCache {
     return this.sortTransactions(Array.from(cache.values()));
   }
 
-  async merge(scope: ChainHistoryScope, latestTransactions: ChainTransaction[]): Promise<ChainTransaction[]> {
+  /** `isStale` removes cached entries first, such as events from a block the chain abandoned. */
+  async merge(
+    scope: ChainHistoryScope,
+    latestTransactions: ChainTransaction[],
+    isStale?: (transaction: ChainTransaction) => boolean,
+  ): Promise<ChainTransaction[]> {
     const cache = await this.load(scope);
+    if (isStale) {
+      for (const [key, transaction] of cache) {
+        if (isStale(transaction)) cache.delete(key);
+      }
+    }
 
     latestTransactions.forEach(transaction => {
       if (!transaction.hash) {
