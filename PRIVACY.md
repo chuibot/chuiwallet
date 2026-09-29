@@ -1,7 +1,7 @@
 # Privacy Policy
 
 **Effective date:** 14 May 2026
-**Last updated:** 14 May 2026
+**Last updated:** 29 September 2026
 
 This Privacy Policy explains how personal data is, and is not, handled in connection with the Chui Wallet browser extension and any related software, builds, source code, and documentation (collectively, the "**Software**").
 
@@ -101,8 +101,8 @@ As of the effective date above, Third-Party Services contacted by default or by 
 | Bitcoin fee estimation | `mempool.space`, `api.blockchain.info/mempool/fees` |
 | Bitcoin price (fiat) | `www.blockonomics.co/api/price` |
 | Generic price feed | `api.coingecko.com` |
-| Ethereum RPC | `ethereum-rpc.publicnode.com`, `mainnet.infura.io`, `ethereum-sepolia-rpc.publicnode.com`, `sepolia.infura.io` |
-| Ethereum chain queries and block explorer | `eth.blockscout.com`, `eth-sepolia.blockscout.com` |
+| Ethereum RPC | `ethereum-rpc.publicnode.com`, `eth.drpc.org`, `1rpc.io`, `mainnet.infura.io`, `ethereum-sepolia-rpc.publicnode.com`, `sepolia.gateway.tenderly.co`, `0xrpc.io`, `sepolia.infura.io` |
+| Ethereum chain queries and block explorer | `eth.blockscout.com`, `eth-sepolia.blockscout.com`, `api.routescan.io` |
 | UI fonts (CSS + font files) | `fonts.googleapis.com`, `fonts.gstatic.com` |
 
 Privacy considerations:

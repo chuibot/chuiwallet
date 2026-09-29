@@ -142,8 +142,17 @@ describe('parseIndexerTransactions — untrusted response validation', () => {
     expect(txs[0].status).toBe('confirmed');
   });
 
+  it('still requires isError on native transaction rows', () => {
+    const { isError, ...nativeRowWithoutIsError } = validTx;
+    void isError;
+    expect(parseIndexerTransactions({ status: '1', result: [nativeRowWithoutIsError] })).toEqual([]);
+  });
+
   it('drops a row whose isError is present but not a string', () => {
     expect(parseIndexerTransactions({ status: '1', result: [{ ...validTx, isError: 1 }] })).toEqual([]);
+    expect(
+      parseIndexerTransactions({ status: '1', result: [{ ...usdtTransferRow, isError: 1 }] }, USDT_MAINNET),
+    ).toEqual([]);
   });
 
   it('defaults to 18 decimals when tokenDecimal is absent on a token row', () => {
@@ -500,6 +509,30 @@ describe('EthereumAdapter — transaction history', () => {
 
     expect(history.map(tx => tx.hash)).toEqual([usdtTransferRow.hash]);
     expect(calledHosts()).toEqual(['eth.blockscout.com', 'api.routescan.io']);
+  });
+
+  it('tries Routescan when every Blockscout row fails validation', async () => {
+    mockFetch('blockscout.com', () =>
+      jsonResponse({ status: '1', message: 'OK', result: [{ ...usdtTransferRow, value: 'not-a-number' }] }),
+    );
+    mockFetch('routescan.io', () => jsonResponse({ status: '1', message: 'OK', result: [usdtTransferRow] }));
+    const adapter = await usdtAdapter();
+
+    const history = await adapter.getTransactionHistory({ tokenSymbol: 'USDT' });
+
+    expect(history.map(tx => tx.hash)).toEqual([usdtTransferRow.hash]);
+    expect(calledHosts()).toEqual(['eth.blockscout.com', 'api.routescan.io']);
+  });
+
+  it('keeps the valid rows when only some fail validation', async () => {
+    const invalidRow = { ...usdtTransferRow, hash: '0xbad', value: 'not-a-number' };
+    mockFetch(INDEXERS, () => jsonResponse({ status: '1', message: 'OK', result: [usdtTransferRow, invalidRow] }));
+    const adapter = await usdtAdapter();
+
+    const history = await adapter.getTransactionHistory({ tokenSymbol: 'USDT' });
+
+    expect(history.map(tx => tx.hash)).toEqual([usdtTransferRow.hash]);
+    expect(calledHosts()).toEqual(['eth.blockscout.com']);
   });
 
   it('only asks Routescan when Blockscout has failed', async () => {

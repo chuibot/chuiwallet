@@ -65,14 +65,15 @@ function isSafeIntegerString(value: unknown): value is string {
 }
 
 /** Validate one indexer entry; numeric fields must be bounded integer strings so BigInt/ethers/parseInt cannot throw or yield unsafe values. */
-function isIndexerTx(value: unknown): value is RawIndexerTx {
+function isIndexerTx(value: unknown, isTokenTransfer: boolean): value is RawIndexerTx {
   if (!isRecord(value)) return false;
+  // Token transfer rows have no isError: they come from event logs, which a failed transaction never emits.
+  const hasValidIsError = typeof value.isError === 'string' || (isTokenTransfer && value.isError === undefined);
   if (
     typeof value.hash !== 'string' ||
     typeof value.from !== 'string' ||
     typeof value.to !== 'string' ||
-    // Token transfer rows have no isError: they come from event logs, which a failed transaction never emits.
-    (value.isError !== undefined && typeof value.isError !== 'string')
+    !hasValidIsError
   ) {
     return false;
   }
@@ -102,7 +103,9 @@ export function parseIndexerTransactions(raw: unknown, tokenAddress?: string): C
     return [];
   }
 
-  return raw.result.filter(isIndexerTx).flatMap(tx => {
+  const isTokenTransfer = tokenAddress !== undefined;
+  const isValidRow = (value: unknown): value is RawIndexerTx => isIndexerTx(value, isTokenTransfer);
+  return raw.result.filter(isValidRow).flatMap(tx => {
     const resolvedTokenDecimals = parseTokenDecimals(tx.tokenDecimal);
     if (resolvedTokenDecimals === null) return [];
 
@@ -448,7 +451,12 @@ export class EthereumAdapter implements IChainAdapter {
       // An empty history is status "0" with an empty result array; errors carry no array.
       if (!isRecord(raw)) throw new Error(`${host} returned a malformed response`);
       if (!Array.isArray(raw.result)) throw new Error(`${host} error: ${String(raw.message ?? raw.result)}`);
-      return parseIndexerTransactions(raw, tokenAddress);
+      const transactions = parseIndexerTransactions(raw, tokenAddress);
+      // Every row failing validation means this indexer's format is off, so let the next one answer.
+      if (raw.result.length > 0 && transactions.length === 0) {
+        throw new Error(`${host} returned no valid transaction rows`);
+      }
+      return transactions;
     } finally {
       clearTimeout(timer);
     }
