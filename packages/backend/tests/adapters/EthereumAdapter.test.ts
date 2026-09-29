@@ -142,6 +142,36 @@ describe('parseIndexerTransactions — untrusted response validation', () => {
     expect(txs[0].status).toBe('confirmed');
   });
 
+  it('keeps each transfer event when one transaction emits several', () => {
+    const toMerchant = usdtTransferRow;
+    const toFeeWallet = { ...usdtTransferRow, to: '0x3333333333333333333333333333333333333333', value: '100000' };
+    const txs = parseIndexerTransactions({ status: '1', result: [toMerchant, toFeeWallet, toMerchant] }, USDT_MAINNET);
+
+    expect(txs.map(tx => tx.hash)).toEqual([toMerchant.hash, toMerchant.hash, toMerchant.hash]);
+    expect(new Set(txs.map(tx => tx.historyId)).size).toBe(3);
+  });
+
+  it('collapses a transaction an indexer lists in two blocks after a reorg', () => {
+    const orphanedToken = { ...usdtTransferRow, blockNumber: '26037278', blockHash: '0xorphaned' };
+    const tokenTxs = parseIndexerTransactions({ status: '1', result: [usdtTransferRow, orphanedToken] }, USDT_MAINNET);
+    expect(tokenTxs).toHaveLength(1);
+    expect(tokenTxs[0].timestamp).toBe(Number(usdtTransferRow.timeStamp));
+
+    const nativeTxs = parseIndexerTransactions({
+      status: '1',
+      result: [
+        { ...validTx, blockHash: '0xcanonical' },
+        { ...validTx, blockHash: '0xorphaned' },
+      ],
+    });
+    expect(nativeTxs).toHaveLength(1);
+  });
+
+  it('identifies native transactions by their hash', () => {
+    const [tx] = parseIndexerTransactions({ status: '1', result: [{ ...validTx, hash: '0xABC' }] });
+    expect(tx.historyId).toBe('0xabc');
+  });
+
   it('still requires isError on native transaction rows', () => {
     const { isError, ...nativeRowWithoutIsError } = validTx;
     void isError;
@@ -509,6 +539,17 @@ describe('EthereumAdapter — transaction history', () => {
 
     expect(history.map(tx => tx.hash)).toEqual([usdtTransferRow.hash]);
     expect(calledHosts()).toEqual(['eth.blockscout.com', 'api.routescan.io']);
+  });
+
+  it('keeps every transfer event of a multi-transfer transaction through the cache', async () => {
+    const secondEvent = { ...usdtTransferRow, to: '0x3333333333333333333333333333333333333333', value: '100000' };
+    mockFetch(INDEXERS, () => jsonResponse({ status: '1', message: 'OK', result: [usdtTransferRow, secondEvent] }));
+    const adapter = await usdtAdapter();
+
+    await adapter.getTransactionHistory({ tokenSymbol: 'USDT' });
+    const history = await adapter.getTransactionHistory({ tokenSymbol: 'USDT' });
+
+    expect(history.map(tx => tx.amount).sort()).toEqual([0.1, 11.1]);
   });
 
   it('tries Routescan when every Blockscout row fails validation', async () => {

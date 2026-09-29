@@ -27,7 +27,7 @@ export class ChainTransactionHistoryCache {
         return;
       }
 
-      cache.set(transaction.hash.toLowerCase(), transaction);
+      cache.set(transaction.historyId ?? transaction.hash.toLowerCase(), transaction);
     });
 
     await this.save(scope, cache);

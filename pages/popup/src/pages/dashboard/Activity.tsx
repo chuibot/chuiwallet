@@ -74,6 +74,7 @@ function chainTxToTxEntry(
     feeUsd: hasFeeFiatRate ? tx.fee * feeFiatRate : undefined,
     timestamp: tx.timestamp * 1000, // TxEntry expects ms, ChainTransaction has seconds
     confirmations: tx.confirmations,
+    historyId: tx.historyId,
     transactionHash: tx.hash,
     sender: tx.from,
     receiver: tx.to,

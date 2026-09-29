@@ -42,6 +42,8 @@ export interface ChainBalancesResult {
  * Normalized transaction record across chains
  */
 export interface ChainTransaction {
+  /** Unique within one address's history. A token transaction can emit several transfer events that share its hash. */
+  historyId?: string;
   hash: string;
   from: string;
   to: string;

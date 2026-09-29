@@ -43,6 +43,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 type RawIndexerTx = {
   hash: string;
+  blockHash?: string;
   from: string;
   to: string;
   value: string;
@@ -105,12 +106,29 @@ export function parseIndexerTransactions(raw: unknown, tokenAddress?: string): C
 
   const isTokenTransfer = tokenAddress !== undefined;
   const isValidRow = (value: unknown): value is RawIndexerTx => isIndexerTx(value, isTokenTransfer);
+  // Indexers give no log index, so identical events in one transaction are numbered in order.
+  const eventOccurrences = new Map<string, number>();
+  const seenHistoryIds = new Set<string>();
   return raw.result.filter(isValidRow).flatMap(tx => {
     const resolvedTokenDecimals = parseTokenDecimals(tx.tokenDecimal);
     if (resolvedTokenDecimals === null) return [];
 
+    let historyId = tx.hash.toLowerCase();
+    if (isTokenTransfer) {
+      const event = [historyId, tx.from.toLowerCase(), tx.to.toLowerCase(), tx.value].join(':');
+      // Numbered per block: after a reorg an indexer can list the same transaction in two blocks.
+      const eventInBlock = `${event}@${String(tx.blockHash ?? '')}`;
+      const occurrence = eventOccurrences.get(eventInBlock) ?? 0;
+      eventOccurrences.set(eventInBlock, occurrence + 1);
+      historyId = `${event}:${occurrence}`;
+    }
+    // A copy from an orphaned block. Rows arrive newest first, so the one kept is from the later block.
+    if (seenHistoryIds.has(historyId)) return [];
+    seenHistoryIds.add(historyId);
+
     return [
       {
+        historyId,
         hash: tx.hash,
         from: tx.from,
         to: tx.to,
