@@ -70,6 +70,44 @@ describe('ChainTransactionHistoryCache', () => {
     ).toEqual(['0xtoken']);
   });
 
+  it('merge() keys entries by historyId, so events sharing a hash are all kept', async () => {
+    const cache = new ChainTransactionHistoryCache();
+    const scope = { chain: ChainType.Ethereum, network: Network.Mainnet, address: '0xA', assetKey: 'usdt' };
+    const events = [
+      { ...tx('0x1', 100), historyId: '0x1:a' },
+      { ...tx('0x1', 100), historyId: '0x1:b' },
+    ];
+
+    await cache.merge(scope, events);
+    const merged = await cache.merge(scope, events);
+
+    expect(merged.map(t => t.historyId).sort()).toStrictEqual(['0x1:a', '0x1:b']);
+  });
+
+  it('merge() replaces a legacy hash-keyed token entry with its event entries, across reloads', async () => {
+    const scope = { chain: ChainType.Ethereum, network: Network.Mainnet, address: '0xA', assetKey: 'usdt' };
+    await new ChainTransactionHistoryCache().merge(scope, [tx('0x1', 100)]);
+
+    await new ChainTransactionHistoryCache().merge(scope, [
+      { ...tx('0x1', 100), historyId: '0x1:a' },
+      { ...tx('0x1', 100), historyId: '0x1:b' },
+    ]);
+
+    const reloaded = await new ChainTransactionHistoryCache().get(scope);
+    expect(reloaded.map(t => t.historyId).sort()).toStrictEqual(['0x1:a', '0x1:b']);
+  });
+
+  it('merge() matches an entry without historyId to one whose historyId is its hash', async () => {
+    const cache = new ChainTransactionHistoryCache();
+    const scope = { chain: ChainType.Ethereum, network: Network.Mainnet, address: '0xA' };
+    await cache.merge(scope, [tx('0xABC', 100, 'pending')]);
+
+    const merged = await cache.merge(scope, [{ ...tx('0xABC', 100, 'confirmed'), historyId: '0xabc' }]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].status).toBe('confirmed');
+  });
+
   it('clear() removes only chain_tx_history:* keys', async () => {
     const cache = new ChainTransactionHistoryCache();
     await chrome.storage.local.set({ unrelated: 'keep' });

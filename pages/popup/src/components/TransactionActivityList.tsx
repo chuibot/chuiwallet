@@ -105,7 +105,7 @@ export const TransactionActivityList: React.FC<TransactionActivityListProps> = (
               .sort((a, b) => b.timestamp - a.timestamp)
               .map(tx => (
                 <TransactionActivityItem
-                  key={tx.transactionHash}
+                  key={tx.historyId ?? tx.transactionHash}
                   type={tx.type}
                   status={tx.status}
                   amountBtc={tx.amountBtc}
@@ -138,7 +138,7 @@ export const TransactionActivityList: React.FC<TransactionActivityListProps> = (
                 .sort((a, b) => b.timestamp - a.timestamp)
                 .map(transaction => (
                   <TransactionActivityItem
-                    key={transaction.transactionHash}
+                    key={transaction.historyId ?? transaction.transactionHash}
                     type={transaction.type}
                     status={transaction.status}
                     amountBtc={transaction.amountBtc}

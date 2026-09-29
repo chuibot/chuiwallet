@@ -42,7 +42,11 @@ export interface ChainBalancesResult {
  * Normalized transaction record across chains
  */
 export interface ChainTransaction {
+  /** Unique within one address's history. A token transaction can emit several transfer events that share its hash. */
+  historyId?: string;
   hash: string;
+  /** Lowercase hash of the block holding the transaction, used to spot rows from a block orphaned by a reorg. */
+  blockHash?: string;
   from: string;
   to: string;
   /** Amount in native smallest unit */

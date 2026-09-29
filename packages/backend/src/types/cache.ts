@@ -29,6 +29,8 @@ export interface TxEntry {
   feeUsd?: number;
   timestamp: number;
   confirmations: number;
+  /** Set when several entries can share a transaction hash (token transfer events). */
+  historyId?: string;
   transactionHash: string;
   sender: string;
   receiver: string;

@@ -43,6 +43,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 type RawIndexerTx = {
   hash: string;
+  blockHash?: unknown;
   from: string;
   to: string;
   value: string;
@@ -51,7 +52,7 @@ type RawIndexerTx = {
   gasPrice: string;
   timeStamp: string;
   confirmations: string;
-  isError: string;
+  isError?: string;
   txreceipt_status?: string;
 };
 
@@ -65,13 +66,15 @@ function isSafeIntegerString(value: unknown): value is string {
 }
 
 /** Validate one indexer entry; numeric fields must be bounded integer strings so BigInt/ethers/parseInt cannot throw or yield unsafe values. */
-function isIndexerTx(value: unknown): value is RawIndexerTx {
+function isIndexerTx(value: unknown, isTokenTransfer: boolean): value is RawIndexerTx {
   if (!isRecord(value)) return false;
+  // Token transfer rows have no isError: they come from event logs, which a failed transaction never emits.
+  const hasValidIsError = typeof value.isError === 'string' || (isTokenTransfer && value.isError === undefined);
   if (
     typeof value.hash !== 'string' ||
     typeof value.from !== 'string' ||
     typeof value.to !== 'string' ||
-    typeof value.isError !== 'string'
+    !hasValidIsError
   ) {
     return false;
   }
@@ -101,13 +104,27 @@ export function parseIndexerTransactions(raw: unknown, tokenAddress?: string): C
     return [];
   }
 
-  return raw.result.filter(isIndexerTx).flatMap(tx => {
+  const isTokenTransfer = tokenAddress !== undefined;
+  const isValidRow = (value: unknown): value is RawIndexerTx => isIndexerTx(value, isTokenTransfer);
+  // Indexers give no log index, so identical events in one transaction are numbered in order.
+  const eventOccurrences = new Map<string, number>();
+  return raw.result.filter(isValidRow).flatMap(tx => {
     const resolvedTokenDecimals = parseTokenDecimals(tx.tokenDecimal);
     if (resolvedTokenDecimals === null) return [];
 
+    let historyId = tx.hash.toLowerCase();
+    if (isTokenTransfer) {
+      const event = [historyId, tx.from.toLowerCase(), tx.to.toLowerCase(), tx.value].join(':');
+      const occurrence = eventOccurrences.get(event) ?? 0;
+      eventOccurrences.set(event, occurrence + 1);
+      historyId = `${event}:${occurrence}`;
+    }
+
     return [
       {
+        historyId,
         hash: tx.hash,
+        blockHash: typeof tx.blockHash === 'string' ? tx.blockHash.toLowerCase() : undefined,
         from: tx.from,
         to: tx.to,
         amount: tokenAddress
@@ -127,6 +144,12 @@ export function parseIndexerTransactions(raw: unknown, tokenAddress?: string): C
     ];
   });
 }
+
+type IndexerHistory = {
+  transactions: ChainTransaction[];
+  /** Canonical block per reorged transaction hash; null when the chain no longer has the transaction. */
+  canonicalBlocks: ReadonlyMap<string, string | null>;
+};
 
 export class EthereumAdapter implements IChainAdapter {
   readonly chainType = ChainType.Ethereum;
@@ -317,14 +340,21 @@ export class EthereumAdapter implements IChainAdapter {
     }
   }
 
-  /** Blockscout API URLs per network (free, no API key required, Etherscan-compatible format) */
-  private static readonly BLOCK_EXPLORER_API: Record<Network, string> = {
-    [Network.Mainnet]: 'https://eth.blockscout.com/api',
-    [Network.Testnet]: 'https://eth-sepolia.blockscout.com/api',
+  /** Etherscan-compatible history indexers, no API key required. Tried in order when one fails. */
+  private static readonly INDEXER_API: Record<Network, readonly string[]> = {
+    [Network.Mainnet]: [
+      'https://eth.blockscout.com/api',
+      'https://api.routescan.io/v2/network/mainnet/evm/1/etherscan/api',
+    ],
+    [Network.Testnet]: [
+      'https://eth-sepolia.blockscout.com/api',
+      'https://api.routescan.io/v2/network/testnet/evm/11155111/etherscan/api',
+    ],
   };
 
   async getTransactionHistory(options?: ChainTransactionHistoryOptions): Promise<ChainTransaction[]> {
     const historyScope = this.getHistoryScope(options);
+    const rpcGeneration = this.rpcGeneration;
     const cachedTransactions = await chainTransactionHistoryCache.get(historyScope);
 
     const tokenAddress = this.resolveTokenContractAddress(options?.tokenSymbol);
@@ -332,16 +362,28 @@ export class EthereumAdapter implements IChainAdapter {
       return cachedTransactions;
     }
 
-    let latestTransactions: ChainTransaction[];
+    let latest: IndexerHistory;
     try {
-      latestTransactions = await this.fetchTransactionHistoryFromIndexer(historyScope.address, tokenAddress);
+      latest = await this.fetchTransactionHistoryFromIndexer(
+        historyScope,
+        cachedTransactions,
+        rpcGeneration,
+        tokenAddress,
+      );
+      this.assertRpcGeneration(rpcGeneration);
     } catch (error) {
-      // Pending sends can still settle over RPC while the indexer is down; the cache keeps the result.
-      await this.reconcilePendingTransactions(historyScope, cachedTransactions);
+      if (rpcGeneration === this.rpcGeneration) {
+        // Pending sends can still settle over RPC while the indexer is down; the cache keeps the result.
+        await this.reconcilePendingTransactions(historyScope, cachedTransactions);
+      }
       throw error;
     }
 
-    const mergedTransactions = await chainTransactionHistoryCache.merge(historyScope, latestTransactions);
+    const isOrphaned = (transaction: ChainTransaction) => {
+      const canonicalBlock = latest.canonicalBlocks.get(transaction.hash.toLowerCase());
+      return canonicalBlock !== undefined && transaction.blockHash !== canonicalBlock;
+    };
+    const mergedTransactions = await chainTransactionHistoryCache.merge(historyScope, latest.transactions, isOrphaned);
     return await this.reconcilePendingTransactions(historyScope, mergedTransactions);
   }
 
@@ -358,7 +400,8 @@ export class EthereumAdapter implements IChainAdapter {
     },
     transactions: ChainTransaction[],
   ): Promise<ChainTransaction[]> {
-    if (!this.provider || transactions.length === 0) {
+    const { provider, rpcGeneration } = this;
+    if (!provider || transactions.length === 0) {
       return transactions;
     }
 
@@ -368,7 +411,7 @@ export class EthereumAdapter implements IChainAdapter {
     }
 
     try {
-      const currentBlockNumber = await this.provider.getBlockNumber();
+      const currentBlockNumber = await provider.getBlockNumber();
       let hasUpdates = false;
 
       const nextTransactions = await Promise.all(
@@ -378,7 +421,7 @@ export class EthereumAdapter implements IChainAdapter {
           }
 
           try {
-            const receipt = await this.provider!.getTransactionReceipt(transaction.hash);
+            const receipt = await provider.getTransactionReceipt(transaction.hash);
             if (!receipt || receipt.blockNumber == null) {
               return transaction;
             }
@@ -399,6 +442,10 @@ export class EthereumAdapter implements IChainAdapter {
         }),
       );
 
+      // Receipts from before init() switched network or account don't belong in this scope's cache.
+      if (rpcGeneration !== this.rpcGeneration) {
+        return transactions;
+      }
       if (hasUpdates) {
         return await chainTransactionHistoryCache.merge(historyScope, nextTransactions);
       }
@@ -410,10 +457,38 @@ export class EthereumAdapter implements IChainAdapter {
   }
 
   private async fetchTransactionHistoryFromIndexer(
-    address: string,
+    historyScope: { network: Network; address: string },
+    cachedTransactions: ChainTransaction[],
+    rpcGeneration: number,
     tokenAddress?: string,
-  ): Promise<ChainTransaction[]> {
-    const baseUrl = EthereumAdapter.BLOCK_EXPLORER_API[this.network];
+  ): Promise<IndexerHistory> {
+    let lastError: unknown;
+    for (const baseUrl of EthereumAdapter.INDEXER_API[historyScope.network]) {
+      this.assertRpcGeneration(rpcGeneration);
+      try {
+        return await this.fetchFromIndexer(
+          baseUrl,
+          historyScope.address,
+          cachedTransactions,
+          rpcGeneration,
+          tokenAddress,
+        );
+      } catch (e) {
+        console.warn(`Failed to fetch ETH transaction history from ${new URL(baseUrl).host}`, e);
+        lastError = e;
+      }
+    }
+    throw lastError;
+  }
+
+  private async fetchFromIndexer(
+    baseUrl: string,
+    address: string,
+    cachedTransactions: ChainTransaction[],
+    rpcGeneration: number,
+    tokenAddress?: string,
+  ): Promise<IndexerHistory> {
+    const host = new URL(baseUrl).host;
     const controller = new AbortController();
     // Cleared only after the body is read, so a response that stalls mid-body is also abandoned.
     const timer = setTimeout(() => controller.abort(), INDEXER_TIMEOUT_MS);
@@ -422,19 +497,80 @@ export class EthereumAdapter implements IChainAdapter {
       const contractQuery = tokenAddress ? `&contractaddress=${tokenAddress}` : '';
       const url = `${baseUrl}?module=account&action=${action}&address=${address}${contractQuery}&startblock=0&endblock=99999999&page=1&offset=50&sort=desc`;
       const res = await fetch(url, { signal: controller.signal });
-      if (!res.ok) throw new Error(`Blockscout HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`${host} HTTP ${res.status}`);
 
       const raw: unknown = await res.json();
       // An empty history is status "0" with an empty result array; errors carry no array.
-      if (!isRecord(raw)) throw new Error('Blockscout returned a malformed response');
-      if (!Array.isArray(raw.result)) throw new Error(`Blockscout error: ${String(raw.message ?? raw.result)}`);
-      return parseIndexerTransactions(raw, tokenAddress);
-    } catch (e) {
-      console.warn('Failed to fetch ETH transaction history from indexer', e);
-      throw e;
+      if (!isRecord(raw)) throw new Error(`${host} returned a malformed response`);
+      if (!Array.isArray(raw.result)) throw new Error(`${host} error: ${String(raw.message ?? raw.result)}`);
+      const { rows, canonicalBlocks } = await this.dropOrphanedRows(raw.result, cachedTransactions, rpcGeneration);
+      const transactions = parseIndexerTransactions({ ...raw, result: rows }, tokenAddress);
+      // Every remaining row failing validation means this indexer's format is off, so let the next one answer.
+      // Rows dropped as orphaned don't count: an empty result after that is a real answer.
+      if (rows.length > 0 && transactions.length === 0) {
+        throw new Error(`${host} returned no valid transaction rows`);
+      }
+      return { transactions, canonicalBlocks };
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * After a reorg, a transaction can be listed in two blocks with different events: some indexers keep rows from the
+   * orphaned block, and the cache can hold events fetched before the reorg. A receipt settles which block is
+   * canonical; rows from any other block are dropped. Throws when no RPC answers, so the next indexer can be tried.
+   */
+  private async dropOrphanedRows(
+    rows: unknown[],
+    cachedTransactions: ChainTransaction[],
+    rpcGeneration: number,
+  ): Promise<{ rows: unknown[]; canonicalBlocks: Map<string, string | null> }> {
+    const blocksByHash = new Map<string, Set<string>>();
+    const addBlock = (hash: string, blockHash: string) => {
+      const key = hash.toLowerCase();
+      blocksByHash.set(key, (blocksByHash.get(key) ?? new Set<string>()).add(blockHash.toLowerCase()));
+    };
+    const rowHashes = new Set<string>();
+    for (const row of rows) {
+      if (!isRecord(row) || typeof row.hash !== 'string' || typeof row.blockHash !== 'string') continue;
+      rowHashes.add(row.hash.toLowerCase());
+      addBlock(row.hash, row.blockHash);
+    }
+    for (const transaction of cachedTransactions) {
+      if (transaction.blockHash && rowHashes.has(transaction.hash.toLowerCase())) {
+        addBlock(transaction.hash, transaction.blockHash);
+      }
+    }
+
+    const reorgedHashes = [...blocksByHash].filter(([, blocks]) => blocks.size > 1).map(([hash]) => hash);
+    if (reorgedHashes.length === 0) return { rows, canonicalBlocks: new Map() };
+    // The receipts come from the current provider, which must still be on this history's network.
+    this.assertRpcGeneration(rpcGeneration);
+
+    const canonicalBlocks = new Map(
+      await Promise.all(reorgedHashes.map(async hash => [hash, await this.findCanonicalBlockHash(hash)] as const)),
+    );
+    const canonicalRows = rows.filter(row => {
+      if (!isRecord(row) || typeof row.hash !== 'string') return true;
+      const canonicalBlock = canonicalBlocks.get(row.hash.toLowerCase());
+      if (canonicalBlock === undefined) return true;
+      return typeof row.blockHash === 'string' && row.blockHash.toLowerCase() === canonicalBlock;
+    });
+    return { rows: canonicalRows, canonicalBlocks };
+  }
+
+  /** Throws once init() has switched network or account since `rpcGeneration` was read. */
+  private assertRpcGeneration(rpcGeneration: number): void {
+    if (rpcGeneration !== this.rpcGeneration) {
+      throw new Error('Ethereum network changed during history refresh');
+    }
+  }
+
+  /** Hash of the canonical block holding the transaction, or null when the chain doesn't have it. */
+  private async findCanonicalBlockHash(hash: string): Promise<string | null> {
+    const receipt = await this.readWithFallback(provider => provider.getTransactionReceipt(hash));
+    return receipt?.blockHash.toLowerCase() ?? null;
   }
 
   async estimateFee(_to: string, _amount?: string, options?: ChainSendOptions): Promise<ChainFeeEstimate[]> {

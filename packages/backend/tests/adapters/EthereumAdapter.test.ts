@@ -1,6 +1,13 @@
 import { ethers } from 'ethers';
 import { resetChromeStorage } from '../helpers/chromeMock';
-import { installFetchMock, jsonResponse, mockFetch, resetFetchMock, restoreFetch } from '../helpers/fetchMock';
+import {
+  getFetchCalls,
+  installFetchMock,
+  jsonResponse,
+  mockFetch,
+  resetFetchMock,
+  restoreFetch,
+} from '../helpers/fetchMock';
 import { EthereumAdapter, parseIndexerTransactions } from '../../src/adapters/EthereumAdapter';
 import { ChainType } from '../../src/adapters/IChainAdapter';
 import { ERC20_TOKEN_DEFINITIONS, getErc20ContractAddress } from '../../src/adapters/erc20TokenDefinitions';
@@ -11,6 +18,30 @@ import { Network } from '../../src/types/electrum';
 import { preferenceManager, defaultPreferences } from '../../src/preferenceManager';
 
 const TEST_MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+const USDT_MAINNET = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
+
+/** A USDT transfer row as Blockscout and Routescan return it from `tokentx`. It has no isError field. */
+const usdtTransferRow = {
+  blockNumber: '26037279',
+  timeStamp: '1790131439',
+  hash: '0x20cf21103cf1905ead489bd66b9bb0574b5f91e9f954a523004cd8bf637edc73',
+  nonce: '0',
+  blockHash: '0xfc4e798093e26d42cca4c20e98a06ff6e8aee23b122d813755d888d85d4a2a78',
+  from: '0xb3ee029bad05648d64ea36a8b78a703a1d24f913',
+  contractAddress: '0xdac17f958d2ee523a2206206994597c13d831ec7',
+  to: '0xc2648a4c18d19ec15bcf885b8917ce8b407eb921',
+  value: '11100000',
+  tokenName: 'Tether',
+  tokenSymbol: 'USDT',
+  tokenDecimal: '6',
+  transactionIndex: '184',
+  gas: '46479',
+  gasPrice: '53110812',
+  gasUsed: '46097',
+  cumulativeGasUsed: '40919984',
+  input: 'deprecated',
+  confirmations: '6185',
+};
 
 describe('ERC20_TOKEN_DEFINITIONS', () => {
   it('contains USDT with mainnet + testnet contracts', () => {
@@ -102,6 +133,40 @@ describe('parseIndexerTransactions — untrusted response validation', () => {
     const txs = parseIndexerTransactions({ status: '1', result }, '0xtoken');
     expect(txs).toHaveLength(1);
     expect(txs[0].amount).toBe(parseFloat(ethers.formatUnits('1000000000000000000', 6)));
+  });
+
+  it('parses token transfer rows, which carry no isError field', () => {
+    const txs = parseIndexerTransactions({ status: '1', result: [usdtTransferRow] }, USDT_MAINNET);
+    expect(txs).toHaveLength(1);
+    expect(txs[0].amount).toBe(11.1);
+    expect(txs[0].status).toBe('confirmed');
+  });
+
+  it('keeps each transfer event when one transaction emits several', () => {
+    const toMerchant = usdtTransferRow;
+    const toFeeWallet = { ...usdtTransferRow, to: '0x3333333333333333333333333333333333333333', value: '100000' };
+    const txs = parseIndexerTransactions({ status: '1', result: [toMerchant, toFeeWallet, toMerchant] }, USDT_MAINNET);
+
+    expect(txs.map(tx => tx.hash)).toEqual([toMerchant.hash, toMerchant.hash, toMerchant.hash]);
+    expect(new Set(txs.map(tx => tx.historyId)).size).toBe(3);
+  });
+
+  it('identifies native transactions by their hash', () => {
+    const [tx] = parseIndexerTransactions({ status: '1', result: [{ ...validTx, hash: '0xABC' }] });
+    expect(tx.historyId).toBe('0xabc');
+  });
+
+  it('still requires isError on native transaction rows', () => {
+    const { isError, ...nativeRowWithoutIsError } = validTx;
+    void isError;
+    expect(parseIndexerTransactions({ status: '1', result: [nativeRowWithoutIsError] })).toEqual([]);
+  });
+
+  it('drops a row whose isError is present but not a string', () => {
+    expect(parseIndexerTransactions({ status: '1', result: [{ ...validTx, isError: 1 }] })).toEqual([]);
+    expect(
+      parseIndexerTransactions({ status: '1', result: [{ ...usdtTransferRow, isError: 1 }] }, USDT_MAINNET),
+    ).toEqual([]);
   });
 
   it('defaults to 18 decimals when tokenDecimal is absent on a token row', () => {
@@ -446,31 +511,200 @@ describe('EthereumAdapter — transaction history', () => {
     return adapter;
   }
 
-  it('rejects when the indexer returns an error, so the popup can say so', async () => {
-    mockFetch('blockscout.com', () => jsonResponse({ status: '0', message: 'Max rate limit reached', result: null }));
+  const INDEXERS = /blockscout\.com|routescan\.io/;
+  const calledHosts = () => getFetchCalls().map(call => new URL(call.url).host);
+
+  it('falls back to Routescan when Blockscout fails', async () => {
+    mockFetch('blockscout.com', () => jsonResponse({}, { status: 503 }));
+    mockFetch('routescan.io', () => jsonResponse({ status: '1', message: 'OK', result: [usdtTransferRow] }));
+    const adapter = await usdtAdapter();
+
+    const history = await adapter.getTransactionHistory({ tokenSymbol: 'USDT' });
+
+    expect(history.map(tx => tx.hash)).toEqual([usdtTransferRow.hash]);
+    expect(calledHosts()).toEqual(['eth.blockscout.com', 'api.routescan.io']);
+  });
+
+  const CANONICAL_BLOCK = '0xcanonical';
+  const ORPHANED_BLOCK = '0xorphaned';
+
+  /** Answers receipt lookups on every RPC endpoint with `lookup`. */
+  function withReceipts(adapter: EthereumAdapter, lookup: (hash: string) => Promise<{ blockHash: string } | null>) {
+    const provider = { getTransactionReceipt: jest.fn(lookup) };
+    const internals = adapter as unknown as { provider: unknown; createProvider: () => unknown };
+    internals.provider = provider;
+    internals.createProvider = () => provider;
+    return provider.getTransactionReceipt;
+  }
+
+  it('keeps only the canonical block when a reorged transaction is listed in two', async () => {
+    const orphanedEvents = [
+      { ...usdtTransferRow, blockHash: ORPHANED_BLOCK },
+      { ...usdtTransferRow, blockHash: ORPHANED_BLOCK, value: '5000000' },
+    ];
+    const canonicalEvent = { ...usdtTransferRow, blockHash: CANONICAL_BLOCK };
+    mockFetch(INDEXERS, () =>
+      jsonResponse({ status: '1', message: 'OK', result: [...orphanedEvents, canonicalEvent] }),
+    );
+    const adapter = await usdtAdapter();
+    withReceipts(adapter, async () => ({ blockHash: CANONICAL_BLOCK }));
+
+    const history = await adapter.getTransactionHistory({ tokenSymbol: 'USDT' });
+
+    expect(history.map(tx => tx.amount)).toEqual([11.1]);
+  });
+
+  it('keeps the canonical copy of a reorged ETH transaction', async () => {
+    const nativeRow = { ...usdtTransferRow, isError: '0' };
+    mockFetch(INDEXERS, () =>
+      jsonResponse({
+        status: '1',
+        message: 'OK',
+        result: [
+          { ...nativeRow, blockHash: ORPHANED_BLOCK, timeStamp: '1790131400' },
+          { ...nativeRow, blockHash: CANONICAL_BLOCK, timeStamp: '1790131439' },
+        ],
+      }),
+    );
+    const adapter = await usdtAdapter();
+    withReceipts(adapter, async () => ({ blockHash: CANONICAL_BLOCK }));
+
+    const history = await adapter.getTransactionHistory();
+
+    expect(history.map(tx => tx.timestamp)).toEqual([1790131439]);
+  });
+
+  it('drops a reorged transaction the chain no longer has, and keeps the rest', async () => {
+    const otherTransfer = { ...usdtTransferRow, hash: `0x${'ab'.repeat(32)}`, blockHash: '0xother' };
+    mockFetch(INDEXERS, () =>
+      jsonResponse({
+        status: '1',
+        message: 'OK',
+        result: [
+          { ...usdtTransferRow, blockHash: CANONICAL_BLOCK },
+          { ...usdtTransferRow, blockHash: ORPHANED_BLOCK },
+          otherTransfer,
+        ],
+      }),
+    );
+    const adapter = await usdtAdapter();
+    withReceipts(adapter, async () => null);
+
+    const history = await adapter.getTransactionHistory({ tokenSymbol: 'USDT' });
+
+    expect(history.map(tx => tx.hash)).toEqual([otherTransfer.hash]);
+  });
+
+  it('moves to the next indexer when no RPC can place a reorged transaction', async () => {
+    const otherTransfer = { ...usdtTransferRow, hash: `0x${'ab'.repeat(32)}`, blockHash: '0xother' };
+    const canonicalTransfer = { ...usdtTransferRow, blockHash: CANONICAL_BLOCK };
+    mockFetch('blockscout.com', () =>
+      jsonResponse({
+        status: '1',
+        message: 'OK',
+        result: [canonicalTransfer, { ...usdtTransferRow, blockHash: ORPHANED_BLOCK }, otherTransfer],
+      }),
+    );
+    mockFetch('routescan.io', () =>
+      jsonResponse({ status: '1', message: 'OK', result: [canonicalTransfer, otherTransfer] }),
+    );
+    const adapter = await usdtAdapter();
+    withReceipts(adapter, async () => {
+      throw new Error('rpc down');
+    });
+
+    const history = await adapter.getTransactionHistory({ tokenSymbol: 'USDT' });
+
+    expect(history.map(tx => tx.hash).sort()).toStrictEqual([usdtTransferRow.hash, otherTransfer.hash].sort());
+    expect(calledHosts()).toEqual(['eth.blockscout.com', 'api.routescan.io']);
+  });
+
+  /** Drops the in-memory copy so the next read comes from storage, as after a browser restart. */
+  const reloadHistoryCache = () =>
+    (chainTransactionHistoryCache as unknown as { caches: Map<string, unknown> }).caches.clear();
+
+  it('only looks up receipts for transactions listed in more than one block', async () => {
+    mockFetch(INDEXERS, () => jsonResponse({ status: '1', message: 'OK', result: [usdtTransferRow] }));
+    const adapter = await usdtAdapter();
+    const getReceipt = withReceipts(adapter, async () => ({ blockHash: CANONICAL_BLOCK }));
+
+    await adapter.getTransactionHistory({ tokenSymbol: 'USDT' });
+    await adapter.getTransactionHistory({ tokenSymbol: 'USDT' });
+
+    expect(getReceipt).not.toHaveBeenCalled();
+  });
+
+  it('tries Routescan when every Blockscout row fails validation', async () => {
+    mockFetch('blockscout.com', () =>
+      jsonResponse({ status: '1', message: 'OK', result: [{ ...usdtTransferRow, value: 'not-a-number' }] }),
+    );
+    mockFetch('routescan.io', () => jsonResponse({ status: '1', message: 'OK', result: [usdtTransferRow] }));
+    const adapter = await usdtAdapter();
+
+    const history = await adapter.getTransactionHistory({ tokenSymbol: 'USDT' });
+
+    expect(history.map(tx => tx.hash)).toEqual([usdtTransferRow.hash]);
+    expect(calledHosts()).toEqual(['eth.blockscout.com', 'api.routescan.io']);
+  });
+
+  it('keeps the valid rows when only some fail validation', async () => {
+    const invalidRow = { ...usdtTransferRow, hash: '0xbad', value: 'not-a-number' };
+    mockFetch(INDEXERS, () => jsonResponse({ status: '1', message: 'OK', result: [usdtTransferRow, invalidRow] }));
+    const adapter = await usdtAdapter();
+
+    const history = await adapter.getTransactionHistory({ tokenSymbol: 'USDT' });
+
+    expect(history.map(tx => tx.hash)).toEqual([usdtTransferRow.hash]);
+    expect(calledHosts()).toEqual(['eth.blockscout.com']);
+  });
+
+  it('only asks Routescan when Blockscout has failed', async () => {
+    mockFetch(INDEXERS, () => jsonResponse({ status: '1', message: 'OK', result: [usdtTransferRow] }));
+    const adapter = await usdtAdapter();
+
+    await adapter.getTransactionHistory({ tokenSymbol: 'USDT' });
+
+    expect(calledHosts()).toEqual(['eth.blockscout.com']);
+  });
+
+  it('uses the Sepolia indexers on testnet', async () => {
+    mockFetch('blockscout.com', () => jsonResponse({}, { status: 503 }));
+    mockFetch('routescan.io', () => jsonResponse({ status: '0', message: 'No transactions found', result: [] }));
+    const adapter = await usdtAdapter();
+    await adapter.init(Network.Testnet);
+
+    await adapter.getTransactionHistory({ tokenSymbol: 'USDT' });
+
+    const urls = getFetchCalls().map(call => call.url);
+    expect(urls[0]).toContain('eth-sepolia.blockscout.com');
+    expect(urls[1]).toContain('/network/testnet/evm/11155111/');
+  });
+
+  it('rejects when every indexer returns an error, so the popup can say so', async () => {
+    mockFetch(INDEXERS, () => jsonResponse({ status: '0', message: 'Max rate limit reached', result: null }));
     const adapter = await usdtAdapter();
 
     await expect(adapter.getTransactionHistory({ tokenSymbol: 'USDT' })).rejects.toThrow('Max rate limit reached');
   });
 
-  it('rejects when the indexer is unreachable', async () => {
-    mockFetch('blockscout.com', () => jsonResponse({}, { status: 503 }));
+  it('rejects when every indexer is unreachable', async () => {
+    mockFetch(INDEXERS, () => jsonResponse({}, { status: 503 }));
     const adapter = await usdtAdapter();
 
     await expect(adapter.getTransactionHistory({ tokenSymbol: 'USDT' })).rejects.toThrow('HTTP 503');
   });
 
   it('rejects a response body that is not an indexer payload', async () => {
-    mockFetch('blockscout.com', () => jsonResponse(null));
+    mockFetch(INDEXERS, () => jsonResponse(null));
     const adapter = await usdtAdapter();
 
     await expect(adapter.getTransactionHistory({ tokenSymbol: 'USDT' })).rejects.toThrow('malformed');
   });
 
-  it('gives up on an indexer request that stalls', async () => {
+  it('gives up on indexer requests that stall', async () => {
     jest.useFakeTimers();
     mockFetch(
-      'blockscout.com',
+      INDEXERS,
       (_url, init) =>
         new Promise<Response>((_, reject) => {
           init?.signal?.addEventListener('abort', () => reject(new Error('indexer request aborted')));
@@ -479,8 +713,139 @@ describe('EthereumAdapter — transaction history', () => {
     const adapter = await usdtAdapter();
 
     const assertion = expect(adapter.getTransactionHistory({ tokenSymbol: 'USDT' })).rejects.toThrow('aborted');
-    await jest.advanceTimersByTimeAsync(10_000);
+    await jest.advanceTimersByTimeAsync(20_000);
     await assertion;
+  });
+
+  describe('history refresh lifecycle', () => {
+    const indexerAnswers = (...rows: object[]) =>
+      mockFetch(INDEXERS, () => jsonResponse({ status: '1', message: 'OK', result: rows }));
+    const usdtScope = (adapter: EthereumAdapter) => ({
+      chain: ChainType.Ethereum,
+      network: Network.Mainnet,
+      address: adapter.getReceivingAddress(),
+      assetKey: 'usdt',
+    });
+    const storedAmounts = async (adapter: EthereumAdapter) => {
+      reloadHistoryCache();
+      return (await chainTransactionHistoryCache.get(usdtScope(adapter))).map(tx => tx.amount).sort();
+    };
+    const refresh = (adapter: EthereumAdapter) => adapter.getTransactionHistory({ tokenSymbol: 'USDT' });
+    const secondEvent = { ...usdtTransferRow, to: '0x3333333333333333333333333333333333333333', value: '100000' };
+
+    it('migrates a hash-keyed USDT record from older versions without duplicating it', async () => {
+      const adapter = await usdtAdapter();
+      const [parsed] = parseIndexerTransactions({ status: '1', result: [usdtTransferRow] }, USDT_MAINNET);
+      const { historyId, blockHash, ...legacyRecord } = parsed;
+      void historyId;
+      void blockHash;
+      await chainTransactionHistoryCache.merge(usdtScope(adapter), [legacyRecord]);
+      reloadHistoryCache();
+      indexerAnswers(usdtTransferRow);
+
+      const history = await refresh(adapter);
+
+      expect(history).toHaveLength(1);
+      expect(history[0].historyId).toBeDefined();
+      expect(await storedAmounts(adapter)).toStrictEqual([11.1]);
+    });
+
+    it('keeps distinct transfer events of one transaction across refreshes and reloads', async () => {
+      const adapter = await usdtAdapter();
+      indexerAnswers(usdtTransferRow, secondEvent);
+
+      await refresh(adapter);
+      reloadHistoryCache();
+      const history = await refresh(adapter);
+
+      expect(history.map(tx => tx.amount).sort()).toStrictEqual([0.1, 11.1]);
+      expect(await storedAmounts(adapter)).toStrictEqual([0.1, 11.1]);
+    });
+
+    it('replaces a cached event from an abandoned block with the canonical one, in storage too', async () => {
+      const adapter = await usdtAdapter();
+      const getReceipt = withReceipts(adapter, async () => ({ blockHash: CANONICAL_BLOCK }));
+      indexerAnswers({ ...usdtTransferRow, blockHash: ORPHANED_BLOCK, value: '10000000' });
+      await refresh(adapter);
+
+      reloadHistoryCache();
+      resetFetchMock();
+      indexerAnswers({ ...usdtTransferRow, blockHash: CANONICAL_BLOCK, value: '7000000' });
+      const history = await refresh(adapter);
+
+      expect(history.map(tx => tx.amount)).toStrictEqual([7]);
+      expect(await storedAmounts(adapter)).toStrictEqual([7]);
+      expect(getReceipt).toHaveBeenCalledTimes(1);
+    });
+
+    it('removes a transaction the chain no longer has from storage, even when no history remains', async () => {
+      const adapter = await usdtAdapter();
+      withReceipts(adapter, async () => null);
+      indexerAnswers({ ...usdtTransferRow, blockHash: ORPHANED_BLOCK });
+      await refresh(adapter);
+
+      resetFetchMock();
+      indexerAnswers(
+        { ...usdtTransferRow, blockHash: ORPHANED_BLOCK },
+        { ...usdtTransferRow, blockHash: '0xorphaned2' },
+      );
+      const history = await refresh(adapter);
+
+      expect(history).toStrictEqual([]);
+      expect(await storedAmounts(adapter)).toStrictEqual([]);
+    });
+
+    it('treats an RPC failure as an error, never as proof a transaction is gone', async () => {
+      const adapter = await usdtAdapter();
+      withReceipts(adapter, async () => {
+        throw new Error('rpc down');
+      });
+      indexerAnswers({ ...usdtTransferRow, blockHash: CANONICAL_BLOCK });
+      await refresh(adapter);
+
+      resetFetchMock();
+      indexerAnswers(
+        { ...usdtTransferRow, blockHash: CANONICAL_BLOCK },
+        { ...usdtTransferRow, blockHash: ORPHANED_BLOCK },
+      );
+
+      await expect(refresh(adapter)).rejects.toThrow('rpc down');
+      expect(await storedAmounts(adapter)).toStrictEqual([11.1]);
+    });
+
+    it('abandons a refresh that spans a network switch before it touches the original cache', async () => {
+      const adapter = await usdtAdapter();
+      const getReceipt = withReceipts(adapter, async () => null);
+      indexerAnswers({ ...usdtTransferRow, blockHash: CANONICAL_BLOCK });
+      await refresh(adapter);
+
+      resetFetchMock();
+      let releaseBody!: (body: object) => void;
+      const body = new Promise<object>(resolve => {
+        releaseBody = resolve;
+      });
+      const fetchStarted = new Promise<void>(started =>
+        mockFetch(INDEXERS, () => {
+          started();
+          return body.then(jsonResponse);
+        }),
+      );
+      const pending = refresh(adapter);
+      await fetchStarted;
+      await adapter.init(Network.Testnet);
+      releaseBody({
+        status: '1',
+        message: 'OK',
+        result: [
+          { ...usdtTransferRow, blockHash: CANONICAL_BLOCK },
+          { ...usdtTransferRow, blockHash: ORPHANED_BLOCK },
+        ],
+      });
+
+      await expect(pending).rejects.toThrow('network changed');
+      expect(getReceipt).not.toHaveBeenCalled();
+      expect(await storedAmounts(adapter)).toStrictEqual([11.1]);
+    });
   });
 
   it('treats status "0" with an empty result as an empty history', async () => {

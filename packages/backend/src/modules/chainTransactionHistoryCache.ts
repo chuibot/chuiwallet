@@ -19,15 +19,29 @@ export class ChainTransactionHistoryCache {
     return this.sortTransactions(Array.from(cache.values()));
   }
 
-  async merge(scope: ChainHistoryScope, latestTransactions: ChainTransaction[]): Promise<ChainTransaction[]> {
+  /** `isStale` removes cached entries first, such as events from a block the chain abandoned. */
+  async merge(
+    scope: ChainHistoryScope,
+    latestTransactions: ChainTransaction[],
+    isStale?: (transaction: ChainTransaction) => boolean,
+  ): Promise<ChainTransaction[]> {
     const cache = await this.load(scope);
+    if (isStale) {
+      for (const [key, transaction] of cache) {
+        if (isStale(transaction)) cache.delete(key);
+      }
+    }
 
     latestTransactions.forEach(transaction => {
       if (!transaction.hash) {
         return;
       }
 
-      cache.set(transaction.hash.toLowerCase(), transaction);
+      const hashKey = transaction.hash.toLowerCase();
+      const historyKey = transaction.historyId ?? hashKey;
+      // Token history cached by older versions is keyed by hash; its event entries replace it.
+      if (historyKey !== hashKey) cache.delete(hashKey);
+      cache.set(historyKey, transaction);
     });
 
     await this.save(scope, cache);
