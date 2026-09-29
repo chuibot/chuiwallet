@@ -54,11 +54,6 @@ export const zipBundle = async (
   },
   withMaps = false,
 ): Promise<void> => {
-  ensureBuildDirectoryExists(buildDirectory);
-
-  const zipFilePath = resolve(buildDirectory, archiveName);
-  const output = createWriteStream(zipFilePath);
-
   const fileList = await fg(
     [
       '**/*', // Pick all nested files
@@ -69,6 +64,14 @@ export const zipBundle = async (
       onlyFiles: true,
     },
   );
+  if (!fileList.includes('manifest.json')) {
+    throw new Error(`No manifest.json in ${distDirectory}, nothing to package`);
+  }
+
+  ensureBuildDirectoryExists(buildDirectory);
+
+  const zipFilePath = resolve(buildDirectory, archiveName);
+  const output = createWriteStream(zipFilePath);
 
   return new Promise<void>((pResolve, pReject) => {
     let aborted = false;

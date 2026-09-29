@@ -10,4 +10,7 @@ zipBundle({
   distDirectory: resolve(__dirname, '../../dist'),
   buildDirectory: resolve(__dirname, '../../dist-zip'),
   archiveName: process.env.__FIREFOX__ ? `${fileName}.xpi` : `${fileName}.zip`,
+}).catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
 });

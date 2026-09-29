@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   ci:
-    name: Lint, type-check, tests
+    name: Lint, type-check, tests, build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -43,3 +43,20 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Verify build output
+        run: |
+          test -s dist/manifest.json
+          if find dist -name '*.map' -print -quit | grep -q .; then
+            echo "Source maps found in dist/"
+            find dist -name '*.map'
+            exit 1
+          fi
+
+      - name: Zip
+        run: |
+          pnpm -F zipper zip
+          unzip -tq dist-zip/*.zip
