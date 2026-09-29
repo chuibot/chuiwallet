@@ -15,7 +15,7 @@ const Splash: React.FC = () => {
 
 const LoadingScreen = () => (
   <div className="bg-primary-yellow flex items-center justify-center w-full h-full">
-    <img src={chrome.runtime.getURL('loading-icon.svg')} alt="Loading..." className="w-12 h-12 animate-spin" />
+    <img src={chrome.runtime.getURL('popup/loading-icon.svg')} alt="Loading..." className="w-12 h-12 animate-spin" />
   </div>
 );
 
