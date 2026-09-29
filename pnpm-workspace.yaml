@@ -14,3 +14,7 @@ overrides:
   jiti: ^2.4.2
   typescript: 5.7.3
   ws@>=8.0.0 <8.21.0: '>=8.21.0'
+
+minimumReleaseAge: 10080
+trustPolicy: no-downgrade
+blockExoticSubdeps: true

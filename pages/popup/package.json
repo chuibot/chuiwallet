@@ -22,15 +22,15 @@
     "@extension/backend": "workspace:*",
     "@extension/shared": "workspace:*",
     "@extension/storage": "workspace:*",
-    "avvvatars-react": "^0.4.2",
+    "avvvatars-react": "0.4.2",
     "bip39": "3.1.0",
     "bitcoinjs-lib": "6.1.8",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "react-loading-skeleton": "^3.5.0",
-    "react-qr-code": "^2.2.0",
-    "react-router-dom": "^7.18.4",
-    "webextension-polyfill": "^0.12.0"
+    "react-loading-skeleton": "3.5.0",
+    "react-qr-code": "2.2.0",
+    "react-router-dom": "7.18.4",
+    "webextension-polyfill": "0.12.0"
   },
   "devDependencies": {
     "@extension/tailwindcss-config": "workspace:*",
