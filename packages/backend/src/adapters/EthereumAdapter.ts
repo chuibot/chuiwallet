@@ -354,6 +354,7 @@ export class EthereumAdapter implements IChainAdapter {
 
   async getTransactionHistory(options?: ChainTransactionHistoryOptions): Promise<ChainTransaction[]> {
     const historyScope = this.getHistoryScope(options);
+    const rpcGeneration = this.rpcGeneration;
     const cachedTransactions = await chainTransactionHistoryCache.get(historyScope);
 
     const tokenAddress = this.resolveTokenContractAddress(options?.tokenSymbol);
@@ -363,10 +364,18 @@ export class EthereumAdapter implements IChainAdapter {
 
     let latest: IndexerHistory;
     try {
-      latest = await this.fetchTransactionHistoryFromIndexer(historyScope.address, cachedTransactions, tokenAddress);
+      latest = await this.fetchTransactionHistoryFromIndexer(
+        historyScope,
+        cachedTransactions,
+        rpcGeneration,
+        tokenAddress,
+      );
+      this.assertRpcGeneration(rpcGeneration);
     } catch (error) {
-      // Pending sends can still settle over RPC while the indexer is down; the cache keeps the result.
-      await this.reconcilePendingTransactions(historyScope, cachedTransactions);
+      if (rpcGeneration === this.rpcGeneration) {
+        // Pending sends can still settle over RPC while the indexer is down; the cache keeps the result.
+        await this.reconcilePendingTransactions(historyScope, cachedTransactions);
+      }
       throw error;
     }
 
@@ -391,7 +400,8 @@ export class EthereumAdapter implements IChainAdapter {
     },
     transactions: ChainTransaction[],
   ): Promise<ChainTransaction[]> {
-    if (!this.provider || transactions.length === 0) {
+    const { provider, rpcGeneration } = this;
+    if (!provider || transactions.length === 0) {
       return transactions;
     }
 
@@ -401,7 +411,7 @@ export class EthereumAdapter implements IChainAdapter {
     }
 
     try {
-      const currentBlockNumber = await this.provider.getBlockNumber();
+      const currentBlockNumber = await provider.getBlockNumber();
       let hasUpdates = false;
 
       const nextTransactions = await Promise.all(
@@ -411,7 +421,7 @@ export class EthereumAdapter implements IChainAdapter {
           }
 
           try {
-            const receipt = await this.provider!.getTransactionReceipt(transaction.hash);
+            const receipt = await provider.getTransactionReceipt(transaction.hash);
             if (!receipt || receipt.blockNumber == null) {
               return transaction;
             }
@@ -432,6 +442,10 @@ export class EthereumAdapter implements IChainAdapter {
         }),
       );
 
+      // Receipts from before init() switched network or account don't belong in this scope's cache.
+      if (rpcGeneration !== this.rpcGeneration) {
+        return transactions;
+      }
       if (hasUpdates) {
         return await chainTransactionHistoryCache.merge(historyScope, nextTransactions);
       }
@@ -443,14 +457,22 @@ export class EthereumAdapter implements IChainAdapter {
   }
 
   private async fetchTransactionHistoryFromIndexer(
-    address: string,
+    historyScope: { network: Network; address: string },
     cachedTransactions: ChainTransaction[],
+    rpcGeneration: number,
     tokenAddress?: string,
   ): Promise<IndexerHistory> {
     let lastError: unknown;
-    for (const baseUrl of EthereumAdapter.INDEXER_API[this.network]) {
+    for (const baseUrl of EthereumAdapter.INDEXER_API[historyScope.network]) {
+      this.assertRpcGeneration(rpcGeneration);
       try {
-        return await this.fetchFromIndexer(baseUrl, address, cachedTransactions, tokenAddress);
+        return await this.fetchFromIndexer(
+          baseUrl,
+          historyScope.address,
+          cachedTransactions,
+          rpcGeneration,
+          tokenAddress,
+        );
       } catch (e) {
         console.warn(`Failed to fetch ETH transaction history from ${new URL(baseUrl).host}`, e);
         lastError = e;
@@ -463,6 +485,7 @@ export class EthereumAdapter implements IChainAdapter {
     baseUrl: string,
     address: string,
     cachedTransactions: ChainTransaction[],
+    rpcGeneration: number,
     tokenAddress?: string,
   ): Promise<IndexerHistory> {
     const host = new URL(baseUrl).host;
@@ -480,10 +503,11 @@ export class EthereumAdapter implements IChainAdapter {
       // An empty history is status "0" with an empty result array; errors carry no array.
       if (!isRecord(raw)) throw new Error(`${host} returned a malformed response`);
       if (!Array.isArray(raw.result)) throw new Error(`${host} error: ${String(raw.message ?? raw.result)}`);
-      const { rows, canonicalBlocks } = await this.dropOrphanedRows(raw.result, cachedTransactions);
+      const { rows, canonicalBlocks } = await this.dropOrphanedRows(raw.result, cachedTransactions, rpcGeneration);
       const transactions = parseIndexerTransactions({ ...raw, result: rows }, tokenAddress);
-      // Every row failing validation means this indexer's format is off, so let the next one answer.
-      if (raw.result.length > 0 && transactions.length === 0) {
+      // Every remaining row failing validation means this indexer's format is off, so let the next one answer.
+      // Rows dropped as orphaned don't count: an empty result after that is a real answer.
+      if (rows.length > 0 && transactions.length === 0) {
         throw new Error(`${host} returned no valid transaction rows`);
       }
       return { transactions, canonicalBlocks };
@@ -500,6 +524,7 @@ export class EthereumAdapter implements IChainAdapter {
   private async dropOrphanedRows(
     rows: unknown[],
     cachedTransactions: ChainTransaction[],
+    rpcGeneration: number,
   ): Promise<{ rows: unknown[]; canonicalBlocks: Map<string, string | null> }> {
     const blocksByHash = new Map<string, Set<string>>();
     const addBlock = (hash: string, blockHash: string) => {
@@ -520,6 +545,8 @@ export class EthereumAdapter implements IChainAdapter {
 
     const reorgedHashes = [...blocksByHash].filter(([, blocks]) => blocks.size > 1).map(([hash]) => hash);
     if (reorgedHashes.length === 0) return { rows, canonicalBlocks: new Map() };
+    // The receipts come from the current provider, which must still be on this history's network.
+    this.assertRpcGeneration(rpcGeneration);
 
     const canonicalBlocks = new Map(
       await Promise.all(reorgedHashes.map(async hash => [hash, await this.findCanonicalBlockHash(hash)] as const)),
@@ -531,6 +558,13 @@ export class EthereumAdapter implements IChainAdapter {
       return typeof row.blockHash === 'string' && row.blockHash.toLowerCase() === canonicalBlock;
     });
     return { rows: canonicalRows, canonicalBlocks };
+  }
+
+  /** Throws once init() has switched network or account since `rpcGeneration` was read. */
+  private assertRpcGeneration(rpcGeneration: number): void {
+    if (rpcGeneration !== this.rpcGeneration) {
+      throw new Error('Ethereum network changed during history refresh');
+    }
   }
 
   /** Hash of the canonical block holding the transaction, or null when the chain doesn't have it. */
