@@ -3,7 +3,9 @@ updates:
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    cooldown:
+      default-days: 14
     open-pull-requests-limit: 10
     versioning-strategy: increase
     ignore:
@@ -29,10 +31,46 @@ updates:
         update-types:
           - patch
           - minor
+      dev-tooling:
+        patterns:
+          - esbuild
+          - rollup
+          - '@rollup/*'
+          - vite
+          - '@vitejs/*'
+          - 'vite-plugin-*'
+          - '@laynezh/vite-plugin-lib-assets'
+          - tsx
+          - tsc-alias
+          - ts-node
+          - ts-jest
+          - jest
+          - '@jest/*'
+          - eslint
+          - 'eslint-*'
+          - '@eslint/*'
+          - typescript-eslint
+          - '@typescript-eslint/*'
+          - prettier
+          - lint-staged
+          - husky
+          - turbo
+          - tailwindcss
+          - postcss
+          - autoprefixer
+          - globals
+          - rimraf
+          - cross-env
+          - '@swc/*'
+        exclude-patterns:
+          - vite-plugin-node-polyfills
+        update-types:
+          - patch
+          - minor
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
     ignore:
       - dependency-name: '*'

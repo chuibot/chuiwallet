@@ -47,6 +47,12 @@ The project is built with a modular, object-oriented approach using [bitcoinjs-l
 
 For local setup, build scripts, the release flow, and how to sideload an unpacked build, see [INSTALL.md](INSTALL.md).
 
+Dependabot bumps in the `crypto` group (bitcoinjs-lib, bip32, bip39, ethers and related) are reviewed by reading the diff of what was published to npm, since GitHub release notes do not show the published contents:
+
+```bash
+npm diff --diff=ethers@6.17.0 --diff=ethers@6.18.0
+```
+
 ## Contributing
 
 Contributions are welcome. Please review the [CONTRIBUTING.md](CONTRIBUTING.md) file for details on how to contribute to this project.
