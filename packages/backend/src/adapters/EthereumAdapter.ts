@@ -43,7 +43,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 type RawIndexerTx = {
   hash: string;
-  blockHash?: string;
   from: string;
   to: string;
   value: string;
@@ -108,7 +107,6 @@ export function parseIndexerTransactions(raw: unknown, tokenAddress?: string): C
   const isValidRow = (value: unknown): value is RawIndexerTx => isIndexerTx(value, isTokenTransfer);
   // Indexers give no log index, so identical events in one transaction are numbered in order.
   const eventOccurrences = new Map<string, number>();
-  const seenHistoryIds = new Set<string>();
   return raw.result.filter(isValidRow).flatMap(tx => {
     const resolvedTokenDecimals = parseTokenDecimals(tx.tokenDecimal);
     if (resolvedTokenDecimals === null) return [];
@@ -116,15 +114,10 @@ export function parseIndexerTransactions(raw: unknown, tokenAddress?: string): C
     let historyId = tx.hash.toLowerCase();
     if (isTokenTransfer) {
       const event = [historyId, tx.from.toLowerCase(), tx.to.toLowerCase(), tx.value].join(':');
-      // Numbered per block: after a reorg an indexer can list the same transaction in two blocks.
-      const eventInBlock = `${event}@${String(tx.blockHash ?? '')}`;
-      const occurrence = eventOccurrences.get(eventInBlock) ?? 0;
-      eventOccurrences.set(eventInBlock, occurrence + 1);
+      const occurrence = eventOccurrences.get(event) ?? 0;
+      eventOccurrences.set(event, occurrence + 1);
       historyId = `${event}:${occurrence}`;
     }
-    // A copy from an orphaned block. Rows arrive newest first, so the one kept is from the later block.
-    if (seenHistoryIds.has(historyId)) return [];
-    seenHistoryIds.add(historyId);
 
     return [
       {
@@ -469,7 +462,8 @@ export class EthereumAdapter implements IChainAdapter {
       // An empty history is status "0" with an empty result array; errors carry no array.
       if (!isRecord(raw)) throw new Error(`${host} returned a malformed response`);
       if (!Array.isArray(raw.result)) throw new Error(`${host} error: ${String(raw.message ?? raw.result)}`);
-      const transactions = parseIndexerTransactions(raw, tokenAddress);
+      const rows = await this.dropOrphanedRows(raw.result);
+      const transactions = parseIndexerTransactions({ ...raw, result: rows }, tokenAddress);
       // Every row failing validation means this indexer's format is off, so let the next one answer.
       if (raw.result.length > 0 && transactions.length === 0) {
         throw new Error(`${host} returned no valid transaction rows`);
@@ -477,6 +471,43 @@ export class EthereumAdapter implements IChainAdapter {
       return transactions;
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Some indexers keep rows from blocks orphaned by a reorg, so one transaction can be listed in two blocks with
+   * different events. Keeps the rows from the block the chain settled on, and drops a transaction it can't place.
+   */
+  private async dropOrphanedRows(rows: unknown[]): Promise<unknown[]> {
+    const blocksByHash = new Map<string, Set<string>>();
+    for (const row of rows) {
+      if (!isRecord(row) || typeof row.hash !== 'string' || typeof row.blockHash !== 'string') continue;
+      const hash = row.hash.toLowerCase();
+      blocksByHash.set(hash, (blocksByHash.get(hash) ?? new Set<string>()).add(row.blockHash.toLowerCase()));
+    }
+
+    const reorgedHashes = [...blocksByHash].filter(([, blocks]) => blocks.size > 1).map(([hash]) => hash);
+    if (reorgedHashes.length === 0) return rows;
+
+    const canonicalBlocks = new Map(
+      await Promise.all(reorgedHashes.map(async hash => [hash, await this.findCanonicalBlockHash(hash)] as const)),
+    );
+    return rows.filter(row => {
+      if (!isRecord(row) || typeof row.hash !== 'string') return true;
+      const canonicalBlock = canonicalBlocks.get(row.hash.toLowerCase());
+      if (canonicalBlock === undefined) return true;
+      return typeof row.blockHash === 'string' && row.blockHash.toLowerCase() === canonicalBlock;
+    });
+  }
+
+  /** Hash of the canonical block holding the transaction, or null when the chain lacks it or no RPC answers. */
+  private async findCanonicalBlockHash(hash: string): Promise<string | null> {
+    try {
+      const receipt = await this.readWithFallback(provider => provider.getTransactionReceipt(hash));
+      return receipt?.blockHash.toLowerCase() ?? null;
+    } catch (error) {
+      console.warn(`Could not place reorged transaction ${hash}`, error);
+      return null;
     }
   }
 

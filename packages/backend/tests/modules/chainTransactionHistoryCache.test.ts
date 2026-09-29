@@ -81,7 +81,20 @@ describe('ChainTransactionHistoryCache', () => {
     await cache.merge(scope, events);
     const merged = await cache.merge(scope, events);
 
-    expect(merged.map(t => t.historyId).sort()).toEqual(['0x1:a', '0x1:b']);
+    expect(merged.map(t => t.historyId).sort()).toStrictEqual(['0x1:a', '0x1:b']);
+  });
+
+  it('merge() replaces a legacy hash-keyed token entry with its event entries, across reloads', async () => {
+    const scope = { chain: ChainType.Ethereum, network: Network.Mainnet, address: '0xA', assetKey: 'usdt' };
+    await new ChainTransactionHistoryCache().merge(scope, [tx('0x1', 100)]);
+
+    await new ChainTransactionHistoryCache().merge(scope, [
+      { ...tx('0x1', 100), historyId: '0x1:a' },
+      { ...tx('0x1', 100), historyId: '0x1:b' },
+    ]);
+
+    const reloaded = await new ChainTransactionHistoryCache().get(scope);
+    expect(reloaded.map(t => t.historyId).sort()).toStrictEqual(['0x1:a', '0x1:b']);
   });
 
   it('merge() matches an entry without historyId to one whose historyId is its hash', async () => {

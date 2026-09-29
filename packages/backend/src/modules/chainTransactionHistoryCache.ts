@@ -27,7 +27,11 @@ export class ChainTransactionHistoryCache {
         return;
       }
 
-      cache.set(transaction.historyId ?? transaction.hash.toLowerCase(), transaction);
+      const hashKey = transaction.hash.toLowerCase();
+      const historyKey = transaction.historyId ?? hashKey;
+      // Token history cached by older versions is keyed by hash; its event entries replace it.
+      if (historyKey !== hashKey) cache.delete(hashKey);
+      cache.set(historyKey, transaction);
     });
 
     await this.save(scope, cache);
