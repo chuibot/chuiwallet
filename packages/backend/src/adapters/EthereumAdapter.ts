@@ -51,7 +51,7 @@ type RawIndexerTx = {
   gasPrice: string;
   timeStamp: string;
   confirmations: string;
-  isError: string;
+  isError?: string;
   txreceipt_status?: string;
 };
 
@@ -71,7 +71,8 @@ function isIndexerTx(value: unknown): value is RawIndexerTx {
     typeof value.hash !== 'string' ||
     typeof value.from !== 'string' ||
     typeof value.to !== 'string' ||
-    typeof value.isError !== 'string'
+    // Token transfer rows have no isError: they come from event logs, which a failed transaction never emits.
+    (value.isError !== undefined && typeof value.isError !== 'string')
   ) {
     return false;
   }
@@ -317,10 +318,16 @@ export class EthereumAdapter implements IChainAdapter {
     }
   }
 
-  /** Blockscout API URLs per network (free, no API key required, Etherscan-compatible format) */
-  private static readonly BLOCK_EXPLORER_API: Record<Network, string> = {
-    [Network.Mainnet]: 'https://eth.blockscout.com/api',
-    [Network.Testnet]: 'https://eth-sepolia.blockscout.com/api',
+  /** Etherscan-compatible history indexers, no API key required. Tried in order when one fails. */
+  private static readonly INDEXER_API: Record<Network, readonly string[]> = {
+    [Network.Mainnet]: [
+      'https://eth.blockscout.com/api',
+      'https://api.routescan.io/v2/network/mainnet/evm/1/etherscan/api',
+    ],
+    [Network.Testnet]: [
+      'https://eth-sepolia.blockscout.com/api',
+      'https://api.routescan.io/v2/network/testnet/evm/11155111/etherscan/api',
+    ],
   };
 
   async getTransactionHistory(options?: ChainTransactionHistoryOptions): Promise<ChainTransaction[]> {
@@ -413,7 +420,20 @@ export class EthereumAdapter implements IChainAdapter {
     address: string,
     tokenAddress?: string,
   ): Promise<ChainTransaction[]> {
-    const baseUrl = EthereumAdapter.BLOCK_EXPLORER_API[this.network];
+    let lastError: unknown;
+    for (const baseUrl of EthereumAdapter.INDEXER_API[this.network]) {
+      try {
+        return await this.fetchFromIndexer(baseUrl, address, tokenAddress);
+      } catch (e) {
+        console.warn(`Failed to fetch ETH transaction history from ${new URL(baseUrl).host}`, e);
+        lastError = e;
+      }
+    }
+    throw lastError;
+  }
+
+  private async fetchFromIndexer(baseUrl: string, address: string, tokenAddress?: string): Promise<ChainTransaction[]> {
+    const host = new URL(baseUrl).host;
     const controller = new AbortController();
     // Cleared only after the body is read, so a response that stalls mid-body is also abandoned.
     const timer = setTimeout(() => controller.abort(), INDEXER_TIMEOUT_MS);
@@ -422,16 +442,13 @@ export class EthereumAdapter implements IChainAdapter {
       const contractQuery = tokenAddress ? `&contractaddress=${tokenAddress}` : '';
       const url = `${baseUrl}?module=account&action=${action}&address=${address}${contractQuery}&startblock=0&endblock=99999999&page=1&offset=50&sort=desc`;
       const res = await fetch(url, { signal: controller.signal });
-      if (!res.ok) throw new Error(`Blockscout HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`${host} HTTP ${res.status}`);
 
       const raw: unknown = await res.json();
       // An empty history is status "0" with an empty result array; errors carry no array.
-      if (!isRecord(raw)) throw new Error('Blockscout returned a malformed response');
-      if (!Array.isArray(raw.result)) throw new Error(`Blockscout error: ${String(raw.message ?? raw.result)}`);
+      if (!isRecord(raw)) throw new Error(`${host} returned a malformed response`);
+      if (!Array.isArray(raw.result)) throw new Error(`${host} error: ${String(raw.message ?? raw.result)}`);
       return parseIndexerTransactions(raw, tokenAddress);
-    } catch (e) {
-      console.warn('Failed to fetch ETH transaction history from indexer', e);
-      throw e;
     } finally {
       clearTimeout(timer);
     }
