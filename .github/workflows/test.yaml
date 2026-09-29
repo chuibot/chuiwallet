@@ -47,8 +47,9 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Verify no source maps in dist
+      - name: Verify build output
         run: |
+          test -s dist/manifest.json
           if find dist -name '*.map' -print -quit | grep -q .; then
             echo "Source maps found in dist/"
             find dist -name '*.map'
@@ -56,4 +57,6 @@ jobs:
           fi
 
       - name: Zip
-        run: pnpm -F zipper zip
+        run: |
+          pnpm -F zipper zip
+          unzip -tq dist-zip/*.zip
