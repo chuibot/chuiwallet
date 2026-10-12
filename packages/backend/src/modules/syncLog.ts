@@ -24,6 +24,7 @@ export class SyncLog {
 
   // Bumped by clear() so a resync still running at logout cannot write its entry back.
   private generation = 0;
+  private writeQueue: Promise<void> = Promise.resolve();
 
   captureGeneration(): number {
     return this.generation;
@@ -37,18 +38,29 @@ export class SyncLog {
   }
 
   async append(scope: SyncLogScope, entry: SyncLogEntry, generation: number): Promise<void> {
-    const entries = await this.get(scope);
-    if (generation !== this.generation) return;
-    await browser.storage.local.set({
-      [this.getStorageKey(scope)]: [entry, ...entries].slice(0, SyncLog.MAX_ENTRIES),
+    return this.withLock(async () => {
+      const entries = await this.get(scope);
+      if (generation !== this.generation) return;
+      await browser.storage.local.set({
+        [this.getStorageKey(scope)]: [entry, ...entries].slice(0, SyncLog.MAX_ENTRIES),
+      });
     });
   }
 
   async clear(): Promise<void> {
     this.generation++;
-    const stored = await browser.storage.local.get(null);
-    const keys = Object.keys(stored).filter(key => key.startsWith(SyncLog.STORAGE_KEY_PREFIX));
-    if (keys.length > 0) await browser.storage.local.remove(keys);
+    return this.withLock(async () => {
+      const stored = await browser.storage.local.get(null);
+      const keys = Object.keys(stored).filter(key => key.startsWith(SyncLog.STORAGE_KEY_PREFIX));
+      if (keys.length > 0) await browser.storage.local.remove(keys);
+    });
+  }
+
+  // Each write replaces the whole list, so overlapping read-modify-writes would drop entries.
+  private withLock(fn: () => Promise<void>): Promise<void> {
+    const next = this.writeQueue.then(fn, fn);
+    this.writeQueue = next.catch(() => undefined);
+    return next;
   }
 
   private getStorageKey(scope: SyncLogScope): string {

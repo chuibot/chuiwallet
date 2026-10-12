@@ -42,6 +42,15 @@ describe('SyncLog', () => {
     expect(await log.get(scope)).toEqual([]);
   });
 
+  it('keeps both entries when two appends to one log overlap', async () => {
+    const log = new SyncLog();
+    const generation = log.captureGeneration();
+
+    await Promise.all([log.append(scope, entry(1), generation), log.append(scope, entry(2), generation)]);
+
+    expect((await log.get(scope)).map(e => e.startedAt)).toEqual([2, 1]);
+  });
+
   it('drops an append captured before the last clear()', async () => {
     const log = new SyncLog();
     const generation = log.captureGeneration();
