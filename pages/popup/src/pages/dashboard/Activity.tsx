@@ -91,7 +91,7 @@ export const Activity: React.FC = () => {
     preferences,
     balance,
     balanceSyncing,
-    refreshBalance,
+    resync,
     chainBalances,
     chainBalancesLoading,
     failedChains,
@@ -151,8 +151,7 @@ export const Activity: React.FC = () => {
 
   const handleRefresh = () => {
     if (currency === 'btc') {
-      refreshBalance();
-      refreshTransactions();
+      void resync();
       return;
     }
     void refreshChainBalances();

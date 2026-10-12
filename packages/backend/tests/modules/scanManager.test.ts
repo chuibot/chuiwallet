@@ -19,6 +19,7 @@ type ScanInternals = {
   saveUtxo: () => Promise<void>;
   scan: (indices: number[], changeType: ChangeType, ctx: unknown) => Promise<void>;
   currentContext: () => unknown;
+  highestScannedReceive: number;
 };
 
 type CtxState = {
@@ -335,6 +336,49 @@ describe('ScanManager — hot receive polling', () => {
     expect(a).toBe(b);
     await a;
     expect(scanSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ScanManager — full scan', () => {
+  let ctxState: CtxState;
+
+  beforeEach(() => {
+    ctxState = { network: Network.Mainnet, activeAccountIndex: 0, hdAccountIndex: 0 };
+    installContext(ctxState);
+  });
+
+  afterEach(() => {
+    accountManager.activeAccountIndex = -1;
+    jest.restoreAllMocks();
+  });
+
+  it('rechecks every derived index, then extends forward', async () => {
+    const sm = new ScanManager();
+    const internal = sm as unknown as ScanInternals;
+    internal.highestScannedReceive = 3;
+    const scanSpy = jest.spyOn(internal, 'scan').mockResolvedValue();
+    const forwardSpy = jest.spyOn(sm, 'forwardScan').mockResolvedValue();
+
+    await sm.fullScan(ChangeType.External);
+
+    expect(scanSpy).toHaveBeenCalledWith([0, 1, 2, 3], ChangeType.External, expect.anything());
+    expect(forwardSpy).toHaveBeenCalledWith(ChangeType.External);
+  });
+
+  it('skips the forward extension when the account switches mid-scan', async () => {
+    const sm = new ScanManager();
+    const internal = sm as unknown as ScanInternals;
+    internal.highestScannedReceive = 1;
+    jest.spyOn(internal, 'scan').mockImplementation(async () => {
+      ctxState.activeAccountIndex = 1;
+      ctxState.hdAccountIndex = 1;
+      accountManager.activeAccountIndex = 1;
+    });
+    const forwardSpy = jest.spyOn(sm, 'forwardScan').mockResolvedValue();
+
+    await sm.fullScan(ChangeType.External);
+
+    expect(forwardSpy).not.toHaveBeenCalled();
   });
 });
 

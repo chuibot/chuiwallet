@@ -28,6 +28,8 @@ interface WalletContextType {
   /** True while the background runs a full scan pass for the active account. */
   balanceSyncing: boolean;
   refreshBalance: () => void;
+  /** Rescans every Bitcoin address of the active account, then reloads balance and history. */
+  resync: () => Promise<void>;
   transactions: TxEntry[];
   refreshTransactions: () => void;
   getReceivingAddress: () => Promise<string>;
@@ -261,6 +263,16 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     })();
   };
 
+  const resync = async () => {
+    try {
+      await sendMessage('scan.resync');
+    } catch (e) {
+      console.error('Resync failed', e);
+    }
+    refreshBalance();
+    refreshTransactions();
+  };
+
   const refreshAccounts = async () => {
     const accounts = await sendMessage<Account[]>('accounts.get');
     _setAccounts(accounts);
@@ -372,6 +384,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setOnboarded,
         setUnlocked,
         refreshBalance,
+        resync,
         refreshTransactions,
         getReceivingAddress,
         chainBalances,

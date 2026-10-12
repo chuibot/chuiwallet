@@ -18,6 +18,7 @@ export const Dashboard: React.FC = () => {
     activeAccount,
     connected,
     refreshBalance,
+    resync,
     refreshChainBalances,
     chainBalances,
     chainBalancesLoading,
@@ -33,7 +34,7 @@ export const Dashboard: React.FC = () => {
   }, []);
 
   const handleRefresh = () => {
-    refreshBalance();
+    void resync();
     void refreshChainBalances();
   };
 

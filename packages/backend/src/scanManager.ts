@@ -1,4 +1,4 @@
-import type { AddressEntry, HistoryEntry, ScanEvent, ScanEventInput, UtxoEntry } from './types/cache';
+import type { AddressEntry, HistoryEntry, ScanEvent, ScanEventInput, ScanProgress, UtxoEntry } from './types/cache';
 import { CacheType, ChangeType } from './types/cache';
 import type { Network } from './types/electrum';
 import browser from 'webextension-polyfill';
@@ -183,6 +183,24 @@ export class ScanManager {
     });
     this.backfillInflight.set(key, p);
     return p;
+  }
+
+  /** Rechecks every derived address, including used ones that backfill skips, then extends past the gap. */
+  public async fullScan(changeType: ChangeType = ChangeType.External): Promise<void> {
+    const ctx = this.currentContext();
+    if (!ctx) return;
+    const highestScanned = selectByChain(this.highestScannedReceive, this.highestScannedChange, changeType);
+    const indices = Array.from({ length: highestScanned + 1 }, (_, index) => index);
+    await this.scan(indices, changeType, ctx);
+    if (!this.isCurrentContext(ctx)) return;
+    await this.forwardScan(changeType);
+  }
+
+  public getScanProgress(changeType: ChangeType): ScanProgress {
+    return {
+      highestScanned: selectByChain(this.highestScannedReceive, this.highestScannedChange, changeType),
+      highestUsed: selectByChain(this.highestUsedReceive, this.highestUsedChange, changeType),
+    };
   }
 
   public scanHotReceiveAddresses(): Promise<void> {

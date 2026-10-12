@@ -15,6 +15,7 @@ import { accountManager } from '@extension/backend/src/accountManager';
 import { historyService } from '@extension/backend/src/modules/txHistoryService';
 import { chainBalanceCache } from '@extension/backend/src/modules/chainBalanceCache';
 import { chainTransactionHistoryCache } from '@extension/backend/src/modules/chainTransactionHistoryCache';
+import { syncLog } from '@extension/backend/src/modules/syncLog';
 import { chainRegistry } from '@extension/backend/src/adapters/ChainRegistry';
 import {
   ChainType,
@@ -23,7 +24,7 @@ import {
   type IChainAdapter,
 } from '@extension/backend/src/adapters/IChainAdapter';
 import { logger } from '@extension/backend/src/utils/logger';
-import { isActiveFirstSyncRunning, resetScanRuntime, runAllScans, runHotScan } from '@src/background/scanRuntime';
+import { isActiveSyncRunning, resetScanRuntime, runAllScans, runHotScan, runResync } from '@src/background/scanRuntime';
 
 type Handler = (params: unknown, sender: Runtime.MessageSender) => Promise<unknown> | unknown;
 type ParamsRecord = Record<string, unknown>;
@@ -301,7 +302,14 @@ const handlers: Record<string, Handler> = {
     return await historyService.get();
   },
   'scan.status': () => {
-    return { syncing: isActiveFirstSyncRunning() };
+    return { syncing: isActiveSyncRunning() };
+  },
+  'scan.resync': () => {
+    return runResync();
+  },
+  'scan.log': async () => {
+    const account = accountManager.getActiveAccount();
+    return syncLog.get({ network: account.network, accountIndex: account.index });
   },
   'fee.estimates': async param => {
     if (typeof param !== 'string' || param.trim().length === 0) {
@@ -327,6 +335,7 @@ const handlers: Record<string, Handler> = {
       await walletManager.logout();
       await chainBalanceCache.clear();
       await chainTransactionHistoryCache.clear();
+      await syncLog.clear();
       resetScanRuntime();
     } finally {
       // Clear ETH key material from memory

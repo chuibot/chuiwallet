@@ -25,6 +25,7 @@ import { useWalletContext } from '@src/context/WalletContext';
 import { ProviderApproval } from '@src/pages/provider/Approval';
 import { ErrorBanner } from '@src/components/ErrorBanner';
 import { Xpub } from '@src/pages/settings/Xpub';
+import { SyncLog } from '@src/pages/settings/SyncLog';
 import Splash from '@src/pages/splash/Splash';
 
 const RequireUnlocked: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -114,6 +115,7 @@ export const App: React.FC = () => {
         <Route path="/settings/advanced/unlock-seed" element={<UnlockSeed />} />
         <Route path="/settings/advanced/reveal-seed" element={<RevealSeed />} />
         <Route path="/settings/advanced/xpub" element={unlocked ? <Xpub /> : <PasswordLock />} />
+        <Route path="/settings/advanced/sync-log" element={<SyncLog />} />
         <Route path="/accounts" element={<Accounts />} />
         <Route path="/locked" element={<PasswordLock />} />
       </Routes>

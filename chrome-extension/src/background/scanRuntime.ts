@@ -2,6 +2,7 @@ import { accountManager } from '@extension/backend/src/accountManager';
 import { electrumService } from '@extension/backend/src/modules/electrumService';
 import { preferenceManager } from '@extension/backend/src/preferenceManager';
 import { scanManager } from '@extension/backend/src/scanManager';
+import { syncLog, type SyncLogEntry, type SyncStatus } from '@extension/backend/src/modules/syncLog';
 import { walletManager } from '@extension/backend/src/walletManager';
 import { ChangeType, type ScanEvent } from '@extension/backend/src/types/cache';
 import type { Network } from '@extension/backend/src/types/electrum';
@@ -13,9 +14,10 @@ const FOREGROUND_HOT_SCAN_MS = 5_000;
 let registered = false;
 let activeScanKey: string | null = null;
 let foregroundHotScanTimer: ReturnType<typeof setInterval> | null = null;
-// In-flight first-sync passes per context key. Per-context (not a global counter) so a pass
+// In-flight indicated passes per context key. Per-context (not a global counter) so a pass
 // still unwinding for one account can never be misread as syncing for another.
-const firstSyncInflight = new Map<string, number>();
+const syncInflight = new Map<string, number>();
+let resyncInflight: { key: string; promise: Promise<SyncLogEntry | null> } | null = null;
 
 function scanKey(): string | null {
   try {
@@ -118,10 +120,31 @@ function syncContextKey(ctx: SyncContext): string {
   return `${ctx.network}:${ctx.accountIndex}`;
 }
 
-/** Whether the ACTIVE account's first sync is running — never another account's. */
-export function isActiveFirstSyncRunning(): boolean {
+function isActiveContext(key: string): boolean {
+  const current = syncContext();
+  return current !== null && syncContextKey(current) === key;
+}
+
+/** Whether the ACTIVE account's first sync or a resync is running, never another account's. */
+export function isActiveSyncRunning(): boolean {
   const ctx = syncContext();
-  return ctx !== null && (firstSyncInflight.get(syncContextKey(ctx)) ?? 0) > 0;
+  return ctx !== null && (syncInflight.get(syncContextKey(ctx)) ?? 0) > 0;
+}
+
+function beginSyncIndicator(ctx: SyncContext, key: string): void {
+  const inflight = (syncInflight.get(key) ?? 0) + 1;
+  syncInflight.set(key, inflight);
+  if (inflight === 1) emitSync(ctx.accountListIndex, ctx.network, true);
+}
+
+function endSyncIndicator(ctx: SyncContext, key: string): void {
+  const inflight = (syncInflight.get(key) ?? 1) - 1;
+  if (inflight > 0) {
+    syncInflight.set(key, inflight);
+  } else {
+    syncInflight.delete(key);
+    emitSync(ctx.accountListIndex, ctx.network, false);
+  }
 }
 
 /**
@@ -137,36 +160,65 @@ export async function runAllScans(): Promise<void> {
 
   const key = syncContextKey(ctx);
   const indicated = electrumService.status === 'connected' && !(await isContextSynced(key));
-  const stillActiveContext = () => {
-    const current = syncContext();
-    return current !== null && syncContextKey(current) === key;
-  };
-
-  if (indicated) {
-    const inflight = (firstSyncInflight.get(key) ?? 0) + 1;
-    firstSyncInflight.set(key, inflight);
-    if (inflight === 1) emitSync(ctx.accountListIndex, ctx.network, true);
-  }
+  if (indicated) beginSyncIndicator(ctx, key);
   try {
     await runHotScan();
     await Promise.all([runBackfillScan(), runForwardScan()]);
     // Only a pass that finished on this account, still connected, counts as its first sync.
     // Switching accounts mid-pass makes the scans return without doing anything, and marking
     // that as synced would leave the abandoned account with no indicator on the way back.
-    if (indicated && stillActiveContext() && electrumService.status === 'connected') {
+    if (indicated && isActiveContext(key) && electrumService.status === 'connected') {
       await markContextSynced(key);
     }
   } finally {
-    if (indicated) {
-      const inflight = (firstSyncInflight.get(key) ?? 1) - 1;
-      if (inflight > 0) {
-        firstSyncInflight.set(key, inflight);
-      } else {
-        firstSyncInflight.delete(key);
-        emitSync(ctx.accountListIndex, ctx.network, false);
-      }
-    }
+    if (indicated) endSyncIndicator(ctx, key);
   }
+}
+
+/** Rescans every derived address of the active account and records the outcome in its sync log. */
+export function runResync(): Promise<SyncLogEntry | null> {
+  const ctx = syncContext();
+  if (!ctx) return Promise.resolve(null);
+  const key = syncContextKey(ctx);
+  if (resyncInflight?.key === key) return resyncInflight.promise;
+  const promise = resync(ctx, key).finally(() => {
+    if (resyncInflight?.promise === promise) resyncInflight = null;
+  });
+  resyncInflight = { key, promise };
+  return promise;
+}
+
+async function resync(ctx: SyncContext, key: string): Promise<SyncLogEntry> {
+  const startedAt = Date.now();
+  let status: SyncStatus = 'completed';
+  let error: string | undefined;
+
+  beginSyncIndicator(ctx, key);
+  try {
+    if (!(await ensureScanRuntime())) {
+      status = 'interrupted';
+    } else if (electrumService.status !== 'connected') {
+      status = 'offline';
+    } else {
+      await Promise.all([scanManager.fullScan(ChangeType.External), scanManager.fullScan(ChangeType.Internal)]);
+      if (!isActiveContext(key)) status = 'interrupted';
+      else if (electrumService.status !== 'connected') status = 'offline';
+    }
+  } catch (e) {
+    status = isActiveContext(key) ? 'failed' : 'interrupted';
+    error = e instanceof Error ? e.message : String(e);
+  } finally {
+    endSyncIndicator(ctx, key);
+  }
+
+  const entry: SyncLogEntry = { startedAt, finishedAt: Date.now(), status, error };
+  if (status === 'completed') {
+    entry.receive = scanManager.getScanProgress(ChangeType.External);
+    entry.change = scanManager.getScanProgress(ChangeType.Internal);
+    await markContextSynced(key);
+  }
+  await syncLog.append(ctx, entry);
+  return entry;
 }
 
 /**
