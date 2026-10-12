@@ -13,7 +13,7 @@ describe('SyncLog', () => {
 
   it('returns entries newest first, capped at 20', async () => {
     const log = new SyncLog();
-    for (let i = 0; i < 25; i++) await log.append(scope, entry(i));
+    for (let i = 0; i < 25; i++) await log.append(scope, entry(i), log.captureGeneration());
 
     const entries = await log.get(scope);
 
@@ -24,7 +24,7 @@ describe('SyncLog', () => {
 
   it('keeps accounts and networks apart', async () => {
     const log = new SyncLog();
-    await log.append(scope, entry(1));
+    await log.append(scope, entry(1), log.captureGeneration());
 
     expect(await log.get({ network: Network.Testnet, accountIndex: 0 })).toEqual([]);
     expect(await log.get({ network: Network.Mainnet, accountIndex: 1 })).toEqual([]);
@@ -33,12 +33,33 @@ describe('SyncLog', () => {
   it('clear() removes only sync logs', async () => {
     const log = new SyncLog();
     await chrome.storage.local.set({ keep_me: 'preserved' });
-    await log.append(scope, entry(1));
+    await log.append(scope, entry(1), log.captureGeneration());
 
     await log.clear();
 
     const all = await chrome.storage.local.get(null);
     expect(all.keep_me).toBe('preserved');
+    expect(await log.get(scope)).toEqual([]);
+  });
+
+  it('drops an append captured before the last clear()', async () => {
+    const log = new SyncLog();
+    const generation = log.captureGeneration();
+    await log.clear();
+
+    await log.append(scope, entry(1), generation);
+    expect(await log.get(scope)).toEqual([]);
+
+    await log.append(scope, entry(2), log.captureGeneration());
+    expect((await log.get(scope)).map(e => e.startedAt)).toEqual([2]);
+  });
+
+  it('drops an append still pending when clear() runs', async () => {
+    const log = new SyncLog();
+    const pending = log.append(scope, entry(1), log.captureGeneration());
+    await log.clear();
+    await pending;
+
     expect(await log.get(scope)).toEqual([]);
   });
 });

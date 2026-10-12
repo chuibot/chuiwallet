@@ -22,6 +22,13 @@ export class SyncLog {
   private static readonly STORAGE_KEY_PREFIX = 'sync_log:';
   private static readonly MAX_ENTRIES = 20;
 
+  // Bumped by clear() so a resync still running at logout cannot write its entry back.
+  private generation = 0;
+
+  captureGeneration(): number {
+    return this.generation;
+  }
+
   /** Newest first. */
   async get(scope: SyncLogScope): Promise<SyncLogEntry[]> {
     const key = this.getStorageKey(scope);
@@ -29,14 +36,16 @@ export class SyncLog {
     return Array.isArray(stored[key]) ? (stored[key] as SyncLogEntry[]) : [];
   }
 
-  async append(scope: SyncLogScope, entry: SyncLogEntry): Promise<void> {
+  async append(scope: SyncLogScope, entry: SyncLogEntry, generation: number): Promise<void> {
     const entries = await this.get(scope);
+    if (generation !== this.generation) return;
     await browser.storage.local.set({
       [this.getStorageKey(scope)]: [entry, ...entries].slice(0, SyncLog.MAX_ENTRIES),
     });
   }
 
   async clear(): Promise<void> {
+    this.generation++;
     const stored = await browser.storage.local.get(null);
     const keys = Object.keys(stored).filter(key => key.startsWith(SyncLog.STORAGE_KEY_PREFIX));
     if (keys.length > 0) await browser.storage.local.remove(keys);

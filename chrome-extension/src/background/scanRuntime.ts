@@ -180,45 +180,54 @@ export function runResync(): Promise<SyncLogEntry | null> {
   const ctx = syncContext();
   if (!ctx) return Promise.resolve(null);
   const key = syncContextKey(ctx);
-  if (resyncInflight?.key === key) return resyncInflight.promise;
-  const promise = resync(ctx, key).finally(() => {
+  // A switch away and back keeps the account key but abandons the scans, so a run is only shared within one epoch.
+  const epoch = scanManager.getEpoch();
+  const inflightKey = `${key}:${epoch}`;
+  if (resyncInflight?.key === inflightKey) return resyncInflight.promise;
+  const promise = resync(ctx, key, epoch, syncLog.captureGeneration()).finally(() => {
     if (resyncInflight?.promise === promise) resyncInflight = null;
   });
-  resyncInflight = { key, promise };
+  resyncInflight = { key: inflightKey, promise };
   return promise;
 }
 
-async function resync(ctx: SyncContext, key: string): Promise<SyncLogEntry> {
+async function resync(ctx: SyncContext, key: string, epoch: number, logGeneration: number): Promise<SyncLogEntry> {
   const startedAt = Date.now();
-  let status: SyncStatus = 'completed';
-  let error: string | undefined;
-
   beginSyncIndicator(ctx, key);
   try {
-    if (!(await ensureScanRuntime())) {
-      status = 'interrupted';
-    } else if (electrumService.status !== 'connected') {
-      status = 'offline';
-    } else {
-      await Promise.all([scanManager.fullScan(ChangeType.External), scanManager.fullScan(ChangeType.Internal)]);
-      if (!isActiveContext(key)) status = 'interrupted';
-      else if (electrumService.status !== 'connected') status = 'offline';
+    const { status, error } = await rescan(key, epoch);
+    const entry: SyncLogEntry = { startedAt, finishedAt: Date.now(), status, error };
+    if (status === 'completed') {
+      entry.receive = scanManager.getScanProgress(ChangeType.External);
+      entry.change = scanManager.getScanProgress(ChangeType.Internal);
+      await markContextSynced(key);
     }
-  } catch (e) {
-    status = isActiveContext(key) ? 'failed' : 'interrupted';
-    error = e instanceof Error ? e.message : String(e);
+    await syncLog.append(ctx, entry, logGeneration);
+    return entry;
   } finally {
+    // After the append, so a Sync log page reloading on this event reads the new entry.
     endSyncIndicator(ctx, key);
   }
+}
 
-  const entry: SyncLogEntry = { startedAt, finishedAt: Date.now(), status, error };
-  if (status === 'completed') {
-    entry.receive = scanManager.getScanProgress(ChangeType.External);
-    entry.change = scanManager.getScanProgress(ChangeType.Internal);
-    await markContextSynced(key);
+async function rescan(key: string, epoch: number): Promise<{ status: SyncStatus; error?: string }> {
+  const interrupted = () => scanManager.getEpoch() !== epoch || !isActiveContext(key);
+  try {
+    if (!(await ensureScanRuntime())) return { status: 'interrupted' };
+    if (electrumService.status !== 'connected') return { status: 'offline' };
+    // Both chains settle before the run ends, so a retry never overlaps a scan still writing UTXOs.
+    const results = await Promise.allSettled([
+      scanManager.fullScan(ChangeType.External),
+      scanManager.fullScan(ChangeType.Internal),
+    ]);
+    const failure = results.find(result => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
+    if (interrupted()) return { status: 'interrupted' };
+    if (electrumService.status !== 'connected') return { status: 'offline' };
+    return { status: 'completed' };
+  } catch (e) {
+    return { status: interrupted() ? 'interrupted' : 'failed', error: e instanceof Error ? e.message : String(e) };
   }
-  await syncLog.append(ctx, entry);
-  return entry;
 }
 
 /**

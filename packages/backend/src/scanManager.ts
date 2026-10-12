@@ -196,6 +196,10 @@ export class ScanManager {
     await this.forwardScan(changeType);
   }
 
+  public getEpoch(): number {
+    return this.epoch;
+  }
+
   public getScanProgress(changeType: ChangeType): ScanProgress {
     return {
       highestScanned: selectByChain(this.highestScannedReceive, this.highestScannedChange, changeType),

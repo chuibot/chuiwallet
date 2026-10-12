@@ -380,6 +380,15 @@ describe('ScanManager — full scan', () => {
 
     expect(forwardSpy).not.toHaveBeenCalled();
   });
+
+  it('reports a new epoch after clear()', () => {
+    const sm = new ScanManager();
+    const epoch = sm.getEpoch();
+
+    sm.clear();
+
+    expect(sm.getEpoch()).not.toBe(epoch);
+  });
 });
 
 describe('ScanManager — context isolation and stale-fence', () => {
