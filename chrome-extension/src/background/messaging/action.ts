@@ -138,6 +138,9 @@ function supportsCachedTransactionHistory(adapter: IChainAdapter): adapter is IC
   );
 }
 
+// Bumped by lock and logout, so a restore that overlapped one cannot revive the wallet from its captured password.
+let sessionGeneration = 0;
+
 function triggerAccountScans(): void {
   void runAllScans().catch(error => logger.error('Failed to trigger account scans', error));
 }
@@ -175,8 +178,14 @@ const handlers: Record<string, Handler> = {
     return walletManager.isRestorable();
   },
   'wallet.restore': async () => {
+    const generation = sessionGeneration;
     const sessionPassword = await getSessionPassword();
     const isRestorable = await walletManager.restoreIfPossible(sessionPassword);
+    if (isRestorable && generation !== sessionGeneration) {
+      await walletManager.lock();
+      clearEthereumKeys();
+      return false;
+    }
     if (isRestorable) {
       await rehydrateEthAdapterForActiveAccount();
       triggerAccountScans();
@@ -336,12 +345,14 @@ const handlers: Record<string, Handler> = {
     return await walletManager.sendPayment(toAddress, amountInSats, feerate);
   },
   'wallet.lock': async () => {
+    sessionGeneration += 1;
     await walletManager.lock();
     // Clear ETH key material from memory
     clearEthereumKeys();
     emitSession('locked');
   },
   'wallet.logout': async () => {
+    sessionGeneration += 1;
     try {
       await walletManager.logout();
       await chainBalanceCache.clear();
