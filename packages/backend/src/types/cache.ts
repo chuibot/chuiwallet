@@ -51,6 +51,12 @@ export enum ChangeType {
   Internal = 'change',
 }
 
+/** HD indices on one address chain; -1 when there is none. */
+export interface ScanProgress {
+  highestScanned: number;
+  highestUsed: number;
+}
+
 export type ScanUpdateType = 'init' | 'scan' | 'backfill' | 'clear';
 
 export interface ScanEvent {

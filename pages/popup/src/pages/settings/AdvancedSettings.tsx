@@ -60,6 +60,17 @@ export const AdvancedSettings: React.FC = () => {
           </button>
           <button
             className="flex gap-10 justify-between items-start py-2 w-full text-base leading-none text-white"
+            onClick={() => navigate('/settings/advanced/sync-log')}>
+            <span className="text-base font-bold">Sync log</span>
+            <img
+              loading="lazy"
+              src={chrome.runtime.getURL(`popup/right_arrow_icon.svg`)}
+              alt=""
+              className="object-contain shrink-0 w-6 aspect-square"
+            />
+          </button>
+          <button
+            className="flex gap-10 justify-between items-start py-2 w-full text-base leading-none text-white"
             onClick={() => navigate('/settings/advanced/unlock-seed')}>
             <span className="text-base font-bold">Reveal seed phrase</span>
             <img
