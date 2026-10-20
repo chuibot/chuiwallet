@@ -85,6 +85,7 @@ export async function runForwardScan(): Promise<void> {
 }
 
 const SYNCED_CONTEXTS_KEY = 'scanSyncedContexts';
+let syncedContextsWriteQueue: Promise<void> = Promise.resolve();
 
 type SyncContext = { accountListIndex: number; accountIndex: number; network: Network };
 
@@ -109,11 +110,20 @@ async function isContextSynced(contextKey: string): Promise<boolean> {
   return Array.isArray(synced) && synced.includes(contextKey);
 }
 
-async function markContextSynced(contextKey: string): Promise<void> {
-  const stored = await chrome.storage.session.get([SYNCED_CONTEXTS_KEY]);
-  const synced = Array.isArray(stored[SYNCED_CONTEXTS_KEY]) ? (stored[SYNCED_CONTEXTS_KEY] as string[]) : [];
-  if (synced.includes(contextKey)) return;
-  await chrome.storage.session.set({ [SYNCED_CONTEXTS_KEY]: [...synced, contextKey] });
+// Each write replaces the whole list, so overlapping read-modify-writes would drop a context.
+function withSyncedContextsLock(fn: () => Promise<void>): Promise<void> {
+  const next = syncedContextsWriteQueue.then(fn, fn);
+  syncedContextsWriteQueue = next.catch(() => undefined);
+  return next;
+}
+
+function markContextSynced(contextKey: string): Promise<void> {
+  return withSyncedContextsLock(async () => {
+    const stored = await chrome.storage.session.get([SYNCED_CONTEXTS_KEY]);
+    const synced = Array.isArray(stored[SYNCED_CONTEXTS_KEY]) ? (stored[SYNCED_CONTEXTS_KEY] as string[]) : [];
+    if (synced.includes(contextKey)) return;
+    await chrome.storage.session.set({ [SYNCED_CONTEXTS_KEY]: [...synced, contextKey] });
+  });
 }
 
 function syncContextKey(ctx: SyncContext): string {
@@ -247,7 +257,7 @@ export async function runPostConnectScan(): Promise<void> {
 export function resetScanRuntime(): void {
   activeScanKey = null;
   // Runs on wallet create/logout — the next wallet's accounts get first-sync indication again.
-  void chrome.storage.session.remove([SYNCED_CONTEXTS_KEY]);
+  void withSyncedContextsLock(() => chrome.storage.session.remove([SYNCED_CONTEXTS_KEY]));
   stopForegroundHotPolling();
   if (getActivePopupPortCount() > 0 && scanKey()) startForegroundHotPolling();
 }
