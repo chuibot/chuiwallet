@@ -135,6 +135,11 @@ function isActiveContext(key: string): boolean {
   return current !== null && syncContextKey(current) === key;
 }
 
+// scanKey() is null while a switch has moved the preferences but not the account manager, and the scans bail then.
+function scanInterrupted(key: string, epoch: number): boolean {
+  return scanManager.getEpoch() !== epoch || scanKey() === null || !isActiveContext(key);
+}
+
 /** Whether the ACTIVE account's first sync or a resync is running, never another account's. */
 export function isActiveSyncRunning(): boolean {
   const ctx = syncContext();
@@ -169,6 +174,7 @@ export async function runAllScans(): Promise<void> {
   if (!ctx) return;
 
   const key = syncContextKey(ctx);
+  const epoch = scanManager.getEpoch();
   const indicated = electrumService.status === 'connected' && !(await isContextSynced(key));
   if (indicated) beginSyncIndicator(ctx, key);
   try {
@@ -177,7 +183,7 @@ export async function runAllScans(): Promise<void> {
     // Only a pass that finished on this account, still connected, counts as its first sync.
     // Switching accounts mid-pass makes the scans return without doing anything, and marking
     // that as synced would leave the abandoned account with no indicator on the way back.
-    if (indicated && isActiveContext(key) && electrumService.status === 'connected') {
+    if (indicated && !scanInterrupted(key, epoch) && electrumService.status === 'connected') {
       await markContextSynced(key);
     }
   } finally {
@@ -221,8 +227,6 @@ async function resync(ctx: SyncContext, key: string, epoch: number, logGeneratio
 }
 
 async function rescan(key: string, epoch: number): Promise<{ status: SyncStatus; error?: string }> {
-  // scanKey() is null while a switch has moved the preferences but not the account manager, and the scans bail then.
-  const interrupted = () => scanManager.getEpoch() !== epoch || scanKey() === null || !isActiveContext(key);
   try {
     if (!(await ensureScanRuntime())) return { status: 'interrupted' };
     if (electrumService.status !== 'connected') return { status: 'offline' };
@@ -233,11 +237,14 @@ async function rescan(key: string, epoch: number): Promise<{ status: SyncStatus;
     ]);
     const failure = results.find(result => result.status === 'rejected');
     if (failure?.status === 'rejected') throw failure.reason;
-    if (interrupted()) return { status: 'interrupted' };
+    if (scanInterrupted(key, epoch)) return { status: 'interrupted' };
     if (electrumService.status !== 'connected') return { status: 'offline' };
     return { status: 'completed' };
   } catch (e) {
-    return { status: interrupted() ? 'interrupted' : 'failed', error: e instanceof Error ? e.message : String(e) };
+    return {
+      status: scanInterrupted(key, epoch) ? 'interrupted' : 'failed',
+      error: e instanceof Error ? e.message : String(e),
+    };
   }
 }
 
