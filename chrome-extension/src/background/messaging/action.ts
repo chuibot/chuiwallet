@@ -267,7 +267,9 @@ const handlers: Record<string, Handler> = {
   'preferences.setFiatCurrency': async params => {
     const payload = expectObjectParams('preferences.setFiatCurrency', params);
     const currency = expectStringParam('preferences.setFiatCurrency', payload, 'currency');
-    return await preferenceManager.update({ fiatCurrency: currency });
+    const preferences = await preferenceManager.update({ fiatCurrency: currency });
+    emitPreferences(preferences);
+    return preferences;
   },
   'wallet.setBackupStatus': async (params: unknown) => {
     const payload = expectObjectParams('wallet.setBackupStatus', params);

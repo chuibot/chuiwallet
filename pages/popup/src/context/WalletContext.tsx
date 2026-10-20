@@ -242,8 +242,9 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     onPreferences: e => {
       const nextPreferences = e.preferences;
       if (!nextPreferences || !unlocked || ownActionInFlight.current > 0) return;
-      if (isSameActiveContext(nextPreferences, preferencesRef.current)) return;
-      void applySwitch(nextPreferences);
+      const current = preferencesRef.current;
+      if (!isSameActiveContext(nextPreferences, current)) void applySwitch(nextPreferences);
+      else if (nextPreferences.fiatCurrency !== current.fiatCurrency) applyFiatCurrency(nextPreferences);
     },
     onSession: e => {
       if (ownActionInFlight.current > 0) return;
@@ -355,13 +356,18 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       await reloadChainBalances();
     });
 
-  const setFiatCurrency = async (currency: string) => {
-    const nextPreferences: Preferences = await sendMessage('preferences.setFiatCurrency', { currency });
+  const applyFiatCurrency = (nextPreferences: Preferences) => {
     applyPreferences(nextPreferences);
     // Refresh all balances since fiat conversion rates have changed
     refreshBalance();
     void refreshChainBalances();
   };
+
+  const setFiatCurrency = (currency: string) =>
+    runOwnAction(async () => {
+      const nextPreferences: Preferences = await sendMessage('preferences.setFiatCurrency', { currency });
+      applyFiatCurrency(nextPreferences);
+    });
 
   const getChainReceivingAddress = async (chain: ChainType): Promise<string> => {
     return sendMessage<string>('chain.getReceivingAddress', { chain });
