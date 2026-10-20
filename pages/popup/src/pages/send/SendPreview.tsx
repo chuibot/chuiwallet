@@ -21,6 +21,7 @@ interface SendPreviewStates {
   feeAmount?: number;
   feeUsd?: number;
   fiatCurrency?: string;
+  feeFiatCurrency?: string;
   feeName?: string;
   rateValue?: number;
   rateUnit?: string;
@@ -35,6 +36,7 @@ export function SendPreview() {
   const states = (location.state as SendPreviewStates | null) ?? null;
   // The quote was priced in this currency; another window can change the preference while it is shown.
   const fiatLabel = states?.fiatCurrency || preferences?.fiatCurrency || 'USD';
+  const feeFiatLabel = states?.feeFiatCurrency || fiatLabel;
   const meta = getCurrencyMeta(currency);
   const assetDigits = getSendAmountPrecision(currency);
   const formattedFeeRate = formatFeeRate(states?.rateValue, states?.rateUnit);
@@ -170,7 +172,7 @@ export function SendPreview() {
                 : 'Fee unavailable'}
             {!showsRateOnlyFee && formattedFeeRate && <span className="text-sm"> ({formattedFeeRate})</span>}
           </div>
-          <div className="mt-2">{formatFiatValue(states.feeUsd, fiatLabel)}</div>
+          <div className="mt-2">{formatFiatValue(states.feeUsd, feeFiatLabel)}</div>
         </div>
       </div>
 

@@ -138,6 +138,16 @@ function supportsCachedTransactionHistory(adapter: IChainAdapter): adapter is IC
   );
 }
 
+// The session queue releases before the ETH rehydrate and broadcast, so switches also wait for each other here
+// and each one publishes the account it installed.
+let switchQueue: Promise<unknown> = Promise.resolve();
+
+function runSettledSwitch<T>(fn: () => Promise<T>): Promise<T> {
+  const next = switchQueue.then(fn, fn);
+  switchQueue = next.catch(() => undefined);
+  return next;
+}
+
 function triggerAccountScans(): void {
   void runAllScans().catch(error => logger.error('Failed to trigger account scans', error));
 }
@@ -241,30 +251,34 @@ const handlers: Record<string, Handler> = {
   'wallet.switchNetwork': async params => {
     const payload = expectObjectParams('wallet.switchNetwork', params);
     const network = expectEnumParam('wallet.switchNetwork', payload, 'network', Object.values(Network));
-    const success = await walletManager.switchNetwork(network);
-    if (!success) {
-      throw new ActionError('WALLET_LOCKED', 'wallet.switchNetwork is unavailable while wallet is locked');
-    }
+    return runSettledSwitch(async () => {
+      const success = await walletManager.switchNetwork(network);
+      if (!success) {
+        throw new ActionError('WALLET_LOCKED', 'wallet.switchNetwork is unavailable while wallet is locked');
+      }
 
-    await rehydrateEthAdapterForActiveAccount();
+      await rehydrateEthAdapterForActiveAccount();
 
-    emitPreferences(preferenceManager.get());
-    triggerAccountScans();
-    return success;
+      emitPreferences(preferenceManager.get());
+      triggerAccountScans();
+      return success;
+    });
   },
   'wallet.switchEvmNetwork': async params => {
     const payload = expectObjectParams('wallet.switchEvmNetwork', params);
     const network = expectEnumParam('wallet.switchEvmNetwork', payload, 'network', Object.values(Network));
-    await walletManager.switchEvmNetwork(network);
+    return runSettledSwitch(async () => {
+      await walletManager.switchEvmNetwork(network);
 
-    const ethAdapter = getEthereumAdapter();
-    if (ethAdapter) {
-      await ethAdapter.init(network);
-      await rehydrateEthAdapterForActiveAccount();
-    }
+      const ethAdapter = getEthereumAdapter();
+      if (ethAdapter) {
+        await ethAdapter.init(network);
+        await rehydrateEthAdapterForActiveAccount();
+      }
 
-    emitPreferences(preferenceManager.get());
-    return true;
+      emitPreferences(preferenceManager.get());
+      return true;
+    });
   },
   'preferences.setFiatCurrency': async params => {
     const payload = expectObjectParams('preferences.setFiatCurrency', params);
@@ -289,26 +303,29 @@ const handlers: Record<string, Handler> = {
     await requireUnlockedWallet('accounts.switch');
     const payload = expectObjectParams('accounts.switch', params);
     const accountIndex = expectNumberParam('accounts.switch', payload, 'accountIndex', { integer: true, min: 0 });
-    await walletManager.switchAccount(accountIndex);
+    return runSettledSwitch(async () => {
+      await walletManager.switchAccount(accountIndex);
 
-    await rehydrateEthAdapterForActiveAccount();
+      await rehydrateEthAdapterForActiveAccount();
 
-    // Read after the awaits: a switch from another window may have completed meanwhile.
-    const preferences = preferenceManager.get();
-    emitPreferences(preferences);
-    triggerAccountScans();
-    return preferences;
+      const preferences = preferenceManager.get();
+      emitPreferences(preferences);
+      triggerAccountScans();
+      return preferences;
+    });
   },
   'accounts.create': async () => {
     await requireUnlockedWallet('accounts.create');
-    await walletManager.createAccount();
+    return runSettledSwitch(async () => {
+      await walletManager.createAccount();
 
-    await rehydrateEthAdapterForActiveAccount();
+      await rehydrateEthAdapterForActiveAccount();
 
-    const preferences = preferenceManager.get();
-    emitPreferences(preferences);
-    triggerAccountScans();
-    return { preferences, accounts: accountManager.accounts };
+      const preferences = preferenceManager.get();
+      emitPreferences(preferences);
+      triggerAccountScans();
+      return { preferences, accounts: accountManager.accounts };
+    });
   },
   'transactions.get': async () => {
     return await historyService.get();
