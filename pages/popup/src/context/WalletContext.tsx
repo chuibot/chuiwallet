@@ -82,6 +82,8 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const preferencesChangedDuringOwnAction = useRef(false);
   const unlockedRef = useRef(unlocked);
   unlockedRef.current = unlocked;
+  // Bumped by every lock or logout broadcast, so a restore that started earlier cannot reopen the popup.
+  const sessionGeneration = useRef(0);
   const activeAccount = useMemo<Account | undefined>(() => {
     const i = preferences?.activeAccountIndex ?? 0;
     return accounts[i];
@@ -208,12 +210,14 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const init = async () => {
+    const generation = sessionGeneration.current;
     const isRestorable = await sendMessage('wallet.restore');
     if (isRestorable) {
       const [preferences, accounts] = await Promise.all([
         sendMessage<Preferences>('preferences.get'),
         sendMessage<Account[]>('accounts.get'),
       ]);
+      if (generation !== sessionGeneration.current) return;
       await hydrateSession({ preferences, accounts });
     }
   };
@@ -276,6 +280,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     },
     // Applied even during a local action: both handlers only set state, so the window that asked repeating them is harmless.
     onSession: e => {
+      sessionGeneration.current += 1;
       if (e.state === 'locked' && unlocked) applyLocked();
       else if (e.state === 'loggedOut' && onboarded) applyLoggedOut();
     },
@@ -379,6 +384,15 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     runOwnAction(async () => {
       await sendMessage('wallet.switchEvmNetwork', { network });
       const nextPreferences: Preferences = await sendMessage('preferences.get');
+      const current = preferencesRef.current;
+      // The reply can carry an account or network another window switched to meanwhile, which needs the full reload.
+      if (
+        nextPreferences.activeAccountIndex !== current.activeAccountIndex ||
+        nextPreferences.activeNetwork !== current.activeNetwork
+      ) {
+        await applySwitch(nextPreferences);
+        return;
+      }
       applyPreferences(nextPreferences);
       // Only refresh Ethereum-related state; Bitcoin is unaffected
       await reloadChainBalances();
@@ -394,7 +408,8 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const setFiatCurrency = (currency: string) =>
     runOwnAction(async () => {
       const nextPreferences: Preferences = await sendMessage('preferences.setFiatCurrency', { currency });
-      applyFiatCurrency(nextPreferences);
+      if (!isSameActiveContext(nextPreferences, preferencesRef.current)) await applySwitch(nextPreferences);
+      else applyFiatCurrency(nextPreferences);
     });
 
   const getChainReceivingAddress = async (chain: ChainType): Promise<string> => {
