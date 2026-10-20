@@ -211,7 +211,8 @@ async function resync(ctx: SyncContext, key: string, epoch: number, logGeneratio
 }
 
 async function rescan(key: string, epoch: number): Promise<{ status: SyncStatus; error?: string }> {
-  const interrupted = () => scanManager.getEpoch() !== epoch || !isActiveContext(key);
+  // scanKey() is null while a switch has moved the preferences but not the account manager, and the scans bail then.
+  const interrupted = () => scanManager.getEpoch() !== epoch || scanKey() === null || !isActiveContext(key);
   try {
     if (!(await ensureScanRuntime())) return { status: 'interrupted' };
     if (electrumService.status !== 'connected') return { status: 'offline' };

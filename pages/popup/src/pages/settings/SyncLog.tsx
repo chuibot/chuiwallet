@@ -20,10 +20,12 @@ function describeChain(label: string, { highestScanned, highestUsed }: ScanProgr
 }
 
 export const SyncLog: React.FC = () => {
-  const { balanceSyncing, resync } = useWalletContext();
+  const { activeAccount, balanceSyncing, resync } = useWalletContext();
   const [entries, setEntries] = useState<SyncLogEntry[]>([]);
   const [running, setRunning] = useState(false);
   const busy = running || balanceSyncing;
+  const network = activeAccount?.network;
+  const accountIndex = activeAccount?.index;
 
   const loadEntries = useCallback(async () => {
     try {
@@ -33,10 +35,23 @@ export const SyncLog: React.FC = () => {
     }
   }, []);
 
-  // Also picks up a resync started from the dashboard once it finishes.
   useEffect(() => {
-    if (!balanceSyncing) void loadEntries();
-  }, [balanceSyncing, loadEntries]);
+    setEntries([]);
+  }, [network, accountIndex]);
+
+  // Keyed on the account too, because a switch to an account already synced this session leaves balanceSyncing false.
+  useEffect(() => {
+    if (balanceSyncing) return;
+    let cancelled = false;
+    sendMessage<SyncLogEntry[]>('scan.log')
+      .then(rows => {
+        if (!cancelled) setEntries(rows);
+      })
+      .catch(e => console.error('Failed to load sync log', e));
+    return () => {
+      cancelled = true;
+    };
+  }, [network, accountIndex, balanceSyncing]);
 
   const handleResync = async () => {
     setRunning(true);
