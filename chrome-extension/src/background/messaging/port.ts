@@ -15,7 +15,10 @@ type ChuiPortBroadcastMessage =
   | { type: 'SYNC'; accountIndex: number; network: Network; syncing: boolean; ts: number }
   | { type: 'TX'; accountIndex: number; tx: unknown; ts: number }
   | { type: 'PREFERENCES'; preferences: Preferences; ts: number }
+  | { type: 'SESSION'; state: SessionState; ts: number }
   | { type: 'PONG'; t: number };
+
+export type SessionState = 'locked' | 'loggedOut';
 
 const ports = new Set<browser.Runtime.Port>();
 export const onPopupSessionChanged = createEmitter<PopupSessionUpdate>();
@@ -76,4 +79,9 @@ export function emitTx(accountIndex: number, tx: unknown) {
 /** Sent once an account or network switch has settled, so every open popup follows it. */
 export function emitPreferences(preferences: Preferences) {
   broadcast({ type: 'PREFERENCES', preferences, ts: Date.now() });
+}
+
+/** Sent once a lock or logout has settled, so every open popup leaves the wallet pages. */
+export function emitSession(state: SessionState) {
+  broadcast({ type: 'SESSION', state, ts: Date.now() });
 }

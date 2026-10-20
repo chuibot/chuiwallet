@@ -76,8 +76,8 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const chainBalanceRequestId = useRef(0);
   const preferencesRef = useRef(defaultPreferences);
   preferencesRef.current = preferences;
-  // The background broadcasts a switch before replying to the window that asked for it; that window reloads from the reply.
-  const ownSwitchInFlight = useRef(0);
+  // The background broadcasts a change before replying to the window that asked for it; that window applies the reply.
+  const ownActionInFlight = useRef(0);
   const activeAccount = useMemo<Account | undefined>(() => {
     const i = preferences?.activeAccountIndex ?? 0;
     return accounts[i];
@@ -140,12 +140,12 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setPreferences(nextPreferences);
   };
 
-  const runOwnSwitch = async (switchFn: () => Promise<void>) => {
-    ownSwitchInFlight.current += 1;
+  const runOwnAction = async (action: () => Promise<void>) => {
+    ownActionInFlight.current += 1;
     try {
-      await switchFn();
+      await action();
     } finally {
-      ownSwitchInFlight.current -= 1;
+      ownActionInFlight.current -= 1;
     }
   };
 
@@ -241,9 +241,14 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     onTx: () => refreshTransactions(),
     onPreferences: e => {
       const nextPreferences = e.preferences;
-      if (!nextPreferences || !unlocked || ownSwitchInFlight.current > 0) return;
+      if (!nextPreferences || !unlocked || ownActionInFlight.current > 0) return;
       if (isSameActiveContext(nextPreferences, preferencesRef.current)) return;
       void applySwitch(nextPreferences);
+    },
+    onSession: e => {
+      if (ownActionInFlight.current > 0) return;
+      if (e.state === 'locked' && unlocked) applyLocked();
+      else if (e.state === 'loggedOut' && onboarded) applyLoggedOut();
     },
   });
 
@@ -318,13 +323,13 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const switchAccount = (accountIndex: number) =>
-    runOwnSwitch(async () => {
+    runOwnAction(async () => {
       const nextPreferences: Preferences = await sendMessage('accounts.switch', { accountIndex });
       await applySwitch(nextPreferences);
     });
 
   const addAccount = () =>
-    runOwnSwitch(async () => {
+    runOwnAction(async () => {
       const result = await sendMessage<{ preferences: Preferences; accounts: Account[] }>('accounts.create');
       applyPreferences(result.preferences);
       _setAccounts(result.accounts);
@@ -335,14 +340,14 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
 
   const switchNetwork = (network: Network) =>
-    runOwnSwitch(async () => {
+    runOwnAction(async () => {
       await sendMessage('wallet.switchNetwork', { network });
       const nextPreferences: Preferences = await sendMessage('preferences.get');
       await applySwitch(nextPreferences);
     });
 
   const switchEvmNetwork = (network: Network) =>
-    runOwnSwitch(async () => {
+    runOwnAction(async () => {
       await sendMessage('wallet.switchEvmNetwork', { network });
       const nextPreferences: Preferences = await sendMessage('preferences.get');
       applyPreferences(nextPreferences);
@@ -362,32 +367,38 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return sendMessage<string>('chain.getReceivingAddress', { chain });
   };
 
-  const lock = async () => {
-    return (async () => {
-      await sendMessage('wallet.lock');
-      setBalanceSyncing(false);
-      setUnlocked(false);
-    })();
+  const applyLocked = () => {
+    setBalanceSyncing(false);
+    setUnlocked(false);
   };
 
-  const logout = async () => {
-    return (async () => {
+  const applyLoggedOut = () => {
+    setIsBackedUp(false);
+    setOnboarded(false);
+    applyPreferences(defaultPreferences);
+    _setAccounts([]);
+    _setBalance(undefined);
+    setBalanceSyncing(false);
+    _setTransactions([]);
+    _setChainBalances({});
+    setChainBalancesLoading(false);
+    setFailedChains([]);
+    setHasHydratedChainBalances(false);
+    setUnlocked(false);
+  };
+
+  const lock = () =>
+    runOwnAction(async () => {
+      await sendMessage('wallet.lock');
+      applyLocked();
+    });
+
+  const logout = () =>
+    runOwnAction(async () => {
       await sendMessage('wallet.logout');
       await deleteSessionPassword();
-      setIsBackedUp(false);
-      setOnboarded(false);
-      applyPreferences(defaultPreferences);
-      _setAccounts([]);
-      _setBalance(undefined);
-      setBalanceSyncing(false);
-      _setTransactions([]);
-      _setChainBalances({});
-      setChainBalancesLoading(false);
-      setFailedChains([]);
-      setHasHydratedChainBalances(false);
-      setUnlocked(false);
-    })();
-  };
+      applyLoggedOut();
+    });
 
   return (
     <WalletContext.Provider

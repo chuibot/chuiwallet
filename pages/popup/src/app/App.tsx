@@ -125,7 +125,10 @@ export const App: React.FC = () => {
           <Route path="/settings/advanced/sync-log" element={<SyncLog />} />
           <Route path="/accounts" element={<Accounts />} />
         </Route>
-        <Route path="/locked" element={<PasswordLock />} />
+        <Route
+          path="/locked"
+          element={onboarded ? <PasswordLock /> : <Navigate to="/onboard/set-password" replace />}
+        />
       </Routes>
     </>
   );

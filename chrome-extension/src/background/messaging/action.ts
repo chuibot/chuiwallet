@@ -24,7 +24,7 @@ import {
   type IChainAdapter,
 } from '@extension/backend/src/adapters/IChainAdapter';
 import { logger } from '@extension/backend/src/utils/logger';
-import { emitPreferences } from '@src/background/messaging/port';
+import { emitPreferences, emitSession } from '@src/background/messaging/port';
 import { isActiveSyncRunning, resetScanRuntime, runAllScans, runHotScan, runResync } from '@src/background/scanRuntime';
 
 type Handler = (params: unknown, sender: Runtime.MessageSender) => Promise<unknown> | unknown;
@@ -334,6 +334,7 @@ const handlers: Record<string, Handler> = {
     await walletManager.lock();
     // Clear ETH key material from memory
     clearEthereumKeys();
+    emitSession('locked');
   },
   'wallet.logout': async () => {
     try {
@@ -342,6 +343,7 @@ const handlers: Record<string, Handler> = {
       await chainTransactionHistoryCache.clear();
       await syncLog.clear();
       resetScanRuntime();
+      emitSession('loggedOut');
     } finally {
       // Clear ETH key material from memory
       clearEthereumKeys();

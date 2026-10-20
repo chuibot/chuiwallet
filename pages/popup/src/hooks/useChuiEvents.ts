@@ -9,6 +9,7 @@ type ChuiPortEvent = {
   balance?: BalanceData;
   syncing?: boolean;
   preferences?: Preferences;
+  state?: 'locked' | 'loggedOut';
   ts?: number;
 };
 
@@ -22,6 +23,7 @@ export function useChuiEvents(handlers: {
   onTx?: (e: ChuiPortEvent) => void;
   onConnection?: (e: ChuiPortEvent) => void;
   onPreferences?: (e: ChuiPortEvent) => void;
+  onSession?: (e: ChuiPortEvent) => void;
 }) {
   const portRef = useRef<chrome.runtime.Port | null>(null);
   const handlersRef = useRef(handlers);
@@ -56,6 +58,7 @@ export function useChuiEvents(handlers: {
         else if (msg.type === 'TX') current.onTx?.(msg);
         else if (msg.type === 'CONNECTION') current.onConnection?.(msg);
         else if (msg.type === 'PREFERENCES') current.onPreferences?.(msg);
+        else if (msg.type === 'SESSION') current.onSession?.(msg);
       });
 
       clearKeepAlive();
