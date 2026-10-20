@@ -1,5 +1,12 @@
 import { resetChromeStorage } from '../helpers/chromeMock';
-import { installFetchMock, jsonResponse, mockFetch, resetFetchMock, restoreFetch } from '../helpers/fetchMock';
+import {
+  getFetchCalls,
+  installFetchMock,
+  jsonResponse,
+  mockFetch,
+  resetFetchMock,
+  restoreFetch,
+} from '../helpers/fetchMock';
 import { FeeService } from '../../src/modules/feeService';
 import { ScriptType } from '../../src/types/wallet';
 import { Network } from '../../src/types/electrum';
@@ -151,6 +158,37 @@ describe('FeeService.getFeeEstimates', () => {
       ScriptType.P2WPKH,
     );
     expect(tiers.map(t => t.sats)).toEqual([5, 15, 30]);
+  });
+
+  it('tags each fee with the currency chosen after the providers answer', async () => {
+    mockFetch('mempool.space/api/v1/fees/recommended', () => {
+      preferenceManager.get().fiatCurrency = 'EUR';
+      return jsonResponse({ fastestFee: 30, halfHourFee: 15, hourFee: 5 });
+    });
+    const svc = new FeeService();
+    const tiers = await svc.getFeeEstimates(
+      [mkUtxo(ScriptType.P2WPKH)],
+      'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+      Network.Mainnet,
+      ScriptType.P2WPKH,
+    );
+    expect(tiers.map(t => t.fiatCurrency)).toEqual(['EUR', 'EUR', 'EUR']);
+    expect(getFetchCalls().some(c => c.url.includes('price?currency=EUR'))).toBe(true);
+  });
+
+  it('tags a BTC preference with the USD it is priced in', async () => {
+    preferenceManager.get().fiatCurrency = 'BTC';
+    mockFetch('mempool.space/api/v1/fees/recommended', () =>
+      jsonResponse({ fastestFee: 30, halfHourFee: 15, hourFee: 5 }),
+    );
+    const svc = new FeeService();
+    const tiers = await svc.getFeeEstimates(
+      [mkUtxo(ScriptType.P2WPKH)],
+      'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+      Network.Mainnet,
+      ScriptType.P2WPKH,
+    );
+    expect(tiers.map(t => t.fiatCurrency)).toEqual(['USD', 'USD', 'USD']);
   });
 
   it('uses testnet endpoints for testnet network', async () => {

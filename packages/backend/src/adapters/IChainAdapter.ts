@@ -28,6 +28,8 @@ export interface ChainBalance {
   unconfirmedFiat: number;
   /** Native asset fiat rate (e.g. ETH/USD) when available */
   nativeFiatRate?: number;
+  /** Currency nativeFiatRate and the token fiat rates were priced in. */
+  fiatCurrency?: string;
   /** For chains with tokens (e.g. ETH has USDT) — balances in display units */
   tokens?: Record<string, TokenBalance>;
 }
@@ -79,6 +81,8 @@ export interface ChainFeeEstimate {
   timeEstimate?: number; // numeric estimate in minutes/blocks
   /** Fee in fiat */
   fiatAmount?: number;
+  /** Currency fiatAmount was priced in. */
+  fiatCurrency?: string;
   /** Chain-specific fee rate metadata (e.g. sat/vB, gwei) */
   rateValue?: number;
   rateUnit?: string;

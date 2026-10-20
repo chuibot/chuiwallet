@@ -4,6 +4,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AmountInputField } from '@src/components/AmountInputField';
 import { FeeOption } from '@src/components/FeeOption';
 import { useEffect, useRef, useState } from 'react';
+import { pricingCurrency } from '@extension/backend/src/utils/fiat';
 import { getBtcFiatRate } from '@src/utils';
 import { Button } from '@src/components/Button';
 import Header from '@src/components/Header';
@@ -64,6 +65,9 @@ export const SendOptions: React.FC = () => {
   const [assetAmount, setAssetAmount] = useState('');
   const [usdAmount, setUsdAmount] = useState('');
   const [fiatRate, setFiatRate] = useState<number | null>(null);
+  const fiatLabel = preferences?.fiatCurrency || 'USD';
+  // The fiat rate keeps the currency it was priced in, since another window can change the preference meanwhile.
+  const [rateCurrency, setRateCurrency] = useState(fiatLabel);
   const [selectedFeeIndex, setSelectedFeeIndex] = useState<number>(1);
   const [feeOptions, setFeeOptions] = useState<ChainFeeEstimate[]>([]);
   const [feeEstimatesLoading, setFeeEstimatesLoading] = useState<boolean>(false);
@@ -173,45 +177,43 @@ export const SendOptions: React.FC = () => {
 
     let cancelled = false;
 
+    const pricedIn = pricingCurrency(fiatLabel);
+    // Cached rates are reused only when tagged with this currency; the balance refresh lands after a change.
+    const canUseCachedRates = chainBalances?.[ChainType.Ethereum]?.fiatCurrency === pricedIn;
+    const applyRate = (rate: number | null, rateFiatCurrency: string | undefined) => {
+      if (cancelled) return;
+      // A rate without its currency cannot convert fiat input.
+      setFiatRate(rateFiatCurrency ? rate : null);
+      if (rateFiatCurrency) setRateCurrency(rateFiatCurrency);
+    };
+
     (async () => {
       try {
         if (currency === 'btc') {
-          const fiatCurrency = preferences?.fiatCurrency || 'USD';
-          const rate = await getBtcFiatRate(fiatCurrency === 'BTC' ? 'USD' : fiatCurrency);
-          if (!cancelled) {
-            setFiatRate(rate);
-          }
+          applyRate(await getBtcFiatRate(pricedIn), pricedIn);
           return;
         }
 
         if (meta.tokenSymbol) {
           const existingTokenRate = chainBalances?.[ChainType.Ethereum]?.tokens?.[meta.tokenSymbol]?.fiatRate;
-          if (existingTokenRate !== undefined && existingTokenRate > 0) {
-            if (!cancelled) {
-              setFiatRate(existingTokenRate);
-            }
+          if (canUseCachedRates && existingTokenRate !== undefined && existingTokenRate > 0) {
+            applyRate(existingTokenRate, pricedIn);
             return;
           }
 
           const ethBalance = await sendMessage<ChainBalance>('chain.getBalance', { chain: ChainType.Ethereum });
-          if (!cancelled) {
-            setFiatRate(ethBalance.tokens?.[meta.tokenSymbol]?.fiatRate ?? null);
-          }
+          applyRate(ethBalance.tokens?.[meta.tokenSymbol]?.fiatRate ?? null, ethBalance.fiatCurrency);
           return;
         }
 
         const existingRate = chainBalances?.[ChainType.Ethereum]?.nativeFiatRate;
-        if (existingRate !== undefined && existingRate > 0) {
-          if (!cancelled) {
-            setFiatRate(existingRate);
-          }
+        if (canUseCachedRates && existingRate !== undefined && existingRate > 0) {
+          applyRate(existingRate, pricedIn);
           return;
         }
 
         const ethBalance = await sendMessage<ChainBalance>('chain.getBalance', { chain: ChainType.Ethereum });
-        if (!cancelled) {
-          setFiatRate(ethBalance.nativeFiatRate ?? null);
-        }
+        applyRate(ethBalance.nativeFiatRate ?? null, ethBalance.fiatCurrency);
       } catch (rateError) {
         console.error('Failed to load fiat rate', rateError);
         if (!cancelled) {
@@ -223,7 +225,7 @@ export const SendOptions: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [chainBalances, currency, meta.tokenSymbol, preferences?.fiatCurrency]);
+  }, [chainBalances, currency, fiatLabel, meta.tokenSymbol]);
 
   useEffect(() => {
     if (!currency || !isSupportedSendCurrency(currency) || !states?.destinationAddress) return;
@@ -305,6 +307,7 @@ export const SendOptions: React.FC = () => {
   }, [assetAmount, assetDigits, fiatRate, lastEditedField, usdAmount]);
 
   const selectedFee = feeOptions[selectedFeeIndex];
+  const amountFiatLabel = fiatRate !== null ? rateCurrency : fiatLabel;
 
   // Drop max-send state and invalidate any in-flight estimate so a late response can't
   // overwrite a manually edited amount.
@@ -433,7 +436,13 @@ export const SendOptions: React.FC = () => {
     // Only when the fee shares the asset — fiatRate prices the asset, not a separate gas token.
     const showsNettedFee = isMaxSend && !usesSeparateFeeAsset && maxSendFee !== null;
     const feeAmount = showsNettedFee ? maxSendFee : selectedFee.fee;
-    const feeUsd = showsNettedFee ? (fiatRate !== null ? maxSendFee * fiatRate : undefined) : selectedFee.fiatAmount;
+    const feeUsd = showsNettedFee
+      ? fiatRate !== null
+        ? maxSendFee * fiatRate
+        : undefined
+      : selectedFee.fiatCurrency
+        ? selectedFee.fiatAmount
+        : undefined;
 
     navigate(`/send/${currency}/preview`, {
       state: {
@@ -442,6 +451,8 @@ export const SendOptions: React.FC = () => {
         amountUsd: fiatRate !== null && usdAmount !== '' ? Number(usdAmount) : undefined,
         feeAmount,
         feeUsd,
+        fiatCurrency: amountFiatLabel,
+        feeFiatCurrency: showsNettedFee ? rateCurrency : selectedFee.fiatCurrency,
         feeName: selectedFee.name,
         rateValue: selectedFee.rateValue,
         rateUnit: selectedFee.rateUnit,
@@ -521,8 +532,8 @@ export const SendOptions: React.FC = () => {
           />
           <span className="mt-7 text-[20px]">=</span>
           <AmountInputField
-            label={preferences?.fiatCurrency || 'USD'}
-            placeholder={`0 ${preferences?.fiatCurrency || 'USD'}`}
+            label={amountFiatLabel}
+            placeholder={`0 ${amountFiatLabel}`}
             id="usdAmount"
             value={usdAmount}
             onChange={handleUsdAmountChange}
@@ -564,11 +575,11 @@ export const SendOptions: React.FC = () => {
                   key={`${option.name ?? option.speed ?? 'fee'}-${index}`}
                   name={option.name}
                   fee={option.fee}
-                  fiatAmount={option.fiatAmount}
+                  fiatAmount={option.fiatCurrency ? option.fiatAmount : undefined}
                   rateValue={option.rateValue}
                   rateUnit={option.rateUnit}
                   symbol={meta.symbol}
-                  fiatCurrency={preferences?.fiatCurrency || 'USD'}
+                  fiatCurrency={option.fiatCurrency ?? fiatLabel}
                   selected={selectedFeeIndex === index}
                   disabled={maxSendLoading}
                   onSelect={() => handleFeeSelect(index)}

@@ -73,6 +73,8 @@ export interface FeeOptionSetting {
   sats: number;
   btcAmount: number;
   usdAmount: number;
+  /** Currency usdAmount was priced in. */
+  fiatCurrency: string;
 }
 
 export type TipHeader = {

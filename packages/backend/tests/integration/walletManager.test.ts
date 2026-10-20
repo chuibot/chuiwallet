@@ -23,7 +23,7 @@ import { Network } from '../../src/types/electrum';
 import { ScriptType } from '../../src/types/wallet';
 import { CacheType, ChangeType } from '../../src/types/cache';
 import { getCacheKey } from '../../src/utils/cache';
-import { setSessionPassword } from '../../src/utils/sessionStorageHelper';
+import { getSessionPassword, setSessionPassword } from '../../src/utils/sessionStorageHelper';
 
 const MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const PASSWORD = 'pw';
@@ -94,21 +94,23 @@ describe('WalletManager — full lifecycle (integration)', () => {
     expect(wallet.root).toBeNull();
   });
 
-  it('restoreIfPossible() returns true when a vault exists and a session password is provided', async () => {
+  it('restoreIfPossible() returns true when a vault exists and a session password is stored', async () => {
     await walletManager.createWallet(MNEMONIC, PASSWORD);
     wallet.clear();
-    expect(await walletManager.restoreIfPossible(PASSWORD)).toBe(true);
+    await setSessionPassword(PASSWORD);
+    expect(await walletManager.restoreIfPossible()).toBe(true);
     expect(wallet.root).not.toBeNull();
   });
 
   it('restoreIfPossible() returns false without a session password', async () => {
     await walletManager.createWallet(MNEMONIC, PASSWORD);
     wallet.clear();
-    expect(await walletManager.restoreIfPossible(null)).toBe(false);
+    expect(await walletManager.restoreIfPossible()).toBe(false);
   });
 
   it('restoreIfPossible() returns false when no vault exists', async () => {
-    expect(await walletManager.restoreIfPossible(PASSWORD)).toBe(false);
+    await setSessionPassword(PASSWORD);
+    expect(await walletManager.restoreIfPossible()).toBe(false);
   });
 
   it('getMnemonic() returns the original mnemonic', async () => {
@@ -331,7 +333,8 @@ describe('WalletManager — full lifecycle (integration)', () => {
       expect(preferenceManager.get().activeAccountIndex).toBe(1);
 
       wallet.clear();
-      await walletManager.restoreIfPossible(PASSWORD);
+      await setSessionPassword(PASSWORD);
+      await walletManager.restoreIfPossible();
 
       expect(preferenceManager.get().activeAccountIndex).toBe(1);
       expect(accountManager.activeAccountIndex).toBe(1);
@@ -345,7 +348,8 @@ describe('WalletManager — full lifecycle (integration)', () => {
       // the restore that follows must not move one of them without the other.
       wallet.clear();
       await accountManager.init(preferenceManager.get().activeAccountIndex);
-      await walletManager.restoreIfPossible(PASSWORD);
+      await setSessionPassword(PASSWORD);
+      await walletManager.restoreIfPossible();
 
       const activeAccount = accountManager.getActiveAccount();
       expect(preferenceManager.get().activeAccountIndex).toBe(accountManager.activeAccountIndex);
@@ -361,7 +365,8 @@ describe('WalletManager — full lifecycle (integration)', () => {
       await preferenceManager.update({ activeAccountIndex: 7 });
 
       wallet.clear();
-      await walletManager.restoreIfPossible(PASSWORD);
+      await setSessionPassword(PASSWORD);
+      await walletManager.restoreIfPossible();
 
       expect(preferenceManager.get().activeAccountIndex).toBe(0);
       expect(accountManager.activeAccountIndex).toBe(0);
@@ -623,6 +628,113 @@ describe('WalletManager — full lifecycle (integration)', () => {
       // 700 sats total, fee 560 at 5 sat/vB leaves 140 — above zero but below the 330 dust floor.
       await setupMultiUtxoWallet([700]);
       await expect(walletManager.getMaxSendAmount(TO_ADDR, 5)).rejects.toThrow('Insufficient funds');
+    });
+  });
+
+  describe('lock and logout against an in-flight restore or switch', () => {
+    afterEach(() => jest.restoreAllMocks());
+
+    async function setupLockedWallet(): Promise<void> {
+      await walletManager.createWallet(MNEMONIC, PASSWORD);
+      wallet.clear();
+      await setSessionPassword(PASSWORD);
+    }
+
+    // Holds the next vault decryption open so a lock or logout can be issued while it is in flight.
+    function stallNextRestore(): { started: Promise<void>; release: () => void } {
+      const originalRestore = wallet.restore.bind(wallet);
+      let release!: () => void;
+      const started = new Promise<void>(resolveStarted => {
+        jest.spyOn(wallet, 'restore').mockImplementationOnce(async (network, password) => {
+          resolveStarted();
+          await new Promise<void>(resolve => (release = resolve));
+          return originalRestore(network, password);
+        });
+      });
+      return { started, release: () => release() };
+    }
+
+    it('lock() during an in-flight restore leaves the wallet cleared and no session password', async () => {
+      await setupLockedWallet();
+      const { started, release } = stallNextRestore();
+      const restore = walletManager.restoreIfPossible();
+      await started;
+      const lock = walletManager.lock();
+      release();
+
+      expect(await restore).toBe(true);
+      await lock;
+      expect(wallet.root).toBeNull();
+      expect(await getSessionPassword()).toBeNull();
+    });
+
+    it('logout() during an in-flight restore persists no account', async () => {
+      await setupLockedWallet();
+      const { started, release } = stallNextRestore();
+      // Logout pauses between dropping the accounts and destroying the vault, the window in which
+      // a restore still running could derive account 0 again and persist it.
+      const originalDestroy = wallet.destroy.bind(wallet);
+      let releaseDestroy!: () => void;
+      const destroyStarted = new Promise<void>(resolveStarted => {
+        jest.spyOn(wallet, 'destroy').mockImplementationOnce(async () => {
+          resolveStarted();
+          await new Promise<void>(resolve => (releaseDestroy = resolve));
+          return originalDestroy();
+        });
+      });
+      const restore = walletManager.restoreIfPossible();
+      await started;
+      const logout = walletManager.logout();
+      release();
+
+      await restore;
+      await destroyStarted;
+      releaseDestroy();
+      await logout;
+      expect(accountManager.accounts).toEqual([]);
+      expect((await chrome.storage.local.get('accounts')).accounts).toBeUndefined();
+      expect(wallet.root).toBeNull();
+    });
+
+    it('lock() waits for an older restore, and a restore after the lock succeeds', async () => {
+      await setupLockedWallet();
+      const { started, release } = stallNextRestore();
+      const older = walletManager.restoreIfPossible();
+      let olderSettled = false;
+      void older.then(() => {
+        olderSettled = true;
+      });
+      await started;
+      const lock = walletManager.lock();
+      release();
+      await lock;
+
+      expect(olderSettled).toBe(true);
+      expect(wallet.root).toBeNull();
+      await setSessionPassword(PASSWORD);
+      expect(await walletManager.restoreIfPossible()).toBe(true);
+      expect(wallet.root).not.toBeNull();
+      expect(await getSessionPassword()).toBe(PASSWORD);
+    });
+
+    it('lock() during switchNetwork() leaves the wallet cleared', async () => {
+      await walletManager.createWallet(MNEMONIC, PASSWORD);
+      await setSessionPassword(PASSWORD);
+      jest.spyOn(scanManager, 'init').mockResolvedValue();
+      jest.spyOn(historyService, 'reset').mockImplementation(() => {});
+      jest.spyOn(electrumService, 'disconnect').mockImplementation(() => {});
+      jest.spyOn(electrumService, 'init').mockResolvedValue(electrumService);
+      jest.spyOn(electrumService, 'connect').mockResolvedValue(undefined);
+      const { started, release } = stallNextRestore();
+      const switched = walletManager.switchNetwork(Network.Testnet);
+      await started;
+      const lock = walletManager.lock();
+      release();
+
+      expect(await switched).toBe(true);
+      await lock;
+      expect(wallet.root).toBeNull();
+      expect(await getSessionPassword()).toBeNull();
     });
   });
 });

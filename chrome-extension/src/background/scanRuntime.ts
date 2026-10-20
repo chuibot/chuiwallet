@@ -85,6 +85,7 @@ export async function runForwardScan(): Promise<void> {
 }
 
 const SYNCED_CONTEXTS_KEY = 'scanSyncedContexts';
+let syncedContextsWriteQueue: Promise<void> = Promise.resolve();
 
 type SyncContext = { accountListIndex: number; accountIndex: number; network: Network };
 
@@ -109,11 +110,20 @@ async function isContextSynced(contextKey: string): Promise<boolean> {
   return Array.isArray(synced) && synced.includes(contextKey);
 }
 
-async function markContextSynced(contextKey: string): Promise<void> {
-  const stored = await chrome.storage.session.get([SYNCED_CONTEXTS_KEY]);
-  const synced = Array.isArray(stored[SYNCED_CONTEXTS_KEY]) ? (stored[SYNCED_CONTEXTS_KEY] as string[]) : [];
-  if (synced.includes(contextKey)) return;
-  await chrome.storage.session.set({ [SYNCED_CONTEXTS_KEY]: [...synced, contextKey] });
+// Each write replaces the whole list, so overlapping read-modify-writes would drop a context.
+function withSyncedContextsLock(fn: () => Promise<void>): Promise<void> {
+  const next = syncedContextsWriteQueue.then(fn, fn);
+  syncedContextsWriteQueue = next.catch(() => undefined);
+  return next;
+}
+
+function markContextSynced(contextKey: string): Promise<void> {
+  return withSyncedContextsLock(async () => {
+    const stored = await chrome.storage.session.get([SYNCED_CONTEXTS_KEY]);
+    const synced = Array.isArray(stored[SYNCED_CONTEXTS_KEY]) ? (stored[SYNCED_CONTEXTS_KEY] as string[]) : [];
+    if (synced.includes(contextKey)) return;
+    await chrome.storage.session.set({ [SYNCED_CONTEXTS_KEY]: [...synced, contextKey] });
+  });
 }
 
 function syncContextKey(ctx: SyncContext): string {
@@ -123,6 +133,11 @@ function syncContextKey(ctx: SyncContext): string {
 function isActiveContext(key: string): boolean {
   const current = syncContext();
   return current !== null && syncContextKey(current) === key;
+}
+
+// scanKey() is null while a switch has moved the preferences but not the account manager, and the scans bail then.
+function scanInterrupted(key: string, epoch: number): boolean {
+  return scanManager.getEpoch() !== epoch || scanKey() === null || !isActiveContext(key);
 }
 
 /** Whether the ACTIVE account's first sync or a resync is running, never another account's. */
@@ -159,6 +174,7 @@ export async function runAllScans(): Promise<void> {
   if (!ctx) return;
 
   const key = syncContextKey(ctx);
+  const epoch = scanManager.getEpoch();
   const indicated = electrumService.status === 'connected' && !(await isContextSynced(key));
   if (indicated) beginSyncIndicator(ctx, key);
   try {
@@ -167,7 +183,7 @@ export async function runAllScans(): Promise<void> {
     // Only a pass that finished on this account, still connected, counts as its first sync.
     // Switching accounts mid-pass makes the scans return without doing anything, and marking
     // that as synced would leave the abandoned account with no indicator on the way back.
-    if (indicated && isActiveContext(key) && electrumService.status === 'connected') {
+    if (indicated && !scanInterrupted(key, epoch) && electrumService.status === 'connected') {
       await markContextSynced(key);
     }
   } finally {
@@ -211,8 +227,6 @@ async function resync(ctx: SyncContext, key: string, epoch: number, logGeneratio
 }
 
 async function rescan(key: string, epoch: number): Promise<{ status: SyncStatus; error?: string }> {
-  // scanKey() is null while a switch has moved the preferences but not the account manager, and the scans bail then.
-  const interrupted = () => scanManager.getEpoch() !== epoch || scanKey() === null || !isActiveContext(key);
   try {
     if (!(await ensureScanRuntime())) return { status: 'interrupted' };
     if (electrumService.status !== 'connected') return { status: 'offline' };
@@ -223,11 +237,14 @@ async function rescan(key: string, epoch: number): Promise<{ status: SyncStatus;
     ]);
     const failure = results.find(result => result.status === 'rejected');
     if (failure?.status === 'rejected') throw failure.reason;
-    if (interrupted()) return { status: 'interrupted' };
+    if (scanInterrupted(key, epoch)) return { status: 'interrupted' };
     if (electrumService.status !== 'connected') return { status: 'offline' };
     return { status: 'completed' };
   } catch (e) {
-    return { status: interrupted() ? 'interrupted' : 'failed', error: e instanceof Error ? e.message : String(e) };
+    return {
+      status: scanInterrupted(key, epoch) ? 'interrupted' : 'failed',
+      error: e instanceof Error ? e.message : String(e),
+    };
   }
 }
 
@@ -247,7 +264,7 @@ export async function runPostConnectScan(): Promise<void> {
 export function resetScanRuntime(): void {
   activeScanKey = null;
   // Runs on wallet create/logout — the next wallet's accounts get first-sync indication again.
-  void chrome.storage.session.remove([SYNCED_CONTEXTS_KEY]);
+  void withSyncedContextsLock(() => chrome.storage.session.remove([SYNCED_CONTEXTS_KEY]));
   stopForegroundHotPolling();
   if (getActivePopupPortCount() > 0 && scanKey()) startForegroundHotPolling();
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { BalanceData, Network } from '@src/types';
+import type { BalanceData, Network, Preferences } from '@src/types';
 
 type ChuiPortEvent = {
   type: string;
@@ -8,6 +8,9 @@ type ChuiPortEvent = {
   network?: Network;
   balance?: BalanceData;
   syncing?: boolean;
+  preferences?: Preferences;
+  fiatCurrency?: string;
+  state?: 'locked' | 'loggedOut';
   ts?: number;
 };
 
@@ -20,6 +23,9 @@ export function useChuiEvents(handlers: {
   onSync?: (e: ChuiPortEvent) => void;
   onTx?: (e: ChuiPortEvent) => void;
   onConnection?: (e: ChuiPortEvent) => void;
+  onPreferences?: (e: ChuiPortEvent) => void;
+  onFiatCurrency?: (e: ChuiPortEvent) => void;
+  onSession?: (e: ChuiPortEvent) => void;
 }) {
   const portRef = useRef<chrome.runtime.Port | null>(null);
   const handlersRef = useRef(handlers);
@@ -53,6 +59,9 @@ export function useChuiEvents(handlers: {
         else if (msg.type === 'SYNC') current.onSync?.(msg);
         else if (msg.type === 'TX') current.onTx?.(msg);
         else if (msg.type === 'CONNECTION') current.onConnection?.(msg);
+        else if (msg.type === 'PREFERENCES') current.onPreferences?.(msg);
+        else if (msg.type === 'FIAT_CURRENCY') current.onFiatCurrency?.(msg);
+        else if (msg.type === 'SESSION') current.onSession?.(msg);
       });
 
       clearKeepAlive();

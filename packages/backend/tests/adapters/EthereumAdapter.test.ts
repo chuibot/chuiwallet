@@ -229,6 +229,35 @@ describe('EthereumAdapter — metadata + key derivation', () => {
   });
 });
 
+describe('EthereumAdapter — estimateFee', () => {
+  beforeEach(() => {
+    Object.defineProperty(preferenceManager, 'preferences', {
+      value: { ...defaultPreferences, fiatCurrency: 'EUR' },
+      writable: true,
+      configurable: true,
+    });
+    jest.spyOn(assetPriceService, 'getUsdPrices').mockResolvedValue({ ethereum: 2000 });
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('tags each fee with the currency it was priced in', async () => {
+    const adapter = new EthereumAdapter();
+    const internals = adapter as unknown as Record<string, unknown>;
+    internals.provider = {
+      getFeeData: async () => ({ gasPrice: BigInt('20000000000') }),
+      getBlock: async () => null,
+    };
+    internals.getRecentFeeMarket = async () => null;
+    internals.getRpcPriorityFee = async () => null;
+
+    const estimates = await adapter.estimateFee('0x2222222222222222222222222222222222222222');
+
+    expect(estimates.map(e => e.fiatCurrency)).toEqual(['EUR', 'EUR', 'EUR']);
+    expect(assetPriceService.getUsdPrices).toHaveBeenCalledWith(['ethereum'], 'eur');
+  });
+});
+
 describe('EthereumAdapter — estimateMaxSend', () => {
   const GAS_LIMIT = '21000';
   const MAX_FEE_PER_GAS_WEI = '30000000000'; // 30 gwei
@@ -449,6 +478,17 @@ describe('EthereumAdapter — balance reads', () => {
 
     await expect(adapter.getBalance()).rejects.toThrow('rpc down');
     expect(await adapter.getCachedBalance()).toBeNull();
+  });
+
+  it('tags the balance and its cached copy with the pricing currency', async () => {
+    preferenceManager.get().fiatCurrency = 'EUR';
+    const { adapter } = await adapterWithRpcs([healthyRpc(), healthyRpc(), healthyRpc()]);
+
+    const balance = await adapter.getBalance();
+
+    expect(balance.fiatCurrency).toBe('EUR');
+    expect(assetPriceService.getUsdPrices).toHaveBeenCalledWith(expect.anything(), 'eur');
+    expect((await adapter.getCachedBalance())?.fiatCurrency).toBe('EUR');
   });
 
   it('returns the balance it read even when saving it to storage fails', async () => {

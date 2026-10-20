@@ -10,7 +10,7 @@ import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import * as bitcoin from 'bitcoinjs-lib';
 import { wallet } from './modules/wallet';
 import { accountManager } from './accountManager';
-import { defaultPreferences, preferenceManager } from './preferenceManager';
+import { defaultPreferences, preferenceManager, type Preferences } from './preferenceManager';
 import { scanManager } from './scanManager';
 import { SupersededConnectError, electrumService } from './modules/electrumService';
 import { historyService } from './modules/txHistoryService';
@@ -33,6 +33,22 @@ bitcoin.initEccLib(secp256k1);
  * account management, and preferences synchronization.
  */
 export class WalletManager {
+  // Lock and logout wait for a restore or switch still decrypting with a password it read earlier,
+  // and a restore queued behind them reads the session password fresh and finds none.
+  private sessionQueue: Promise<unknown> = Promise.resolve();
+  private sessionGeneration = 0;
+
+  /** Bumped by lock and logout; a caller reading the vault outside the queue compares it to spot a lock that landed meanwhile. */
+  getSessionGeneration(): number {
+    return this.sessionGeneration;
+  }
+
+  private serializeSession<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.sessionQueue.then(fn, fn);
+    this.sessionQueue = next.catch(() => undefined);
+    return next;
+  }
+
   /**
    * Initializes the wallet manager by loading preferences and initializing the wallet.
    * @returns {Promise<void>} A promise that resolves when initialization is complete.
@@ -41,21 +57,31 @@ export class WalletManager {
     await wallet.init();
   }
 
-  async lock() {
-    wallet.clear();
-    await deleteSessionPassword();
+  lock(): Promise<void> {
+    return this.serializeSession(async () => {
+      this.sessionGeneration += 1;
+      wallet.clear();
+      await deleteSessionPassword();
+    });
   }
 
-  async logout() {
-    await scanManager.clearCache();
-    await historyService.clearCache();
-    await accountManager.destroy();
-    await wallet.destroy();
-    await preferenceManager.update(defaultPreferences);
-    await deleteSessionPassword();
+  logout(): Promise<void> {
+    return this.serializeSession(async () => {
+      this.sessionGeneration += 1;
+      await scanManager.clearCache();
+      await historyService.clearCache();
+      await accountManager.destroy();
+      await wallet.destroy();
+      await preferenceManager.update(defaultPreferences);
+      await deleteSessionPassword();
+    });
   }
 
-  async switchNetwork(network: Network) {
+  switchNetwork(network: Network): Promise<boolean> {
+    return this.serializeSession(() => this.runSwitchNetwork(network));
+  }
+
+  private async runSwitchNetwork(network: Network): Promise<boolean> {
     const sessionPassword = await getSessionPassword();
     if (!sessionPassword) return false;
 
@@ -129,7 +155,11 @@ export class WalletManager {
     return true;
   }
 
-  public async switchAccount(accountListIndex: number) {
+  public switchAccount(accountListIndex: number): Promise<Preferences> {
+    return this.serializeSession(() => this.runSwitchAccount(accountListIndex));
+  }
+
+  private async runSwitchAccount(accountListIndex: number): Promise<Preferences> {
     const account = accountManager.accounts[accountListIndex];
     if (!account) {
       throw new Error('Account not found');
@@ -456,18 +486,20 @@ export class WalletManager {
   }
 
   /**
-   * Attempts to restore the wallet if possible using the provided session password.
-   * @param {string} sessionPassword - The password from session storage.
+   * Attempts to restore the wallet from the session password, if one is stored.
    * @returns {Promise<boolean>} True if restoration was successful, false otherwise.
    */
-  async restoreIfPossible(sessionPassword: string | null): Promise<boolean> {
-    if (!wallet.isRestorable() || !sessionPassword) {
-      return false;
-    }
+  restoreIfPossible(): Promise<boolean> {
+    return this.serializeSession(async () => {
+      const sessionPassword = await getSessionPassword();
+      if (!wallet.isRestorable() || !sessionPassword) {
+        return false;
+      }
 
-    await wallet.restore(preferenceManager.get().activeNetwork, sessionPassword);
-    await this.ensureDefaultAccount();
-    return true;
+      await wallet.restore(preferenceManager.get().activeNetwork, sessionPassword);
+      await this.ensureDefaultAccount();
+      return true;
+    });
   }
 
   /**

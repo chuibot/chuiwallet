@@ -24,6 +24,7 @@ import {
   type IChainAdapter,
 } from '@extension/backend/src/adapters/IChainAdapter';
 import { logger } from '@extension/backend/src/utils/logger';
+import { emitFiatCurrency, emitPreferences, emitSession } from '@src/background/messaging/port';
 import { isActiveSyncRunning, resetScanRuntime, runAllScans, runHotScan, runResync } from '@src/background/scanRuntime';
 
 type Handler = (params: unknown, sender: Runtime.MessageSender) => Promise<unknown> | unknown;
@@ -137,6 +138,16 @@ function supportsCachedTransactionHistory(adapter: IChainAdapter): adapter is IC
   );
 }
 
+// The session queue releases before the ETH rehydrate and broadcast, so switches also wait for each other here
+// and each one publishes the account it installed.
+let switchQueue: Promise<unknown> = Promise.resolve();
+
+function runSettledSwitch<T>(fn: () => Promise<T>): Promise<T> {
+  const next = switchQueue.then(fn, fn);
+  switchQueue = next.catch(() => undefined);
+  return next;
+}
+
 function triggerAccountScans(): void {
   void runAllScans().catch(error => logger.error('Failed to trigger account scans', error));
 }
@@ -162,10 +173,12 @@ async function hydrateEthAdapter(mnemonic: string): Promise<void> {
 
 /** Re-derive the EVM address for whichever account is active now. No-op while locked. */
 async function rehydrateEthAdapterForActiveAccount(): Promise<void> {
+  const generation = walletManager.getSessionGeneration();
   const sessionPassword = await getSessionPassword();
   if (!sessionPassword) return;
   const mnemonic = await walletManager.getMnemonic(sessionPassword);
-  if (!mnemonic) return;
+  // A lock that landed while the vault was being read has already cleared the adapter's keys.
+  if (!mnemonic || generation !== walletManager.getSessionGeneration()) return;
   await hydrateEthAdapter(mnemonic);
 }
 
@@ -174,13 +187,13 @@ const handlers: Record<string, Handler> = {
     return walletManager.isRestorable();
   },
   'wallet.restore': async () => {
-    const sessionPassword = await getSessionPassword();
-    const isRestorable = await walletManager.restoreIfPossible(sessionPassword);
-    if (isRestorable) {
-      await rehydrateEthAdapterForActiveAccount();
-      triggerAccountScans();
-    }
-    return isRestorable;
+    if (!(await walletManager.restoreIfPossible())) return false;
+    const generation = walletManager.getSessionGeneration();
+    await rehydrateEthAdapterForActiveAccount();
+    // A lock queued behind the restore has cleared the wallet again by now.
+    if (generation !== walletManager.getSessionGeneration()) return false;
+    triggerAccountScans();
+    return true;
   },
   'wallet.create': async params => {
     const payload = expectObjectParams('wallet.create', params);
@@ -238,33 +251,41 @@ const handlers: Record<string, Handler> = {
   'wallet.switchNetwork': async params => {
     const payload = expectObjectParams('wallet.switchNetwork', params);
     const network = expectEnumParam('wallet.switchNetwork', payload, 'network', Object.values(Network));
-    const success = await walletManager.switchNetwork(network);
-    if (!success) {
-      throw new ActionError('WALLET_LOCKED', 'wallet.switchNetwork is unavailable while wallet is locked');
-    }
+    return runSettledSwitch(async () => {
+      const success = await walletManager.switchNetwork(network);
+      if (!success) {
+        throw new ActionError('WALLET_LOCKED', 'wallet.switchNetwork is unavailable while wallet is locked');
+      }
 
-    await rehydrateEthAdapterForActiveAccount();
+      await rehydrateEthAdapterForActiveAccount();
 
-    triggerAccountScans();
-    return success;
+      emitPreferences(preferenceManager.get());
+      triggerAccountScans();
+      return success;
+    });
   },
   'wallet.switchEvmNetwork': async params => {
     const payload = expectObjectParams('wallet.switchEvmNetwork', params);
     const network = expectEnumParam('wallet.switchEvmNetwork', payload, 'network', Object.values(Network));
-    await walletManager.switchEvmNetwork(network);
+    return runSettledSwitch(async () => {
+      await walletManager.switchEvmNetwork(network);
 
-    const ethAdapter = getEthereumAdapter();
-    if (ethAdapter) {
-      await ethAdapter.init(network);
-      await rehydrateEthAdapterForActiveAccount();
-    }
+      const ethAdapter = getEthereumAdapter();
+      if (ethAdapter) {
+        await ethAdapter.init(network);
+        await rehydrateEthAdapterForActiveAccount();
+      }
 
-    return true;
+      emitPreferences(preferenceManager.get());
+      return true;
+    });
   },
   'preferences.setFiatCurrency': async params => {
     const payload = expectObjectParams('preferences.setFiatCurrency', params);
     const currency = expectStringParam('preferences.setFiatCurrency', payload, 'currency');
-    return await preferenceManager.update({ fiatCurrency: currency });
+    const { fiatCurrency } = await preferenceManager.update({ fiatCurrency: currency });
+    emitFiatCurrency(fiatCurrency);
+    return { fiatCurrency };
   },
   'wallet.setBackupStatus': async (params: unknown) => {
     const payload = expectObjectParams('wallet.setBackupStatus', params);
@@ -282,21 +303,29 @@ const handlers: Record<string, Handler> = {
     await requireUnlockedWallet('accounts.switch');
     const payload = expectObjectParams('accounts.switch', params);
     const accountIndex = expectNumberParam('accounts.switch', payload, 'accountIndex', { integer: true, min: 0 });
-    const preferences = await walletManager.switchAccount(accountIndex);
+    return runSettledSwitch(async () => {
+      await walletManager.switchAccount(accountIndex);
 
-    await rehydrateEthAdapterForActiveAccount();
+      await rehydrateEthAdapterForActiveAccount();
 
-    triggerAccountScans();
-    return preferences;
+      const preferences = preferenceManager.get();
+      emitPreferences(preferences);
+      triggerAccountScans();
+      return preferences;
+    });
   },
   'accounts.create': async () => {
     await requireUnlockedWallet('accounts.create');
-    const preferences = await walletManager.createAccount();
+    return runSettledSwitch(async () => {
+      await walletManager.createAccount();
 
-    await rehydrateEthAdapterForActiveAccount();
+      await rehydrateEthAdapterForActiveAccount();
 
-    triggerAccountScans();
-    return { preferences, accounts: accountManager.accounts };
+      const preferences = preferenceManager.get();
+      emitPreferences(preferences);
+      triggerAccountScans();
+      return { preferences, accounts: accountManager.accounts };
+    });
   },
   'transactions.get': async () => {
     return await historyService.get();
@@ -329,6 +358,7 @@ const handlers: Record<string, Handler> = {
     await walletManager.lock();
     // Clear ETH key material from memory
     clearEthereumKeys();
+    emitSession('locked');
   },
   'wallet.logout': async () => {
     try {
@@ -337,6 +367,7 @@ const handlers: Record<string, Handler> = {
       await chainTransactionHistoryCache.clear();
       await syncLog.clear();
       resetScanRuntime();
+      emitSession('loggedOut');
     } finally {
       // Clear ETH key material from memory
       clearEthereumKeys();

@@ -76,6 +76,14 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const chainBalanceRequestId = useRef(0);
   const preferencesRef = useRef(defaultPreferences);
   preferencesRef.current = preferences;
+  // The background broadcasts a change before replying to the window that asked for it; that window applies the reply.
+  const ownActionInFlight = useRef(0);
+  // A broadcast that lands during a local action may come from another window, so it is reconciled once the action settles.
+  const preferencesChangedDuringOwnAction = useRef(false);
+  const unlockedRef = useRef(unlocked);
+  unlockedRef.current = unlocked;
+  // Bumped by every lock or logout broadcast, so a restore that started earlier cannot reopen the popup.
+  const sessionGeneration = useRef(0);
   const activeAccount = useMemo<Account | undefined>(() => {
     const i = preferences?.activeAccountIndex ?? 0;
     return accounts[i];
@@ -138,6 +146,50 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setPreferences(nextPreferences);
   };
 
+  const runOwnAction = async (action: () => Promise<void>) => {
+    ownActionInFlight.current += 1;
+    try {
+      await action();
+    } finally {
+      ownActionInFlight.current -= 1;
+      if (ownActionInFlight.current === 0 && preferencesChangedDuringOwnAction.current) {
+        preferencesChangedDuringOwnAction.current = false;
+        void reconcilePreferences();
+      }
+    }
+  };
+
+  /** Adopts the active account and networks and reloads everything keyed on them. */
+  const applySwitch = async (nextPreferences: Preferences) => {
+    applyPreferences(nextPreferences);
+    void refreshScanStatus();
+    await refreshAccounts();
+    refreshBalance();
+    await reloadChainBalances();
+    refreshTransactions();
+  };
+
+  const isSameActiveContext = (a: Preferences, b: Preferences) =>
+    a.activeAccountIndex === b.activeAccountIndex &&
+    a.activeNetwork === b.activeNetwork &&
+    a.activeEvmNetwork === b.activeEvmNetwork;
+
+  const applyPreferenceChange = (nextPreferences: Preferences) => {
+    const current = preferencesRef.current;
+    if (!isSameActiveContext(nextPreferences, current)) void applySwitch(nextPreferences);
+    else if (nextPreferences.fiatCurrency !== current.fiatCurrency) applyFiatCurrency(nextPreferences);
+  };
+
+  const reconcilePreferences = async () => {
+    if (!unlockedRef.current) return;
+    try {
+      const latest = await sendMessage<Preferences>('preferences.get');
+      if (unlockedRef.current) applyPreferenceChange(latest);
+    } catch (e) {
+      console.error('Failed to reconcile preferences', e);
+    }
+  };
+
   // Catches scans already in flight when the popup opens; SYNC events cover transitions after.
   const refreshScanStatus = async () => {
     try {
@@ -150,6 +202,8 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const hydrateSession = async ({ preferences, accounts }: WalletSession) => {
     setUnlocked(true);
+    // Set before the re-render so the reconcile that follows hydration does not see the popup as locked.
+    unlockedRef.current = true;
     setIsBackedUp(preferences.isWalletBackedUp);
     applyPreferences(preferences);
     _setAccounts(accounts);
@@ -157,26 +211,33 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await reloadChainBalances();
   };
 
-  const init = async () => {
-    const isRestorable = await sendMessage('wallet.restore');
-    if (isRestorable) {
-      const [preferences, accounts] = await Promise.all([
-        sendMessage<Preferences>('preferences.get'),
-        sendMessage<Account[]>('accounts.get'),
-      ]);
-      await hydrateSession({ preferences, accounts });
-    }
-  };
+  // Runs as an own action so a switch broadcast while the session loads is reconciled afterwards.
+  const init = () =>
+    runOwnAction(async () => {
+      const generation = sessionGeneration.current;
+      const isRestorable = await sendMessage('wallet.restore');
+      if (isRestorable) {
+        const [preferences, accounts] = await Promise.all([
+          sendMessage<Preferences>('preferences.get'),
+          sendMessage<Account[]>('accounts.get'),
+        ]);
+        if (generation !== sessionGeneration.current) return;
+        await hydrateSession({ preferences, accounts });
+      }
+    });
 
   const createWallet = async (params: { password: string; mnemonic?: string }) => {
     const session = await sendMessage<WalletSession>('wallet.create', params);
+    // The seed backup offered right after create sits behind the wallet route guard.
+    setOnboarded(true);
     await hydrateSession(session);
   };
 
   const setBackupStatus = async (isBackedUp: boolean) => {
     const nextPreferences = await sendMessage<Preferences>('wallet.setBackupStatus', { isBackedUp });
     setIsBackedUp(nextPreferences.isWalletBackedUp);
-    applyPreferences(nextPreferences);
+    // Only the backup flag is taken from this reply; another window's account change arrives by broadcast, which reloads accounts.
+    applyPreferences({ ...preferencesRef.current, isWalletBackedUp: nextPreferences.isWalletBackedUp });
   };
 
   useChuiEvents({
@@ -213,6 +274,32 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       refreshBalance();
     },
     onTx: () => refreshTransactions(),
+    onPreferences: e => {
+      const nextPreferences = e.preferences;
+      if (!nextPreferences) return;
+      if (ownActionInFlight.current > 0) {
+        preferencesChangedDuringOwnAction.current = true;
+        return;
+      }
+      if (!unlocked) return;
+      applyPreferenceChange(nextPreferences);
+    },
+    onFiatCurrency: e => {
+      const fiatCurrency = e.fiatCurrency;
+      if (!fiatCurrency) return;
+      if (!unlockedRef.current) {
+        // A popup still loading its session holds default preferences, so the change waits for the reconcile.
+        if (ownActionInFlight.current > 0) preferencesChangedDuringOwnAction.current = true;
+        return;
+      }
+      applyFiatCurrencyChange(fiatCurrency);
+    },
+    // Applied even during a local action: both handlers only set state, so the window that asked repeating them is harmless.
+    onSession: e => {
+      sessionGeneration.current += 1;
+      if (e.state === 'locked' && unlocked) applyLocked();
+      else if (e.state === 'loggedOut' && onboarded) applyLoggedOut();
+    },
   });
 
   // Hydrate settings (onboarded, preferences, accounts)
@@ -285,83 +372,104 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     })();
   };
 
-  const switchAccount = async (accountIndex: number) => {
-    const nextPreferences: Preferences = await sendMessage('accounts.switch', { accountIndex });
-    applyPreferences(nextPreferences);
-    void refreshScanStatus();
-    await refreshAccounts();
-    refreshBalance();
-    await reloadChainBalances();
-    refreshTransactions();
-  };
+  const switchAccount = (accountIndex: number) =>
+    runOwnAction(async () => {
+      const nextPreferences: Preferences = await sendMessage('accounts.switch', { accountIndex });
+      await applySwitch(nextPreferences);
+    });
 
-  const addAccount = async () => {
-    const result = await sendMessage<{ preferences: Preferences; accounts: Account[] }>('accounts.create');
-    applyPreferences(result.preferences);
-    _setAccounts(result.accounts);
-    void refreshScanStatus();
-    refreshBalance();
-    await reloadChainBalances();
-    refreshTransactions();
-  };
+  const addAccount = () =>
+    runOwnAction(async () => {
+      const result = await sendMessage<{ preferences: Preferences; accounts: Account[] }>('accounts.create');
+      applyPreferences(result.preferences);
+      _setAccounts(result.accounts);
+      void refreshScanStatus();
+      refreshBalance();
+      await reloadChainBalances();
+      refreshTransactions();
+    });
 
-  const switchNetwork = async (network: Network) => {
-    await sendMessage('wallet.switchNetwork', { network });
-    const nextPreferences: Preferences = await sendMessage('preferences.get');
-    applyPreferences(nextPreferences);
-    void refreshScanStatus();
-    await refreshAccounts();
-    refreshBalance();
-    await reloadChainBalances();
-    refreshTransactions();
-  };
+  const switchNetwork = (network: Network) =>
+    runOwnAction(async () => {
+      await sendMessage('wallet.switchNetwork', { network });
+      const nextPreferences: Preferences = await sendMessage('preferences.get');
+      await applySwitch(nextPreferences);
+    });
 
-  const switchEvmNetwork = async (network: Network) => {
-    await sendMessage('wallet.switchEvmNetwork', { network });
-    const nextPreferences: Preferences = await sendMessage('preferences.get');
-    applyPreferences(nextPreferences);
-    // Only refresh Ethereum-related state; Bitcoin is unaffected
-    await reloadChainBalances();
-  };
+  const switchEvmNetwork = (network: Network) =>
+    runOwnAction(async () => {
+      await sendMessage('wallet.switchEvmNetwork', { network });
+      const nextPreferences: Preferences = await sendMessage('preferences.get');
+      const current = preferencesRef.current;
+      // The reply can carry an account or network another window switched to meanwhile, which needs the full reload.
+      if (
+        nextPreferences.activeAccountIndex !== current.activeAccountIndex ||
+        nextPreferences.activeNetwork !== current.activeNetwork
+      ) {
+        await applySwitch(nextPreferences);
+        return;
+      }
+      applyPreferences(nextPreferences);
+      // Only refresh Ethereum-related state; Bitcoin is unaffected
+      await reloadChainBalances();
+    });
 
-  const setFiatCurrency = async (currency: string) => {
-    const nextPreferences: Preferences = await sendMessage('preferences.setFiatCurrency', { currency });
+  const applyFiatCurrency = (nextPreferences: Preferences) => {
     applyPreferences(nextPreferences);
     // Refresh all balances since fiat conversion rates have changed
     refreshBalance();
     void refreshChainBalances();
   };
 
+  // Only the currency is taken from a fiat change, so the window that made it and the broadcast refresh once between them.
+  const applyFiatCurrencyChange = (fiatCurrency: string) => {
+    if (fiatCurrency === preferencesRef.current.fiatCurrency) return;
+    applyFiatCurrency({ ...preferencesRef.current, fiatCurrency });
+  };
+
+  const setFiatCurrency = async (currency: string) => {
+    const { fiatCurrency } = await sendMessage<Pick<Preferences, 'fiatCurrency'>>('preferences.setFiatCurrency', {
+      currency,
+    });
+    applyFiatCurrencyChange(fiatCurrency);
+  };
+
   const getChainReceivingAddress = async (chain: ChainType): Promise<string> => {
     return sendMessage<string>('chain.getReceivingAddress', { chain });
   };
 
-  const lock = async () => {
-    return (async () => {
-      await sendMessage('wallet.lock');
-      setBalanceSyncing(false);
-      setUnlocked(false);
-    })();
+  const applyLocked = () => {
+    setBalanceSyncing(false);
+    setUnlocked(false);
   };
 
-  const logout = async () => {
-    return (async () => {
+  const applyLoggedOut = () => {
+    setIsBackedUp(false);
+    setOnboarded(false);
+    applyPreferences(defaultPreferences);
+    _setAccounts([]);
+    _setBalance(undefined);
+    setBalanceSyncing(false);
+    _setTransactions([]);
+    _setChainBalances({});
+    setChainBalancesLoading(false);
+    setFailedChains([]);
+    setHasHydratedChainBalances(false);
+    setUnlocked(false);
+  };
+
+  const lock = () =>
+    runOwnAction(async () => {
+      await sendMessage('wallet.lock');
+      applyLocked();
+    });
+
+  const logout = () =>
+    runOwnAction(async () => {
       await sendMessage('wallet.logout');
       await deleteSessionPassword();
-      setIsBackedUp(false);
-      setOnboarded(false);
-      applyPreferences(defaultPreferences);
-      _setAccounts([]);
-      _setBalance(undefined);
-      setBalanceSyncing(false);
-      _setTransactions([]);
-      _setChainBalances({});
-      setChainBalancesLoading(false);
-      setFailedChains([]);
-      setHasHydratedChainBalances(false);
-      setUnlocked(false);
-    })();
-  };
+      applyLoggedOut();
+    });
 
   return (
     <WalletContext.Provider

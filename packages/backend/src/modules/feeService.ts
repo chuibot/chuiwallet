@@ -5,6 +5,7 @@ import { scriptTypeFromAddress } from '../utils/crypto';
 import { getBitcoinPrice } from './blockonomics';
 import { Network } from '../types/electrum';
 import { preferenceManager } from '../preferenceManager';
+import { pricingCurrency } from '../utils/fiat';
 import { coerceFiniteNumber, isFiniteNumber, isRecord } from '../utils/validation';
 
 export type FeeSizer = (inputCount: number, includeChange: boolean) => number;
@@ -152,15 +153,28 @@ export class FeeService {
     const { fastestFee, halfHourFee, hourFee } = await this.getReliableFeeRates(network);
     const toScript: ScriptType = scriptTypeFromAddress(toAddress);
     const vbytes = this.estimateTxVbytes(inputs, toScript, changeScriptType);
-    const fiatCurrency = preferenceManager.get().fiatCurrency || 'USD';
-    const btcPrice = await getBitcoinPrice(fiatCurrency === 'BTC' ? 'USD' : fiatCurrency);
+    // Read after the provider wait, so the currency returned below is the one actually priced.
+    const fiatCurrency = pricingCurrency(preferenceManager.get().fiatCurrency);
+    const btcPrice = await getBitcoinPrice(fiatCurrency);
     const feeBtc = (rate: number) => (rate * vbytes) / 1e8;
     const toFiat = (btc: number) => btc * btcPrice;
 
     return [
-      { speed: 'slow', sats: hourFee, btcAmount: feeBtc(hourFee), usdAmount: toFiat(feeBtc(hourFee)) },
-      { speed: 'medium', sats: halfHourFee, btcAmount: feeBtc(halfHourFee), usdAmount: toFiat(feeBtc(halfHourFee)) },
-      { speed: 'fast', sats: fastestFee, btcAmount: feeBtc(fastestFee), usdAmount: toFiat(feeBtc(fastestFee)) },
+      { speed: 'slow', sats: hourFee, btcAmount: feeBtc(hourFee), usdAmount: toFiat(feeBtc(hourFee)), fiatCurrency },
+      {
+        speed: 'medium',
+        sats: halfHourFee,
+        btcAmount: feeBtc(halfHourFee),
+        usdAmount: toFiat(feeBtc(halfHourFee)),
+        fiatCurrency,
+      },
+      {
+        speed: 'fast',
+        sats: fastestFee,
+        btcAmount: feeBtc(fastestFee),
+        usdAmount: toFiat(feeBtc(fastestFee)),
+        fiatCurrency,
+      },
     ] as FeeOptionSetting[];
   }
 

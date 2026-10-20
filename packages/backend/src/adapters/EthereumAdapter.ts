@@ -4,6 +4,7 @@ import { chainBalanceCache } from '../modules/chainBalanceCache';
 import { chainTransactionHistoryCache } from '../modules/chainTransactionHistoryCache';
 import { assetPriceService } from '../modules/assetPriceService';
 import { preferenceManager } from '../preferenceManager';
+import { pricingCurrency } from '../utils/fiat';
 import {
   ChainType,
   type IChainAdapter,
@@ -299,11 +300,10 @@ export class EthereumAdapter implements IChainAdapter {
     const rpcGeneration = this.rpcGeneration;
 
     const priceIds = this.getTrackedPriceIds();
-    const fiatCurrency = preferenceManager.get().fiatCurrency || 'USD';
-    const vsCurrency = fiatCurrency === 'BTC' ? 'usd' : fiatCurrency.toLowerCase();
+    const fiatCurrency = pricingCurrency(preferenceManager.get().fiatCurrency);
     const [ethBalanceWei, priceByAssetId] = await Promise.all([
       this.readWithFallback(provider => provider.getBalance(address)),
-      assetPriceService.getUsdPrices(priceIds, vsCurrency),
+      assetPriceService.getUsdPrices(priceIds, fiatCurrency.toLowerCase()),
     ]);
     const ethPriceUsd = priceByAssetId.ethereum ?? 0;
 
@@ -324,6 +324,7 @@ export class EthereumAdapter implements IChainAdapter {
       confirmedFiat: ethBalanceUsd,
       unconfirmedFiat: 0,
       nativeFiatRate: ethPriceUsd > 0 ? ethPriceUsd : undefined,
+      fiatCurrency,
       tokens: tokenBalances,
     };
 
@@ -580,8 +581,8 @@ export class EthereumAdapter implements IChainAdapter {
       throw new Error(`${options?.tokenSymbol ?? 'Token'} is unavailable on this network`);
     }
 
-    const feeFiatCurrency = preferenceManager.get().fiatCurrency || 'USD';
-    const feeVsCurrency = feeFiatCurrency === 'BTC' ? 'usd' : feeFiatCurrency.toLowerCase();
+    const feeFiatCurrency = pricingCurrency(preferenceManager.get().fiatCurrency);
+    const feeVsCurrency = feeFiatCurrency.toLowerCase();
     const [feeData, latestBlock, ethPriceUsd, recentFeeMarket, rpcPriorityFee] = await Promise.all([
       this.provider.getFeeData(),
       this.provider.getBlock('latest'),
@@ -639,6 +640,7 @@ export class EthereumAdapter implements IChainAdapter {
           fee: reserveFeeEth,
           // Display the effective fee users are likely to pay, not the cap.
           fiatAmount: ethPriceUsd > 0 ? displayFeeEth * ethPriceUsd : undefined,
+          fiatCurrency: feeFiatCurrency,
           rateValue: parseFloat(ethers.formatUnits(effectiveGasPrice, 'gwei')),
           rateUnit: 'gwei',
           sendOptions: {
@@ -669,6 +671,7 @@ export class EthereumAdapter implements IChainAdapter {
         speed: tier.speed,
         fee: feeEth,
         fiatAmount: ethPriceUsd > 0 ? feeEth * ethPriceUsd : undefined,
+        fiatCurrency: feeFiatCurrency,
         rateValue: parseFloat(ethers.formatUnits(gasPrice, 'gwei')),
         rateUnit: 'gwei',
         sendOptions: {
