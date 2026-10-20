@@ -202,6 +202,8 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const hydrateSession = async ({ preferences, accounts }: WalletSession) => {
     setUnlocked(true);
+    // Set before the re-render so the reconcile that follows hydration does not see the popup as locked.
+    unlockedRef.current = true;
     setIsBackedUp(preferences.isWalletBackedUp);
     applyPreferences(preferences);
     _setAccounts(accounts);
@@ -209,18 +211,20 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await reloadChainBalances();
   };
 
-  const init = async () => {
-    const generation = sessionGeneration.current;
-    const isRestorable = await sendMessage('wallet.restore');
-    if (isRestorable) {
-      const [preferences, accounts] = await Promise.all([
-        sendMessage<Preferences>('preferences.get'),
-        sendMessage<Account[]>('accounts.get'),
-      ]);
-      if (generation !== sessionGeneration.current) return;
-      await hydrateSession({ preferences, accounts });
-    }
-  };
+  // Runs as an own action so a switch broadcast while the session loads is reconciled afterwards.
+  const init = () =>
+    runOwnAction(async () => {
+      const generation = sessionGeneration.current;
+      const isRestorable = await sendMessage('wallet.restore');
+      if (isRestorable) {
+        const [preferences, accounts] = await Promise.all([
+          sendMessage<Preferences>('preferences.get'),
+          sendMessage<Account[]>('accounts.get'),
+        ]);
+        if (generation !== sessionGeneration.current) return;
+        await hydrateSession({ preferences, accounts });
+      }
+    });
 
   const createWallet = async (params: { password: string; mnemonic?: string }) => {
     const session = await sendMessage<WalletSession>('wallet.create', params);
@@ -272,12 +276,23 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     onTx: () => refreshTransactions(),
     onPreferences: e => {
       const nextPreferences = e.preferences;
-      if (!nextPreferences || !unlocked) return;
+      if (!nextPreferences) return;
       if (ownActionInFlight.current > 0) {
         preferencesChangedDuringOwnAction.current = true;
         return;
       }
+      if (!unlocked) return;
       applyPreferenceChange(nextPreferences);
+    },
+    onFiatCurrency: e => {
+      const fiatCurrency = e.fiatCurrency;
+      if (!fiatCurrency) return;
+      if (!unlockedRef.current) {
+        // A popup still loading its session holds default preferences, so the change waits for the reconcile.
+        if (ownActionInFlight.current > 0) preferencesChangedDuringOwnAction.current = true;
+        return;
+      }
+      applyFiatCurrencyChange(fiatCurrency);
     },
     // Applied even during a local action: both handlers only set state, so the window that asked repeating them is harmless.
     onSession: e => {
@@ -406,12 +421,18 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     void refreshChainBalances();
   };
 
-  const setFiatCurrency = (currency: string) =>
-    runOwnAction(async () => {
-      const nextPreferences: Preferences = await sendMessage('preferences.setFiatCurrency', { currency });
-      if (!isSameActiveContext(nextPreferences, preferencesRef.current)) await applySwitch(nextPreferences);
-      else applyFiatCurrency(nextPreferences);
+  // Only the currency is taken from a fiat change, so the window that made it and the broadcast refresh once between them.
+  const applyFiatCurrencyChange = (fiatCurrency: string) => {
+    if (fiatCurrency === preferencesRef.current.fiatCurrency) return;
+    applyFiatCurrency({ ...preferencesRef.current, fiatCurrency });
+  };
+
+  const setFiatCurrency = async (currency: string) => {
+    const { fiatCurrency } = await sendMessage<Pick<Preferences, 'fiatCurrency'>>('preferences.setFiatCurrency', {
+      currency,
     });
+    applyFiatCurrencyChange(fiatCurrency);
+  };
 
   const getChainReceivingAddress = async (chain: ChainType): Promise<string> => {
     return sendMessage<string>('chain.getReceivingAddress', { chain });

@@ -15,6 +15,7 @@ type ChuiPortBroadcastMessage =
   | { type: 'SYNC'; accountIndex: number; network: Network; syncing: boolean; ts: number }
   | { type: 'TX'; accountIndex: number; tx: unknown; ts: number }
   | { type: 'PREFERENCES'; preferences: Preferences; ts: number }
+  | { type: 'FIAT_CURRENCY'; fiatCurrency: string; ts: number }
   | { type: 'SESSION'; state: SessionState; ts: number }
   | { type: 'PONG'; t: number };
 
@@ -79,6 +80,11 @@ export function emitTx(accountIndex: number, tx: unknown) {
 /** Sent once an account or network switch has settled, so every open popup follows it. */
 export function emitPreferences(preferences: Preferences) {
   broadcast({ type: 'PREFERENCES', preferences, ts: Date.now() });
+}
+
+/** Carries only the currency, because an account switch can still be settling when it changes. */
+export function emitFiatCurrency(fiatCurrency: string) {
+  broadcast({ type: 'FIAT_CURRENCY', fiatCurrency, ts: Date.now() });
 }
 
 /** Sent once a lock or logout has settled, so every open popup leaves the wallet pages. */

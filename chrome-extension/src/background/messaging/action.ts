@@ -24,7 +24,7 @@ import {
   type IChainAdapter,
 } from '@extension/backend/src/adapters/IChainAdapter';
 import { logger } from '@extension/backend/src/utils/logger';
-import { emitPreferences, emitSession } from '@src/background/messaging/port';
+import { emitFiatCurrency, emitPreferences, emitSession } from '@src/background/messaging/port';
 import { isActiveSyncRunning, resetScanRuntime, runAllScans, runHotScan, runResync } from '@src/background/scanRuntime';
 
 type Handler = (params: unknown, sender: Runtime.MessageSender) => Promise<unknown> | unknown;
@@ -269,9 +269,9 @@ const handlers: Record<string, Handler> = {
   'preferences.setFiatCurrency': async params => {
     const payload = expectObjectParams('preferences.setFiatCurrency', params);
     const currency = expectStringParam('preferences.setFiatCurrency', payload, 'currency');
-    const preferences = await preferenceManager.update({ fiatCurrency: currency });
-    emitPreferences(preferences);
-    return preferences;
+    const { fiatCurrency } = await preferenceManager.update({ fiatCurrency: currency });
+    emitFiatCurrency(fiatCurrency);
+    return { fiatCurrency };
   },
   'wallet.setBackupStatus': async (params: unknown) => {
     const payload = expectObjectParams('wallet.setBackupStatus', params);
