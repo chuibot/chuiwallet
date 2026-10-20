@@ -138,9 +138,6 @@ function supportsCachedTransactionHistory(adapter: IChainAdapter): adapter is IC
   );
 }
 
-// Bumped by lock and logout, so a restore that overlapped one cannot revive the wallet from its captured password.
-let sessionGeneration = 0;
-
 function triggerAccountScans(): void {
   void runAllScans().catch(error => logger.error('Failed to trigger account scans', error));
 }
@@ -166,10 +163,12 @@ async function hydrateEthAdapter(mnemonic: string): Promise<void> {
 
 /** Re-derive the EVM address for whichever account is active now. No-op while locked. */
 async function rehydrateEthAdapterForActiveAccount(): Promise<void> {
+  const generation = walletManager.getSessionGeneration();
   const sessionPassword = await getSessionPassword();
   if (!sessionPassword) return;
   const mnemonic = await walletManager.getMnemonic(sessionPassword);
-  if (!mnemonic) return;
+  // A lock that landed while the vault was being read has already cleared the adapter's keys.
+  if (!mnemonic || generation !== walletManager.getSessionGeneration()) return;
   await hydrateEthAdapter(mnemonic);
 }
 
@@ -178,19 +177,13 @@ const handlers: Record<string, Handler> = {
     return walletManager.isRestorable();
   },
   'wallet.restore': async () => {
-    const generation = sessionGeneration;
-    const sessionPassword = await getSessionPassword();
-    const isRestorable = await walletManager.restoreIfPossible(sessionPassword);
-    if (isRestorable && generation !== sessionGeneration) {
-      await walletManager.lock();
-      clearEthereumKeys();
-      return false;
-    }
-    if (isRestorable) {
-      await rehydrateEthAdapterForActiveAccount();
-      triggerAccountScans();
-    }
-    return isRestorable;
+    if (!(await walletManager.restoreIfPossible())) return false;
+    const generation = walletManager.getSessionGeneration();
+    await rehydrateEthAdapterForActiveAccount();
+    // A lock queued behind the restore has cleared the wallet again by now.
+    if (generation !== walletManager.getSessionGeneration()) return false;
+    triggerAccountScans();
+    return true;
   },
   'wallet.create': async params => {
     const payload = expectObjectParams('wallet.create', params);
@@ -345,14 +338,12 @@ const handlers: Record<string, Handler> = {
     return await walletManager.sendPayment(toAddress, amountInSats, feerate);
   },
   'wallet.lock': async () => {
-    sessionGeneration += 1;
     await walletManager.lock();
     // Clear ETH key material from memory
     clearEthereumKeys();
     emitSession('locked');
   },
   'wallet.logout': async () => {
-    sessionGeneration += 1;
     try {
       await walletManager.logout();
       await chainBalanceCache.clear();
