@@ -232,7 +232,8 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const setBackupStatus = async (isBackedUp: boolean) => {
     const nextPreferences = await sendMessage<Preferences>('wallet.setBackupStatus', { isBackedUp });
     setIsBackedUp(nextPreferences.isWalletBackedUp);
-    applyPreferences(nextPreferences);
+    // Only the backup flag is taken from this reply; another window's account change arrives by broadcast, which reloads accounts.
+    applyPreferences({ ...preferencesRef.current, isWalletBackedUp: nextPreferences.isWalletBackedUp });
   };
 
   useChuiEvents({
