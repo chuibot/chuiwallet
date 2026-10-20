@@ -442,6 +442,7 @@ export const SendOptions: React.FC = () => {
         amountUsd: fiatRate !== null && usdAmount !== '' ? Number(usdAmount) : undefined,
         feeAmount,
         feeUsd,
+        fiatCurrency: preferences?.fiatCurrency || 'USD',
         feeName: selectedFee.name,
         rateValue: selectedFee.rateValue,
         rateUnit: selectedFee.rateUnit,
