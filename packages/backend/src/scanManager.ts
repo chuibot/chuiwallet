@@ -63,6 +63,10 @@ export class ScanManager {
   private forwardInflight = new Map<string, Promise<void>>();
   private backfillInflight = new Map<string, Promise<void>>();
   private hotReceiveInflight = new Map<string, Promise<void>>();
+  // Scan types overlap on the same indices, so each index remembers its newest Electrum
+  // request and a reply to an older one is dropped rather than overwriting newer data.
+  private requestSeqReceive = new Map<number, number>();
+  private requestSeqChange = new Map<number, number>();
 
   constructor(config: ScanManagerConfig = defaultScanConfig) {
     this.config = { ...config };
@@ -393,12 +397,15 @@ export class ScanManager {
       });
       if (presentBatch.length === 0) continue;
       const scriptHashes = presentBatch.map(({ scriptHash }) => [scriptHash]);
+      const batchIndices = presentBatch.map(({ index }) => index);
 
       // Scan Histories
+      const historyRequest = this.issueRequest(batchIndices, changeType);
       const histories = await electrumService.getHistoryBatch(scriptHashes);
       if (!this.isCurrentContext(ctx)) return;
       for (let batchIndex = 0; batchIndex < presentBatch.length; batchIndex++) {
         const { index: hdIndex, entry } = presentBatch[batchIndex];
+        if (!this.isLatestRequest(historyRequest, hdIndex, changeType)) continue;
         entry.lastChecked = batchTimestamp;
         const history = histories[batchIndex] ?? [];
         if (history.length > 0) {
@@ -413,10 +420,12 @@ export class ScanManager {
       if (!this.isCurrentContext(ctx)) return;
 
       // Scan Utxo
+      const utxoRequest = this.issueRequest(batchIndices, changeType);
       const utxosByIndex = await electrumService.getUtxoBatch(scriptHashes);
       if (!this.isCurrentContext(ctx)) return;
       for (let batchIndex = 0; batchIndex < presentBatch.length; batchIndex++) {
         const { index: hdIndex } = presentBatch[batchIndex];
+        if (!this.isLatestRequest(utxoRequest, hdIndex, changeType)) continue;
         const utxos = utxosByIndex[batchIndex] ?? [];
         if (utxos.length > 0) {
           const changed = this.upsertUtxo(utxoCache, hdIndex, batchTimestamp, utxos);
@@ -444,6 +453,22 @@ export class ScanManager {
         indices: affectedIndices,
       });
     }
+  }
+
+  private issueRequest(indices: number[], changeType: ChangeType): Map<number, number> {
+    const requestSeq = selectByChain(this.requestSeqReceive, this.requestSeqChange, changeType);
+    const issued = new Map<number, number>();
+    for (const index of indices) {
+      const seq = (requestSeq.get(index) ?? 0) + 1;
+      requestSeq.set(index, seq);
+      issued.set(index, seq);
+    }
+    return issued;
+  }
+
+  private isLatestRequest(issued: Map<number, number>, index: number, changeType: ChangeType): boolean {
+    const requestSeq = selectByChain(this.requestSeqReceive, this.requestSeqChange, changeType);
+    return requestSeq.get(index) === issued.get(index);
   }
 
   private upsertHistoryIfUsed(
@@ -673,6 +698,8 @@ export class ScanManager {
     this.forwardInflight.clear();
     this.backfillInflight.clear();
     this.hotReceiveInflight.clear();
+    this.requestSeqReceive.clear();
+    this.requestSeqChange.clear();
     this.addressCacheReceive.clear();
     this.addressCacheChange.clear();
     this.historyCacheReceive.clear();
