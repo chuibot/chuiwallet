@@ -78,6 +78,10 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   preferencesRef.current = preferences;
   // The background broadcasts a change before replying to the window that asked for it; that window applies the reply.
   const ownActionInFlight = useRef(0);
+  // A broadcast that lands during a local action may come from another window, so it is reconciled once the action settles.
+  const preferencesChangedDuringOwnAction = useRef(false);
+  const unlockedRef = useRef(unlocked);
+  unlockedRef.current = unlocked;
   const activeAccount = useMemo<Account | undefined>(() => {
     const i = preferences?.activeAccountIndex ?? 0;
     return accounts[i];
@@ -146,6 +150,10 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       await action();
     } finally {
       ownActionInFlight.current -= 1;
+      if (ownActionInFlight.current === 0 && preferencesChangedDuringOwnAction.current) {
+        preferencesChangedDuringOwnAction.current = false;
+        void reconcilePreferences();
+      }
     }
   };
 
@@ -163,6 +171,22 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     a.activeAccountIndex === b.activeAccountIndex &&
     a.activeNetwork === b.activeNetwork &&
     a.activeEvmNetwork === b.activeEvmNetwork;
+
+  const applyPreferenceChange = (nextPreferences: Preferences) => {
+    const current = preferencesRef.current;
+    if (!isSameActiveContext(nextPreferences, current)) void applySwitch(nextPreferences);
+    else if (nextPreferences.fiatCurrency !== current.fiatCurrency) applyFiatCurrency(nextPreferences);
+  };
+
+  const reconcilePreferences = async () => {
+    if (!unlockedRef.current) return;
+    try {
+      const latest = await sendMessage<Preferences>('preferences.get');
+      if (unlockedRef.current) applyPreferenceChange(latest);
+    } catch (e) {
+      console.error('Failed to reconcile preferences', e);
+    }
+  };
 
   // Catches scans already in flight when the popup opens; SYNC events cover transitions after.
   const refreshScanStatus = async () => {
@@ -196,6 +220,8 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const createWallet = async (params: { password: string; mnemonic?: string }) => {
     const session = await sendMessage<WalletSession>('wallet.create', params);
+    // The seed backup offered right after create sits behind the wallet route guard.
+    setOnboarded(true);
     await hydrateSession(session);
   };
 
@@ -241,13 +267,15 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     onTx: () => refreshTransactions(),
     onPreferences: e => {
       const nextPreferences = e.preferences;
-      if (!nextPreferences || !unlocked || ownActionInFlight.current > 0) return;
-      const current = preferencesRef.current;
-      if (!isSameActiveContext(nextPreferences, current)) void applySwitch(nextPreferences);
-      else if (nextPreferences.fiatCurrency !== current.fiatCurrency) applyFiatCurrency(nextPreferences);
+      if (!nextPreferences || !unlocked) return;
+      if (ownActionInFlight.current > 0) {
+        preferencesChangedDuringOwnAction.current = true;
+        return;
+      }
+      applyPreferenceChange(nextPreferences);
     },
+    // Applied even during a local action: both handlers only set state, so the window that asked repeating them is harmless.
     onSession: e => {
-      if (ownActionInFlight.current > 0) return;
       if (e.state === 'locked' && unlocked) applyLocked();
       else if (e.state === 'loggedOut' && onboarded) applyLoggedOut();
     },

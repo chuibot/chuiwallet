@@ -582,6 +582,40 @@ describe('ScanManager — context isolation and stale-fence', () => {
     ]);
   });
 
+  it('keeps a newer history reply when an older scan moves on to its UTXO request first', async () => {
+    const sm = new ScanManager();
+    const internal = sm as unknown as ScanInternals;
+    internal.addressCacheReceive.set(0, {
+      address: 'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu',
+      firstSeen: 0,
+      lastChecked: 0,
+      everUsed: true,
+    });
+    Object.defineProperty(electrumService, 'status', { value: 'connected', configurable: true });
+    const confirmed = { tx_hash: 'a'.repeat(64), height: 1 };
+    const pending = { tx_hash: 'b'.repeat(64), height: 0 };
+    let releaseOlderHistoryReply!: (history: ElectrumHistory[]) => void;
+    let releaseNewerHistoryReply!: (history: ElectrumHistory[]) => void;
+    jest
+      .spyOn(electrumService, 'getHistoryBatch')
+      .mockImplementationOnce(() => new Promise(resolve => (releaseOlderHistoryReply = resolve)))
+      .mockImplementationOnce(() => new Promise(resolve => (releaseNewerHistoryReply = resolve)));
+    jest.spyOn(electrumService, 'getUtxoBatch').mockResolvedValue([[]]);
+
+    const ctx = internal.currentContext();
+    const older = internal.scan([0], ChangeType.External, ctx);
+    const newer = internal.scan([0], ChangeType.External, ctx);
+    releaseOlderHistoryReply([[confirmed]]);
+    await older;
+    releaseNewerHistoryReply([[confirmed, pending]]);
+    await newer;
+
+    expect(internal.historyCacheReceive.get(0)?.txs).toEqual([
+      [confirmed.tx_hash, 1],
+      [pending.tx_hash, 0],
+    ]);
+  });
+
   it('keeps scan results aligned when a sparse batch has a missing address', async () => {
     const sm = new ScanManager();
     const internal = sm as unknown as ScanInternals;

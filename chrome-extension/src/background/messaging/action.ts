@@ -287,20 +287,23 @@ const handlers: Record<string, Handler> = {
     await requireUnlockedWallet('accounts.switch');
     const payload = expectObjectParams('accounts.switch', params);
     const accountIndex = expectNumberParam('accounts.switch', payload, 'accountIndex', { integer: true, min: 0 });
-    const preferences = await walletManager.switchAccount(accountIndex);
+    await walletManager.switchAccount(accountIndex);
 
     await rehydrateEthAdapterForActiveAccount();
 
+    // Read after the awaits: a switch from another window may have completed meanwhile.
+    const preferences = preferenceManager.get();
     emitPreferences(preferences);
     triggerAccountScans();
     return preferences;
   },
   'accounts.create': async () => {
     await requireUnlockedWallet('accounts.create');
-    const preferences = await walletManager.createAccount();
+    await walletManager.createAccount();
 
     await rehydrateEthAdapterForActiveAccount();
 
+    const preferences = preferenceManager.get();
     emitPreferences(preferences);
     triggerAccountScans();
     return { preferences, accounts: accountManager.accounts };

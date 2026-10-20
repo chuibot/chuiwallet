@@ -11,6 +11,8 @@ import { preferenceManager } from './preferenceManager';
 import { electrumService } from './modules/electrumService';
 import { logger } from './utils/logger';
 
+type RequestKind = 'history' | 'utxo';
+
 type ScanContext = {
   epoch: number;
   network: Network;
@@ -64,9 +66,11 @@ export class ScanManager {
   private backfillInflight = new Map<string, Promise<void>>();
   private hotReceiveInflight = new Map<string, Promise<void>>();
   // Scan types overlap on the same indices, so each index remembers its newest Electrum
-  // request and a reply to an older one is dropped rather than overwriting newer data.
-  private requestSeqReceive = new Map<number, number>();
-  private requestSeqChange = new Map<number, number>();
+  // request per data type and a reply to an older one is dropped rather than overwriting newer data.
+  private requestSeq: Record<RequestKind, Record<ChangeType, Map<number, number>>> = {
+    history: { [ChangeType.External]: new Map(), [ChangeType.Internal]: new Map() },
+    utxo: { [ChangeType.External]: new Map(), [ChangeType.Internal]: new Map() },
+  };
 
   constructor(config: ScanManagerConfig = defaultScanConfig) {
     this.config = { ...config };
@@ -400,12 +404,12 @@ export class ScanManager {
       const batchIndices = presentBatch.map(({ index }) => index);
 
       // Scan Histories
-      const historyRequest = this.issueRequest(batchIndices, changeType);
+      const historyRequest = this.issueRequest('history', batchIndices, changeType);
       const histories = await electrumService.getHistoryBatch(scriptHashes);
       if (!this.isCurrentContext(ctx)) return;
       for (let batchIndex = 0; batchIndex < presentBatch.length; batchIndex++) {
         const { index: hdIndex, entry } = presentBatch[batchIndex];
-        if (!this.isLatestRequest(historyRequest, hdIndex, changeType)) continue;
+        if (!this.isLatestRequest('history', historyRequest, hdIndex, changeType)) continue;
         entry.lastChecked = batchTimestamp;
         const history = histories[batchIndex] ?? [];
         if (history.length > 0) {
@@ -420,12 +424,12 @@ export class ScanManager {
       if (!this.isCurrentContext(ctx)) return;
 
       // Scan Utxo
-      const utxoRequest = this.issueRequest(batchIndices, changeType);
+      const utxoRequest = this.issueRequest('utxo', batchIndices, changeType);
       const utxosByIndex = await electrumService.getUtxoBatch(scriptHashes);
       if (!this.isCurrentContext(ctx)) return;
       for (let batchIndex = 0; batchIndex < presentBatch.length; batchIndex++) {
         const { index: hdIndex } = presentBatch[batchIndex];
-        if (!this.isLatestRequest(utxoRequest, hdIndex, changeType)) continue;
+        if (!this.isLatestRequest('utxo', utxoRequest, hdIndex, changeType)) continue;
         const utxos = utxosByIndex[batchIndex] ?? [];
         if (utxos.length > 0) {
           const changed = this.upsertUtxo(utxoCache, hdIndex, batchTimestamp, utxos);
@@ -455,8 +459,8 @@ export class ScanManager {
     }
   }
 
-  private issueRequest(indices: number[], changeType: ChangeType): Map<number, number> {
-    const requestSeq = selectByChain(this.requestSeqReceive, this.requestSeqChange, changeType);
+  private issueRequest(kind: RequestKind, indices: number[], changeType: ChangeType): Map<number, number> {
+    const requestSeq = this.requestSeq[kind][changeType];
     const issued = new Map<number, number>();
     for (const index of indices) {
       const seq = (requestSeq.get(index) ?? 0) + 1;
@@ -466,8 +470,13 @@ export class ScanManager {
     return issued;
   }
 
-  private isLatestRequest(issued: Map<number, number>, index: number, changeType: ChangeType): boolean {
-    const requestSeq = selectByChain(this.requestSeqReceive, this.requestSeqChange, changeType);
+  private isLatestRequest(
+    kind: RequestKind,
+    issued: Map<number, number>,
+    index: number,
+    changeType: ChangeType,
+  ): boolean {
+    const requestSeq = this.requestSeq[kind][changeType];
     return requestSeq.get(index) === issued.get(index);
   }
 
@@ -698,8 +707,9 @@ export class ScanManager {
     this.forwardInflight.clear();
     this.backfillInflight.clear();
     this.hotReceiveInflight.clear();
-    this.requestSeqReceive.clear();
-    this.requestSeqChange.clear();
+    for (const byChain of Object.values(this.requestSeq)) {
+      for (const seq of Object.values(byChain)) seq.clear();
+    }
     this.addressCacheReceive.clear();
     this.addressCacheChange.clear();
     this.historyCacheReceive.clear();
