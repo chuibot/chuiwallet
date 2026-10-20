@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { SetPassword } from '@src/pages/onboarding/SetPassword';
 import { RestoreSeed } from '@src/pages/onboarding/RestoreSeed';
 import { ChooseMethod } from '@src/pages/onboarding/ChooseMethod';
@@ -102,21 +102,29 @@ export const App: React.FC = () => {
         />
         <Route path="/onboard/verify-seed" element={<VerifySeed />} />
         <Route path="/onboard/complete" element={<Complete />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/dashboard/:currency/activity" element={<Activity />} />
-        <Route path="/dashboard/:currency/activity/:txnHash/detail" element={<TransactionDetail />} />
-        <Route path="/send/:currency" element={<Send />} />
-        <Route path="/send/:currency/options" element={<SendOptions />} />
-        <Route path="/send/:currency/preview" element={<SendPreview />} />
-        <Route path="/send/:currency/status" element={<SendStatus />} />
-        <Route path="/receive/:currency" element={<Receive />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/settings/advanced" element={<AdvancedSettings />} />
-        <Route path="/settings/advanced/unlock-seed" element={<UnlockSeed />} />
-        <Route path="/settings/advanced/reveal-seed" element={<RevealSeed />} />
-        <Route path="/settings/advanced/xpub" element={unlocked ? <Xpub /> : <PasswordLock />} />
-        <Route path="/settings/advanced/sync-log" element={<SyncLog />} />
-        <Route path="/accounts" element={<Accounts />} />
+        {/* Explicit paths outrank the locked "*" route above, so every wallet page needs its own guard. */}
+        <Route
+          element={
+            <RequireUnlocked>
+              <Outlet />
+            </RequireUnlocked>
+          }>
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard/:currency/activity" element={<Activity />} />
+          <Route path="/dashboard/:currency/activity/:txnHash/detail" element={<TransactionDetail />} />
+          <Route path="/send/:currency" element={<Send />} />
+          <Route path="/send/:currency/options" element={<SendOptions />} />
+          <Route path="/send/:currency/preview" element={<SendPreview />} />
+          <Route path="/send/:currency/status" element={<SendStatus />} />
+          <Route path="/receive/:currency" element={<Receive />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/settings/advanced" element={<AdvancedSettings />} />
+          <Route path="/settings/advanced/unlock-seed" element={<UnlockSeed />} />
+          <Route path="/settings/advanced/reveal-seed" element={<RevealSeed />} />
+          <Route path="/settings/advanced/xpub" element={<Xpub />} />
+          <Route path="/settings/advanced/sync-log" element={<SyncLog />} />
+          <Route path="/accounts" element={<Accounts />} />
+        </Route>
         <Route path="/locked" element={<PasswordLock />} />
       </Routes>
     </>
