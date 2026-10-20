@@ -5,6 +5,7 @@ import type { ScanManager } from '../scanManager';
 import type { TxHistoryService } from '../modules/txHistoryService';
 import { assetPriceService } from '../modules/assetPriceService';
 import { preferenceManager } from '../preferenceManager';
+import { pricingCurrency } from '../utils/fiat';
 import { ChangeType } from '../types/cache';
 import {
   ChainType,
@@ -73,11 +74,10 @@ export class BitcoinAdapter implements IChainAdapter {
   // ── Balance ───────────────────────────────────────────────────────
 
   async getBalance(): Promise<ChainBalance> {
-    const fiatCurrency = preferenceManager.get().fiatCurrency || 'USD';
-    const vsCurrency = fiatCurrency === 'BTC' ? 'usd' : fiatCurrency.toLowerCase();
+    const fiatCurrency = pricingCurrency(preferenceManager.get().fiatCurrency);
     const [balance, priceByAssetId] = await Promise.all([
       this.walletManager.getBalance(),
-      assetPriceService.getUsdPrices(['bitcoin'], vsCurrency),
+      assetPriceService.getUsdPrices(['bitcoin'], fiatCurrency.toLowerCase()),
     ]);
     const btcPrice = priceByAssetId.bitcoin ?? 0;
 
@@ -87,6 +87,7 @@ export class BitcoinAdapter implements IChainAdapter {
       confirmedFiat: balance.confirmedUsd,
       unconfirmedFiat: balance.unconfirmedUsd,
       nativeFiatRate: btcPrice > 0 ? btcPrice : undefined,
+      fiatCurrency,
     };
   }
 
@@ -136,6 +137,7 @@ export class BitcoinAdapter implements IChainAdapter {
       fee: est.btcAmount,
       estimatedTime: `${est.speed}`,
       fiatAmount: est.usdAmount,
+      fiatCurrency: est.fiatCurrency,
       rateValue: est.sats,
       rateUnit: 'sat/vB',
       sendOptions: {

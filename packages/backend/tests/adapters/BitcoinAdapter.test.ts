@@ -28,9 +28,9 @@ function makeStubs() {
       unconfirmedUsd: 3_000,
     })),
     getFeeEstimates: jest.fn(async () => [
-      { speed: 'slow', sats: 2, btcAmount: 0.0001, usdAmount: 6 },
-      { speed: 'medium', sats: 5, btcAmount: 0.0003, usdAmount: 18 },
-      { speed: 'fast', sats: 10, btcAmount: 0.0006, usdAmount: 36 },
+      { speed: 'slow', sats: 2, btcAmount: 0.0001, usdAmount: 6, fiatCurrency: 'EUR' },
+      { speed: 'medium', sats: 5, btcAmount: 0.0003, usdAmount: 18, fiatCurrency: 'EUR' },
+      { speed: 'fast', sats: 10, btcAmount: 0.0006, usdAmount: 36, fiatCurrency: 'EUR' },
     ]),
     sendPayment: jest.fn(async () => 'txhashAAA'),
     getMaxSendAmount: jest.fn(async () => ({ amountSats: 199_998_750, feeSats: 1_250 })),
@@ -121,6 +121,7 @@ describe('BitcoinAdapter — getBalance', () => {
     expect(out.unconfirmed).toBe(50_000_000);
     expect(out.confirmedFiat).toBe(12_000);
     expect(out.nativeFiatRate).toBe(60_000);
+    expect(out.fiatCurrency).toBe('USD');
   });
 
   it('still returns nativeFiatRate from the price service when balance is zero', async () => {
@@ -246,6 +247,13 @@ describe('BitcoinAdapter — sendPayment + estimateFee', () => {
     expect(estimates[0].rateUnit).toBe('sat/vB');
     expect(estimates[2].rateValue).toBe(10);
     expect(estimates[2].sendOptions?.feeRate).toBe(10);
+  });
+
+  it('estimateFee keeps the currency each fee was priced in', async () => {
+    const { wallet, electrum, scan, history } = makeStubs();
+    const a = new BitcoinAdapter(wallet, electrum, scan, history);
+    const estimates = await a.estimateFee('bc1qrecv');
+    expect(estimates.map(e => e.fiatCurrency)).toEqual(['EUR', 'EUR', 'EUR']);
   });
 
   it('estimateFee returns [] when wallet returns undefined', async () => {
