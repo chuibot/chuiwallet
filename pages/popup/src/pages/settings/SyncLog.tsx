@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Header from '@src/components/Header';
 import { Button } from '@src/components/Button';
 import { useWalletContext } from '@src/context/WalletContext';
@@ -23,17 +23,10 @@ export const SyncLog: React.FC = () => {
   const { activeAccount, balanceSyncing, resync } = useWalletContext();
   const [entries, setEntries] = useState<SyncLogEntry[]>([]);
   const [running, setRunning] = useState(false);
+  const [reloadVersion, setReloadVersion] = useState(0);
   const busy = running || balanceSyncing;
   const network = activeAccount?.network;
   const accountIndex = activeAccount?.index;
-
-  const loadEntries = useCallback(async () => {
-    try {
-      setEntries(await sendMessage<SyncLogEntry[]>('scan.log'));
-    } catch (e) {
-      console.error('Failed to load sync log', e);
-    }
-  }, []);
 
   useEffect(() => {
     setEntries([]);
@@ -51,12 +44,12 @@ export const SyncLog: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [network, accountIndex, balanceSyncing]);
+  }, [network, accountIndex, balanceSyncing, reloadVersion]);
 
   const handleResync = async () => {
     setRunning(true);
     await resync();
-    await loadEntries();
+    setReloadVersion(version => version + 1);
     setRunning(false);
   };
 
