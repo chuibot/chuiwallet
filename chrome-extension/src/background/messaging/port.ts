@@ -1,6 +1,7 @@
 import browser from 'webextension-polyfill';
 import type { ConnectionStatus, Network } from '@extension/backend/src/types/electrum';
 import type { Balance } from '@extension/backend/src/types/wallet';
+import type { Preferences } from '@extension/backend/src/preferenceManager';
 import { electrumService } from '@extension/backend/src/modules/electrumService';
 import { createEmitter } from '@extension/backend/src/utils/emitter';
 
@@ -13,6 +14,7 @@ type ChuiPortBroadcastMessage =
   | { type: 'BALANCE'; accountIndex: number; network: Network; balance: Balance; ts: number }
   | { type: 'SYNC'; accountIndex: number; network: Network; syncing: boolean; ts: number }
   | { type: 'TX'; accountIndex: number; tx: unknown; ts: number }
+  | { type: 'PREFERENCES'; preferences: Preferences; ts: number }
   | { type: 'PONG'; t: number };
 
 const ports = new Set<browser.Runtime.Port>();
@@ -69,4 +71,9 @@ export function emitSync(accountIndex: number, network: Network, syncing: boolea
 
 export function emitTx(accountIndex: number, tx: unknown) {
   broadcast({ type: 'TX', accountIndex, tx, ts: Date.now() });
+}
+
+/** Sent once an account or network switch has settled, so every open popup follows it. */
+export function emitPreferences(preferences: Preferences) {
+  broadcast({ type: 'PREFERENCES', preferences, ts: Date.now() });
 }

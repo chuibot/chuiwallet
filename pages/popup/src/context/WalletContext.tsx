@@ -76,6 +76,8 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const chainBalanceRequestId = useRef(0);
   const preferencesRef = useRef(defaultPreferences);
   preferencesRef.current = preferences;
+  // The background broadcasts a switch before replying to the window that asked for it; that window reloads from the reply.
+  const ownSwitchInFlight = useRef(0);
   const activeAccount = useMemo<Account | undefined>(() => {
     const i = preferences?.activeAccountIndex ?? 0;
     return accounts[i];
@@ -137,6 +139,30 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     preferencesRef.current = nextPreferences;
     setPreferences(nextPreferences);
   };
+
+  const runOwnSwitch = async (switchFn: () => Promise<void>) => {
+    ownSwitchInFlight.current += 1;
+    try {
+      await switchFn();
+    } finally {
+      ownSwitchInFlight.current -= 1;
+    }
+  };
+
+  /** Adopts the active account and networks and reloads everything keyed on them. */
+  const applySwitch = async (nextPreferences: Preferences) => {
+    applyPreferences(nextPreferences);
+    void refreshScanStatus();
+    await refreshAccounts();
+    refreshBalance();
+    await reloadChainBalances();
+    refreshTransactions();
+  };
+
+  const isSameActiveContext = (a: Preferences, b: Preferences) =>
+    a.activeAccountIndex === b.activeAccountIndex &&
+    a.activeNetwork === b.activeNetwork &&
+    a.activeEvmNetwork === b.activeEvmNetwork;
 
   // Catches scans already in flight when the popup opens; SYNC events cover transitions after.
   const refreshScanStatus = async () => {
@@ -213,6 +239,12 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       refreshBalance();
     },
     onTx: () => refreshTransactions(),
+    onPreferences: e => {
+      const nextPreferences = e.preferences;
+      if (!nextPreferences || !unlocked || ownSwitchInFlight.current > 0) return;
+      if (isSameActiveContext(nextPreferences, preferencesRef.current)) return;
+      void applySwitch(nextPreferences);
+    },
   });
 
   // Hydrate settings (onboarded, preferences, accounts)
@@ -285,44 +317,38 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     })();
   };
 
-  const switchAccount = async (accountIndex: number) => {
-    const nextPreferences: Preferences = await sendMessage('accounts.switch', { accountIndex });
-    applyPreferences(nextPreferences);
-    void refreshScanStatus();
-    await refreshAccounts();
-    refreshBalance();
-    await reloadChainBalances();
-    refreshTransactions();
-  };
+  const switchAccount = (accountIndex: number) =>
+    runOwnSwitch(async () => {
+      const nextPreferences: Preferences = await sendMessage('accounts.switch', { accountIndex });
+      await applySwitch(nextPreferences);
+    });
 
-  const addAccount = async () => {
-    const result = await sendMessage<{ preferences: Preferences; accounts: Account[] }>('accounts.create');
-    applyPreferences(result.preferences);
-    _setAccounts(result.accounts);
-    void refreshScanStatus();
-    refreshBalance();
-    await reloadChainBalances();
-    refreshTransactions();
-  };
+  const addAccount = () =>
+    runOwnSwitch(async () => {
+      const result = await sendMessage<{ preferences: Preferences; accounts: Account[] }>('accounts.create');
+      applyPreferences(result.preferences);
+      _setAccounts(result.accounts);
+      void refreshScanStatus();
+      refreshBalance();
+      await reloadChainBalances();
+      refreshTransactions();
+    });
 
-  const switchNetwork = async (network: Network) => {
-    await sendMessage('wallet.switchNetwork', { network });
-    const nextPreferences: Preferences = await sendMessage('preferences.get');
-    applyPreferences(nextPreferences);
-    void refreshScanStatus();
-    await refreshAccounts();
-    refreshBalance();
-    await reloadChainBalances();
-    refreshTransactions();
-  };
+  const switchNetwork = (network: Network) =>
+    runOwnSwitch(async () => {
+      await sendMessage('wallet.switchNetwork', { network });
+      const nextPreferences: Preferences = await sendMessage('preferences.get');
+      await applySwitch(nextPreferences);
+    });
 
-  const switchEvmNetwork = async (network: Network) => {
-    await sendMessage('wallet.switchEvmNetwork', { network });
-    const nextPreferences: Preferences = await sendMessage('preferences.get');
-    applyPreferences(nextPreferences);
-    // Only refresh Ethereum-related state; Bitcoin is unaffected
-    await reloadChainBalances();
-  };
+  const switchEvmNetwork = (network: Network) =>
+    runOwnSwitch(async () => {
+      await sendMessage('wallet.switchEvmNetwork', { network });
+      const nextPreferences: Preferences = await sendMessage('preferences.get');
+      applyPreferences(nextPreferences);
+      // Only refresh Ethereum-related state; Bitcoin is unaffected
+      await reloadChainBalances();
+    });
 
   const setFiatCurrency = async (currency: string) => {
     const nextPreferences: Preferences = await sendMessage('preferences.setFiatCurrency', { currency });

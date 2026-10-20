@@ -24,6 +24,7 @@ import {
   type IChainAdapter,
 } from '@extension/backend/src/adapters/IChainAdapter';
 import { logger } from '@extension/backend/src/utils/logger';
+import { emitPreferences } from '@src/background/messaging/port';
 import { isActiveSyncRunning, resetScanRuntime, runAllScans, runHotScan, runResync } from '@src/background/scanRuntime';
 
 type Handler = (params: unknown, sender: Runtime.MessageSender) => Promise<unknown> | unknown;
@@ -245,6 +246,7 @@ const handlers: Record<string, Handler> = {
 
     await rehydrateEthAdapterForActiveAccount();
 
+    emitPreferences(preferenceManager.get());
     triggerAccountScans();
     return success;
   },
@@ -259,6 +261,7 @@ const handlers: Record<string, Handler> = {
       await rehydrateEthAdapterForActiveAccount();
     }
 
+    emitPreferences(preferenceManager.get());
     return true;
   },
   'preferences.setFiatCurrency': async params => {
@@ -286,6 +289,7 @@ const handlers: Record<string, Handler> = {
 
     await rehydrateEthAdapterForActiveAccount();
 
+    emitPreferences(preferences);
     triggerAccountScans();
     return preferences;
   },
@@ -295,6 +299,7 @@ const handlers: Record<string, Handler> = {
 
     await rehydrateEthAdapterForActiveAccount();
 
+    emitPreferences(preferences);
     triggerAccountScans();
     return { preferences, accounts: accountManager.accounts };
   },
