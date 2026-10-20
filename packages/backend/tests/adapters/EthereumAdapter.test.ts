@@ -44,10 +44,29 @@ const usdtTransferRow = {
 };
 
 describe('ERC20_TOKEN_DEFINITIONS', () => {
-  it('contains USDT with mainnet + testnet contracts', () => {
-    expect(ERC20_TOKEN_DEFINITIONS.USDT).toBeDefined();
+  it('contains USDT on mainnet only', () => {
     expect(ERC20_TOKEN_DEFINITIONS.USDT.contracts[Network.Mainnet]).toMatch(/^0x[a-fA-F0-9]{40}$/);
-    expect(ERC20_TOKEN_DEFINITIONS.USDT.contracts[Network.Testnet]).toMatch(/^0x[a-fA-F0-9]{40}$/);
+    expect(ERC20_TOKEN_DEFINITIONS.USDT.contracts[Network.Testnet]).toBeUndefined();
+  });
+
+  it('contains USDC with mainnet + testnet contracts', () => {
+    expect(ERC20_TOKEN_DEFINITIONS.USDC.contracts[Network.Mainnet]).toMatch(/^0x[a-fA-F0-9]{40}$/);
+    expect(ERC20_TOKEN_DEFINITIONS.USDC.contracts[Network.Testnet]).toMatch(/^0x[a-fA-F0-9]{40}$/);
+  });
+
+  it('never lists one contract under two tokens on the same network', () => {
+    for (const network of [Network.Mainnet, Network.Testnet]) {
+      const addresses = Object.values(ERC20_TOKEN_DEFINITIONS)
+        .map(token => token.contracts[network]?.toLowerCase())
+        .filter(Boolean);
+      expect(new Set(addresses).size).toBe(addresses.length);
+    }
+  });
+
+  it('keys every token by its own symbol', () => {
+    for (const [key, token] of Object.entries(ERC20_TOKEN_DEFINITIONS)) {
+      expect(token.symbol).toBe(key);
+    }
   });
 });
 
@@ -713,11 +732,31 @@ describe('EthereumAdapter — transaction history', () => {
     const adapter = await usdtAdapter();
     await adapter.init(Network.Testnet);
 
-    await adapter.getTransactionHistory({ tokenSymbol: 'USDT' });
+    await adapter.getTransactionHistory({ tokenSymbol: 'USDC' });
 
     const urls = getFetchCalls().map(call => call.url);
     expect(urls[0]).toContain('eth-sepolia.blockscout.com');
     expect(urls[1]).toContain('/network/testnet/evm/11155111/');
+  });
+
+  it('shows no history for a token with no contract on the active network', async () => {
+    mockFetch(INDEXERS, () => jsonResponse({ status: '1', message: 'OK', result: [usdtTransferRow] }));
+    const adapter = await usdtAdapter();
+    await adapter.init(Network.Testnet);
+    const [saved] = parseIndexerTransactions({ status: '1', result: [usdtTransferRow] }, USDT_MAINNET);
+    await chainTransactionHistoryCache.merge(
+      {
+        chain: ChainType.Ethereum,
+        network: Network.Testnet,
+        address: adapter.getReceivingAddress(),
+        assetKey: 'usdt',
+      },
+      [saved],
+    );
+
+    await expect(adapter.getCachedTransactionHistory({ tokenSymbol: 'USDT' })).resolves.toEqual([]);
+    await expect(adapter.getTransactionHistory({ tokenSymbol: 'USDT' })).resolves.toEqual([]);
+    expect(getFetchCalls()).toHaveLength(0);
   });
 
   it('rejects when every indexer returns an error, so the popup can say so', async () => {

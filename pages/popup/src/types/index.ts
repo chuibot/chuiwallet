@@ -1,9 +1,10 @@
-export type Currencies = 'btc' | 'bch' | 'usdt' | 'eth';
+export type Currencies = 'btc' | 'bch' | 'usdt' | 'usdc' | 'eth';
 
 export const currencyMapping: Record<Currencies, string> = {
   btc: 'Bitcoin',
   bch: 'Bitcoin Cash',
   usdt: 'USDT',
+  usdc: 'USDC',
   eth: 'Ethereum',
 };
 

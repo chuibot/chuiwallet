@@ -5,7 +5,7 @@ import { CryptoBalance } from '@src/components/CryptoBalance';
 import { RefreshButton } from '@src/components/RefreshButton';
 import { useWalletContext } from '@src/context/WalletContext';
 import { capitalize, formatNumber } from '@src/utils';
-import { getCurrencyMeta } from '@src/utils/currencyMeta';
+import { ERC20_CURRENCIES, getCurrencyMeta } from '@src/utils/currencyMeta';
 import { ChainType } from '@extension/backend/src/adapters/IChainAdapter';
 import Skeleton from 'react-loading-skeleton';
 
@@ -45,20 +45,27 @@ export const Dashboard: React.FC = () => {
   const ethWarning = ethFailed
     ? "Couldn't reach the Ethereum network, so this balance may be out of date. Use refresh to try again."
     : undefined;
-  const usdtMeta = getCurrencyMeta('usdt');
-  const usdtTokenBalance = usdtMeta.tokenSymbol ? ethBalance?.tokens?.[usdtMeta.tokenSymbol] : undefined;
+  const tokens = React.useMemo(
+    () =>
+      ERC20_CURRENCIES.map(currency => {
+        const meta = getCurrencyMeta(currency);
+        const tokenBalance = meta.tokenSymbol ? ethBalance?.tokens?.[meta.tokenSymbol] : undefined;
+        return { currency, meta, tokenBalance };
+      }),
+    [ethBalance],
+  );
 
   const totals = React.useMemo(() => {
     const btcConfirmed = balance?.confirmed ?? 0;
     const btcConfirmedUsd = balance?.confirmedUsd ?? 0;
     const btcAmount = btcConfirmed / 1e8;
     const ethConfirmedUsd = ethBalance?.confirmedFiat ?? 0;
-    const usdtConfirmedUsd = usdtTokenBalance?.balanceFiat ?? 0;
-    const totalUsd = btcConfirmedUsd + ethConfirmedUsd + usdtConfirmedUsd;
+    const tokensConfirmedUsd = tokens.reduce((sum, { tokenBalance }) => sum + (tokenBalance?.balanceFiat ?? 0), 0);
+    const totalUsd = btcConfirmedUsd + ethConfirmedUsd + tokensConfirmedUsd;
     const btcFiatRate = chainBalances[ChainType.Bitcoin]?.nativeFiatRate ?? 0;
     const totalBtcEquivalent = btcFiatRate > 0 ? totalUsd / btcFiatRate : btcAmount;
-    const hasUnpricedTokenBalance = Boolean(
-      usdtTokenBalance && usdtTokenBalance.balance > 0 && usdtTokenBalance.balanceFiat === undefined,
+    const hasUnpricedTokenBalance = tokens.some(
+      ({ tokenBalance }) => tokenBalance && tokenBalance.balance > 0 && tokenBalance.balanceFiat === undefined,
     );
 
     return {
@@ -67,7 +74,7 @@ export const Dashboard: React.FC = () => {
       btcFiatRate,
       hasUnpricedTokenBalance,
     };
-  }, [balance, chainBalances, ethBalance, usdtTokenBalance]);
+  }, [balance, chainBalances, ethBalance, tokens]);
 
   const isFiatMode = preferences?.fiatCurrency !== 'BTC';
   const fiatLabel = preferences?.fiatCurrency || 'USD';
@@ -232,25 +239,28 @@ export const Dashboard: React.FC = () => {
           warning={ethWarning}
           onClick={() => navigate('/dashboard/eth/activity')}
         />
-        <CryptoBalance
-          cryptoName="USDT"
-          cryptoAmount={
-            usdtTokenBalance
-              ? `${formatNumber(usdtTokenBalance.balance, usdtMeta.displayPrecision)} ${usdtMeta.symbol}`
-              : `${ethUnavailable ? '—' : '0'} ${usdtMeta.symbol}`
-          }
-          usdAmount={
-            usdtTokenBalance
-              ? usdtTokenBalance.balanceFiat !== undefined
-                ? `${formatNumber(usdtTokenBalance.balanceFiat)} ${fiatLabel}`
-                : `${fiatLabel} unavailable`
-              : `${ethUnavailable ? '—' : '0'} ${fiatLabel}`
-          }
-          icon="popup/usdt_coin.svg"
-          isLoading={chainBalanceLoading}
-          warning={ethWarning}
-          onClick={() => navigate('/dashboard/usdt/activity')}
-        />
+        {tokens.map(({ currency, meta, tokenBalance }) => (
+          <CryptoBalance
+            key={currency}
+            cryptoName={meta.name}
+            cryptoAmount={
+              tokenBalance
+                ? `${formatNumber(tokenBalance.balance, meta.displayPrecision)} ${meta.symbol}`
+                : `${ethUnavailable ? '—' : '0'} ${meta.symbol}`
+            }
+            usdAmount={
+              tokenBalance
+                ? tokenBalance.balanceFiat !== undefined
+                  ? `${formatNumber(tokenBalance.balanceFiat)} ${fiatLabel}`
+                  : `${fiatLabel} unavailable`
+                : `${ethUnavailable ? '—' : '0'} ${fiatLabel}`
+            }
+            icon={meta.icon}
+            isLoading={chainBalanceLoading}
+            warning={ethWarning}
+            onClick={() => navigate(`/dashboard/${currency}/activity`)}
+          />
+        ))}
       </div>
 
       <div className="fixed bottom-0 w-full px-4 py-2 flex justify-end">
