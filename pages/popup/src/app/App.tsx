@@ -88,20 +88,23 @@ export const App: React.FC = () => {
           }
         />
 
-        <Route path="/onboard/set-password" element={<SetPassword />} />
-        <Route path="/onboard/choose-method" element={<ChooseMethod />} />
-        <Route path="/onboard/restore-seed" element={<RestoreSeed />} />
-        <Route path="/onboard/generate-seed" element={<GenerateSeed />} />
-        <Route
-          path="/onboard/backup-seed"
-          element={
-            <RequireUnlocked>
-              <BackupSeed />
-            </RequireUnlocked>
-          }
-        />
-        <Route path="/onboard/verify-seed" element={<VerifySeed />} />
-        <Route path="/onboard/complete" element={<Complete />} />
+        {/* Onboarding stays reachable for a new wallet and for the steps right after create or restore, which run unlocked. */}
+        <Route element={onboarded && !unlocked ? <PasswordLock /> : <Outlet />}>
+          <Route path="/onboard/set-password" element={<SetPassword />} />
+          <Route path="/onboard/choose-method" element={<ChooseMethod />} />
+          <Route path="/onboard/restore-seed" element={<RestoreSeed />} />
+          <Route path="/onboard/generate-seed" element={<GenerateSeed />} />
+          <Route
+            path="/onboard/backup-seed"
+            element={
+              <RequireUnlocked>
+                <BackupSeed />
+              </RequireUnlocked>
+            }
+          />
+          <Route path="/onboard/verify-seed" element={<VerifySeed />} />
+          <Route path="/onboard/complete" element={<Complete />} />
+        </Route>
         {/* Explicit paths outrank the locked "*" route above, so every wallet page needs its own guard. */}
         <Route
           element={
