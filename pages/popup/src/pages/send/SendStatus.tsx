@@ -40,7 +40,7 @@ export const SendStatus: React.FC = () => {
     return null;
   }
 
-  const explorerUrl = buildTransactionExplorerUrl(currency, preferences.activeNetwork, states.transactionHash);
+  const explorerUrl = buildTransactionExplorerUrl(currency, preferences, states.transactionHash);
 
   const handleCopyToClipboard = async () => {
     try {

@@ -33,7 +33,7 @@ export const TransactionDetail: React.FC = () => {
   const transactionDetailStates = location.state as TransactionDetailStates;
   const { type, status, amountBtc, amountUsd, feeBtc, feeUsd, timestamp, confirmations, transactionHash, feeUnit } =
     transactionDetailStates;
-  const explorerUrl = buildTransactionExplorerUrl(currency, preferences.activeNetwork, transactionHash);
+  const explorerUrl = buildTransactionExplorerUrl(currency, preferences, transactionHash);
   const feeSymbol = feeUnit ?? meta.networkFeeSymbol ?? meta.symbol;
   const feeDigits = feeSymbol === 'BTC' ? 8 : 6;
   const hasAmountUsd = Number.isFinite(amountUsd);
