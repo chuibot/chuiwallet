@@ -1,7 +1,7 @@
 import { ChainType, type ChainBalance } from '@extension/backend/src/adapters/IChainAdapter';
 import { getErc20ContractAddress } from '@extension/backend/src/adapters/erc20TokenDefinitions';
 import type { Network as BackendNetwork } from '@extension/backend/src/types/electrum';
-import type { BalanceData, Currencies, Network, Preferences } from '@src/types';
+import type { BalanceData, Currencies, Network } from '@src/types';
 
 type CurrencyMeta = {
   chain: ChainType;
@@ -100,24 +100,17 @@ export function getTokenContractAddress(currency: string | undefined, network: N
   return getErc20ContractAddress(meta.tokenSymbol, network as unknown as BackendNetwork);
 }
 
-/** Takes both network settings so the link follows the one for the currency's chain. */
-export function buildTransactionExplorerUrl(
-  currency: string | undefined,
-  preferences: Pick<Preferences, 'activeNetwork' | 'activeEvmNetwork'>,
-  txHash: string,
-): string {
+/** Takes the network the transaction was sent or listed on, which can differ from the active one. */
+export function buildTransactionExplorerUrl(currency: string | undefined, network: Network, txHash: string): string {
   const meta = getCurrencyMeta(currency);
 
   if (meta.chain === ChainType.Ethereum) {
-    const baseUrl =
-      preferences.activeEvmNetwork === 'testnet'
-        ? 'https://eth-sepolia.blockscout.com/tx/'
-        : 'https://eth.blockscout.com/tx/';
+    const baseUrl = network === 'testnet' ? 'https://eth-sepolia.blockscout.com/tx/' : 'https://eth.blockscout.com/tx/';
     return `${baseUrl}${txHash}`;
   }
 
   // Bitcoin (default)
-  if (preferences.activeNetwork === 'testnet') {
+  if (network === 'testnet') {
     return `https://mempool.space/testnet4/tx/${txHash}`;
   }
 

@@ -104,6 +104,8 @@ export const Activity: React.FC = () => {
 
   // Chain transaction state for ETH/USDT
   const [chainTxs, setChainTxs] = useState<ChainTransaction[]>([]);
+  // Kept with the rows so a network switch elsewhere cannot relabel them before they reload.
+  const [chainTxsNetwork, setChainTxsNetwork] = useState<Network>(preferences?.activeEvmNetwork ?? Network.Mainnet);
   const [chainTxsLoading, setChainTxsLoading] = useState(false);
   const [chainTxsFailed, setChainTxsFailed] = useState(false);
   const [historyReloadKey, setHistoryReloadKey] = useState(0);
@@ -167,6 +169,7 @@ export const Activity: React.FC = () => {
     let cancelled = false;
 
     setChainTxs([]);
+    setChainTxsNetwork(preferences?.activeEvmNetwork ?? Network.Mainnet);
     setChainTxsLoading(true);
     setChainTxsFailed(false);
 
@@ -238,7 +241,7 @@ export const Activity: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [chainHistoryOptions, currency, meta.chain, historyReloadKey]);
+  }, [chainHistoryOptions, currency, meta.chain, historyReloadKey, preferences?.activeEvmNetwork]);
 
   // Derive ETH price from chain balances for network-fee conversion in tx history
   const ethPriceUsd = useMemo(() => {
@@ -375,7 +378,7 @@ export const Activity: React.FC = () => {
               <Skeleton className="!h-[66px]" />
             </>
           ) : currency === 'btc' ? (
-            <TransactionActivityList transactions={transactions} />
+            <TransactionActivityList transactions={transactions} network={activeNetworkForChain} />
           ) : chainTxsFailed && chainTxEntries.length === 0 ? (
             <div className="flex flex-col gap-2 items-center justify-center h-[calc(100vh-356px)] text-gray-400 text-base">
               Couldn&apos;t load activity.
@@ -390,6 +393,7 @@ export const Activity: React.FC = () => {
               amountDecimals={meta.displayPrecision}
               feeUnit={meta.networkFeeSymbol}
               includeFeeInTotals={!meta.networkFeeSymbol}
+              network={chainTxsNetwork}
             />
           )}
         </div>

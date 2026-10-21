@@ -75,6 +75,9 @@ export function SendPreview() {
       return;
     }
 
+    // Read before sending: another window can switch networks while the send is in flight.
+    const sentNetwork = meta.chain === ChainType.Ethereum ? states.sendOptions?.network : preferences.activeNetwork;
+
     setConfirmLoading(true);
     setError('');
     try {
@@ -95,6 +98,7 @@ export function SendPreview() {
           state: {
             status: 'success',
             transactionHash: txid,
+            network: sentNetwork,
           },
         });
       } else {

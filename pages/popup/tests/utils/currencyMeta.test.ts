@@ -94,26 +94,21 @@ describe('token lookups', () => {
 });
 
 describe('buildTransactionExplorerUrl', () => {
-  const btcTestnetEthMainnet = { activeNetwork: Network.Testnet, activeEvmNetwork: Network.Mainnet };
-  const btcMainnetEthSepolia = { activeNetwork: Network.Mainnet, activeEvmNetwork: Network.Testnet };
-
-  it('links ETH and token transactions on the EVM network, not the Bitcoin one', () => {
-    expect(buildTransactionExplorerUrl('eth', btcTestnetEthMainnet, TX_HASH)).toBe(
+  it('links ETH and token transactions on Blockscout for their network', () => {
+    expect(buildTransactionExplorerUrl('eth', Network.Mainnet, TX_HASH)).toBe(
       `https://eth.blockscout.com/tx/${TX_HASH}`,
     );
-    expect(buildTransactionExplorerUrl('usdt', btcTestnetEthMainnet, TX_HASH)).toBe(
+    expect(buildTransactionExplorerUrl('usdt', Network.Mainnet, TX_HASH)).toBe(
       `https://eth.blockscout.com/tx/${TX_HASH}`,
     );
-    expect(buildTransactionExplorerUrl('eth', btcMainnetEthSepolia, TX_HASH)).toBe(
+    expect(buildTransactionExplorerUrl('eth', Network.Testnet, TX_HASH)).toBe(
       `https://eth-sepolia.blockscout.com/tx/${TX_HASH}`,
     );
   });
 
-  it('links Bitcoin transactions on the Bitcoin network', () => {
-    expect(buildTransactionExplorerUrl('btc', btcTestnetEthMainnet, 'abc')).toBe(
-      'https://mempool.space/testnet4/tx/abc',
-    );
-    expect(buildTransactionExplorerUrl('btc', btcMainnetEthSepolia, 'abc')).toBe(
+  it('links Bitcoin transactions for their network', () => {
+    expect(buildTransactionExplorerUrl('btc', Network.Testnet, 'abc')).toBe('https://mempool.space/testnet4/tx/abc');
+    expect(buildTransactionExplorerUrl('btc', Network.Mainnet, 'abc')).toBe(
       'https://www.blockonomics.co/#/search?q=abc',
     );
   });

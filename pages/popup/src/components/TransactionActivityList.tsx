@@ -1,5 +1,6 @@
 import type * as React from 'react';
 import type { TxEntry } from '@extension/backend/src/types/cache';
+import type { Network } from '@src/types';
 import { TransactionActivityItem } from './TransactionActivityItem';
 import { useEffect, useRef, useState } from 'react';
 
@@ -13,6 +14,8 @@ interface TransactionActivityListProps {
   feeUnit?: string;
   /** Whether the network fee should be included in each activity total */
   includeFeeInTotals?: boolean;
+  /** Network the transactions were read on */
+  network: Network;
 }
 
 /**
@@ -63,6 +66,7 @@ export const TransactionActivityList: React.FC<TransactionActivityListProps> = (
   amountDecimals,
   feeUnit,
   includeFeeInTotals,
+  network,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isScrollable, setIsScrollable] = useState(false);
@@ -121,6 +125,7 @@ export const TransactionActivityList: React.FC<TransactionActivityListProps> = (
                   amountDecimals={amountDecimals}
                   feeUnit={feeUnit}
                   includeFeeInTotals={includeFeeInTotals}
+                  network={network}
                 />
               ))}
           </div>
@@ -154,6 +159,7 @@ export const TransactionActivityList: React.FC<TransactionActivityListProps> = (
                     amountDecimals={amountDecimals}
                     feeUnit={feeUnit}
                     includeFeeInTotals={includeFeeInTotals}
+                    network={network}
                   />
                 ))}
             </div>
