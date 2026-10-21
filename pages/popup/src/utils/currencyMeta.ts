@@ -34,7 +34,19 @@ const CURRENCY_META: Record<Currencies, CurrencyMeta> = {
     tokenSymbol: 'USDT',
     networkFeeSymbol: 'ETH',
   },
+  usdc: {
+    icon: 'popup/usdc_coin.svg',
+    name: 'USDC',
+    symbol: 'USDC',
+    chain: ChainType.Ethereum,
+    displayPrecision: 2,
+    sendPrecision: 6,
+    tokenSymbol: 'USDC',
+    networkFeeSymbol: 'ETH',
+  },
 };
+
+export const ERC20_CURRENCIES: Currencies[] = ['usdt', 'usdc'];
 
 export function getCurrencyMeta(currency?: string): CurrencyMeta {
   if (currency && currency in CURRENCY_META) {
@@ -44,8 +56,8 @@ export function getCurrencyMeta(currency?: string): CurrencyMeta {
   return CURRENCY_META.btc;
 }
 
-export function isSupportedSendCurrency(currency?: string): currency is 'btc' | 'eth' | 'usdt' {
-  return currency === 'btc' || currency === 'eth' || currency === 'usdt';
+export function isSupportedSendCurrency(currency?: string): currency is 'btc' | 'eth' | 'usdt' | 'usdc' {
+  return currency === 'btc' || currency === 'eth' || currency === 'usdt' || currency === 'usdc';
 }
 
 export function getContextBalanceForCurrency(
