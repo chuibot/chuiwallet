@@ -389,7 +389,6 @@ export class EthereumAdapter implements IChainAdapter {
   }
 
   async getCachedTransactionHistory(options?: ChainTransactionHistoryOptions): Promise<ChainTransaction[]> {
-    // With no contract on this network, any saved records came from another token's contract.
     if (options?.tokenSymbol && !this.resolveTokenContractAddress(options.tokenSymbol)) {
       return [];
     }

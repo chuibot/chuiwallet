@@ -46,12 +46,7 @@ const CURRENCY_META: Record<Currencies, CurrencyMeta> = {
   },
 };
 
-/** ERC-20 currencies in the order the dashboard lists them. */
-export const ERC20_CURRENCIES = ['usdt', 'usdc'] as const satisfies readonly Currencies[];
-
-const SEND_CURRENCIES = ['btc', 'eth', ...ERC20_CURRENCIES] as const satisfies readonly Currencies[];
-
-type SendCurrency = (typeof SEND_CURRENCIES)[number];
+export const ERC20_CURRENCIES: Currencies[] = ['usdt', 'usdc'];
 
 export function getCurrencyMeta(currency?: string): CurrencyMeta {
   if (currency && currency in CURRENCY_META) {
@@ -61,8 +56,8 @@ export function getCurrencyMeta(currency?: string): CurrencyMeta {
   return CURRENCY_META.btc;
 }
 
-export function isSupportedSendCurrency(currency?: string): currency is SendCurrency {
-  return (SEND_CURRENCIES as readonly string[]).includes(currency ?? '');
+export function isSupportedSendCurrency(currency?: string): currency is 'btc' | 'eth' | 'usdt' | 'usdc' {
+  return currency === 'btc' || currency === 'eth' || currency === 'usdt' || currency === 'usdc';
 }
 
 export function getContextBalanceForCurrency(

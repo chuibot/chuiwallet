@@ -16,7 +16,7 @@ export type Erc20TokenDefinition = Readonly<{
  */
 export const ERC20_TOKEN_DEFINITIONS: Record<string, Erc20TokenDefinition> = {
   /**
-   * Tether USD (ERC-20). Tether has no official Sepolia deployment, so there is no testnet contract.
+   * Tether USD (ERC-20). No official Sepolia deployment.
    * @see https://etherscan.io/token/0xdac17f958d2ee523a2206206994597c13d831ec7
    */
   USDT: {
@@ -28,7 +28,7 @@ export const ERC20_TOKEN_DEFINITIONS: Record<string, Erc20TokenDefinition> = {
     },
   },
   /**
-   * USD Coin (ERC-20). The testnet contract is Circle's Sepolia deployment.
+   * USD Coin (ERC-20)
    * @see https://etherscan.io/token/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48
    */
   USDC: {

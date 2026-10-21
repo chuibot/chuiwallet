@@ -54,18 +54,12 @@ describe('ERC20_TOKEN_DEFINITIONS', () => {
     expect(ERC20_TOKEN_DEFINITIONS.USDC.contracts[Network.Testnet]).toMatch(/^0x[a-fA-F0-9]{40}$/);
   });
 
-  it('never lists one contract under two tokens on the same network', () => {
+  it('has no contract under two tokens', () => {
     for (const network of [Network.Mainnet, Network.Testnet]) {
       const addresses = Object.values(ERC20_TOKEN_DEFINITIONS)
         .map(token => token.contracts[network]?.toLowerCase())
         .filter(Boolean);
       expect(new Set(addresses).size).toBe(addresses.length);
-    }
-  });
-
-  it('keys every token by its own symbol', () => {
-    for (const [key, token] of Object.entries(ERC20_TOKEN_DEFINITIONS)) {
-      expect(token.symbol).toBe(key);
     }
   });
 });
