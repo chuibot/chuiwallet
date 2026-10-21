@@ -1,7 +1,6 @@
 import { Button } from '@src/components/Button';
-import { useWalletContext } from '@src/context/WalletContext';
 import { buildTransactionExplorerUrl, isSupportedSendCurrency } from '@src/utils/currencyMeta';
-import { currencyMapping, type Currencies } from '@src/types';
+import { currencyMapping, type Currencies, type Network } from '@src/types';
 import type * as React from 'react';
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -9,12 +8,12 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 interface SendStatusStates {
   status?: 'success' | 'fail';
   transactionHash?: string;
+  network?: Network;
 }
 
 export const SendStatus: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { preferences } = useWalletContext();
 
   const { currency } = useParams<{ currency: Currencies }>();
   const states = (location.state as SendStatusStates | null) ?? null;
@@ -31,16 +30,22 @@ export const SendStatus: React.FC = () => {
       return;
     }
 
-    if (!states?.transactionHash || !states.status) {
+    if (!states?.transactionHash || !states.status || !states.network) {
       navigate(`/dashboard/${currency}/activity`, { replace: true });
     }
   }, [currency, navigate, states]);
 
-  if (!currency || !isSupportedSendCurrency(currency) || !states?.transactionHash || !states.status) {
+  if (
+    !currency ||
+    !isSupportedSendCurrency(currency) ||
+    !states?.transactionHash ||
+    !states.status ||
+    !states.network
+  ) {
     return null;
   }
 
-  const explorerUrl = buildTransactionExplorerUrl(currency, preferences.activeNetwork, states.transactionHash);
+  const explorerUrl = buildTransactionExplorerUrl(currency, states.network, states.transactionHash);
 
   const handleCopyToClipboard = async () => {
     try {

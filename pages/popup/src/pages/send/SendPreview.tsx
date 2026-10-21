@@ -41,6 +41,9 @@ export function SendPreview() {
   const assetDigits = getSendAmountPrecision(currency);
   const formattedFeeRate = formatFeeRate(states?.rateValue, states?.rateUnit);
   const showsRateOnlyFee = states?.rateUnit === 'gwei';
+  // Another window can switch the EVM network while this quote is shown.
+  const quotedOnOtherNetwork =
+    meta.chain === ChainType.Ethereum && states?.sendOptions?.network !== preferences.activeEvmNetwork;
 
   const [confirmLoading, setConfirmLoading] = useState<boolean>(false);
   const [error, setError] = useState('');
@@ -57,10 +60,10 @@ export function SendPreview() {
       return;
     }
 
-    if (!states?.destinationAddress || !states.amount || states.feeAmount === undefined) {
+    if (!states?.destinationAddress || !states.amount || states.feeAmount === undefined || quotedOnOtherNetwork) {
       navigate(`/send/${currency}`, { replace: true });
     }
-  }, [currency, navigate, states]);
+  }, [currency, navigate, states, quotedOnOtherNetwork]);
 
   const handleConfirm = async () => {
     if (!currency || !states?.destinationAddress || !states.amount) {
@@ -71,6 +74,9 @@ export function SendPreview() {
       setError('Password is required');
       return;
     }
+
+    // Read before sending: another window can switch networks while the send is in flight.
+    const sentNetwork = meta.chain === ChainType.Ethereum ? states.sendOptions?.network : preferences.activeNetwork;
 
     setConfirmLoading(true);
     setError('');
@@ -92,6 +98,7 @@ export function SendPreview() {
           state: {
             status: 'success',
             transactionHash: txid,
+            network: sentNetwork,
           },
         });
       } else {
@@ -121,7 +128,13 @@ export function SendPreview() {
     }
   };
 
-  if (!currency || !isSupportedSendCurrency(currency) || !states?.destinationAddress || !states.amount) {
+  if (
+    !currency ||
+    !isSupportedSendCurrency(currency) ||
+    !states?.destinationAddress ||
+    !states.amount ||
+    quotedOnOtherNetwork
+  ) {
     return null;
   }
 

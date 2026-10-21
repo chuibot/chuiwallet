@@ -1,5 +1,5 @@
 import type * as React from 'react';
-import type { Currencies } from '@src/types';
+import type { Currencies, Network } from '@src/types';
 import type { TxStatus, TxType } from '@extension/backend/src/types/cache';
 import Header from '@src/components/Header';
 import LabelValue from '@src/components/LabelValue';
@@ -21,6 +21,8 @@ export interface TransactionDetailStates {
   sender: string;
   receiver: string;
   feeUnit?: string;
+  /** Network the activity list was read on. */
+  network: Network;
 }
 
 export const TransactionDetail: React.FC = () => {
@@ -31,9 +33,20 @@ export const TransactionDetail: React.FC = () => {
   const assetDigits = getAssetDisplayPrecision(currency);
 
   const transactionDetailStates = location.state as TransactionDetailStates;
-  const { type, status, amountBtc, amountUsd, feeBtc, feeUsd, timestamp, confirmations, transactionHash, feeUnit } =
-    transactionDetailStates;
-  const explorerUrl = buildTransactionExplorerUrl(currency, preferences.activeNetwork, transactionHash);
+  const {
+    type,
+    status,
+    amountBtc,
+    amountUsd,
+    feeBtc,
+    feeUsd,
+    timestamp,
+    confirmations,
+    transactionHash,
+    feeUnit,
+    network,
+  } = transactionDetailStates;
+  const explorerUrl = buildTransactionExplorerUrl(currency, network, transactionHash);
   const feeSymbol = feeUnit ?? meta.networkFeeSymbol ?? meta.symbol;
   const feeDigits = feeSymbol === 'BTC' ? 8 : 6;
   const hasAmountUsd = Number.isFinite(amountUsd);

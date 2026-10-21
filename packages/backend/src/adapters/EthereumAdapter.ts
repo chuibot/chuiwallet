@@ -354,6 +354,7 @@ export class EthereumAdapter implements IChainAdapter {
   };
 
   async getTransactionHistory(options?: ChainTransactionHistoryOptions): Promise<ChainTransaction[]> {
+    this.assertHistoryNetwork(options);
     const tokenAddress = this.resolveTokenContractAddress(options?.tokenSymbol);
     if (options?.tokenSymbol && !tokenAddress) {
       return [];
@@ -389,10 +390,21 @@ export class EthereumAdapter implements IChainAdapter {
   }
 
   async getCachedTransactionHistory(options?: ChainTransactionHistoryOptions): Promise<ChainTransaction[]> {
+    this.assertHistoryNetwork(options);
     if (options?.tokenSymbol && !this.resolveTokenContractAddress(options.tokenSymbol)) {
       return [];
     }
     return chainTransactionHistoryCache.get(this.getHistoryScope(options));
+  }
+
+  /**
+   * The background switches this adapter's network before it broadcasts the change to open popups,
+   * so a caller names the network it will label rows with.
+   */
+  private assertHistoryNetwork(options?: ChainTransactionHistoryOptions): void {
+    if (options?.network !== undefined && options.network !== this.network) {
+      throw new Error('This history read does not match the active Ethereum network');
+    }
   }
 
   private async reconcilePendingTransactions(
@@ -579,6 +591,7 @@ export class EthereumAdapter implements IChainAdapter {
 
   async estimateFee(_to: string, _amount?: string, options?: ChainSendOptions): Promise<ChainFeeEstimate[]> {
     if (!this.provider) throw new Error('Provider not initialized');
+    const network = this.network;
     const requestedTokenAddress = this.resolveRequestedTokenAddress(options);
     if ((options?.tokenSymbol || options?.tokenAddress) && !requestedTokenAddress) {
       throw new Error(`${options?.tokenSymbol ?? 'Token'} is unavailable on this network`);
@@ -652,6 +665,7 @@ export class EthereumAdapter implements IChainAdapter {
             maxPriorityFeePerGasWei: priorityTip.toString(),
             ...(options?.tokenSymbol ? { tokenSymbol: options.tokenSymbol } : {}),
             ...(requestedTokenAddress ? { tokenAddress: requestedTokenAddress } : {}),
+            network,
           },
           minerTip: 0,
           timeEstimate: 1,
@@ -682,6 +696,7 @@ export class EthereumAdapter implements IChainAdapter {
           gasPriceWei: gasPrice.toString(),
           ...(options?.tokenSymbol ? { tokenSymbol: options.tokenSymbol } : {}),
           ...(requestedTokenAddress ? { tokenAddress: requestedTokenAddress } : {}),
+          network,
         },
         minerTip: 0,
         timeEstimate: 1,
@@ -755,6 +770,10 @@ export class EthereumAdapter implements IChainAdapter {
     options?: ChainSendOptions,
   ): Promise<string> {
     if (!this.provider || !this.hdNode) throw new Error('Not initialized');
+    // A send runs only on the network it was quoted on, so a Sepolia quote can never spend mainnet ETH.
+    if (options?.network !== this.network) {
+      throw new Error('This send does not match the active Ethereum network');
+    }
 
     // Keeps ethers' default timeout: a broadcast that times out after the node accepted it invites a duplicate send.
     const sendProvider = this.createProvider(this.rpcUrls[this.rpcUrlIndex]);

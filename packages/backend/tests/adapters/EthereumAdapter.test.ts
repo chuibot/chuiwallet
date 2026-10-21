@@ -256,18 +256,117 @@ describe('EthereumAdapter — estimateFee', () => {
 
   it('tags each fee with the currency it was priced in', async () => {
     const adapter = new EthereumAdapter();
-    const internals = adapter as unknown as Record<string, unknown>;
-    internals.provider = {
-      getFeeData: async () => ({ gasPrice: BigInt('20000000000') }),
-      getBlock: async () => null,
-    };
-    internals.getRecentFeeMarket = async () => null;
-    internals.getRpcPriorityFee = async () => null;
+    stubFeeReads(adapter);
 
     const estimates = await adapter.estimateFee('0x2222222222222222222222222222222222222222');
 
     expect(estimates.map(e => e.fiatCurrency)).toEqual(['EUR', 'EUR', 'EUR']);
     expect(assetPriceService.getUsdPrices).toHaveBeenCalledWith(['ethereum'], 'eur');
+  });
+
+  it('tags each quote with the network it was taken on', async () => {
+    const adapter = new EthereumAdapter();
+    await adapter.init(Network.Testnet);
+    stubFeeReads(adapter);
+
+    const estimates = await adapter.estimateFee('0x2222222222222222222222222222222222222222');
+
+    expect(estimates.map(e => e.sendOptions?.network)).toEqual([Network.Testnet, Network.Testnet, Network.Testnet]);
+  });
+});
+
+/** Replaces the RPC reads estimateFee makes with a flat 20 gwei gas price. */
+function stubFeeReads(adapter: EthereumAdapter): void {
+  const internals = adapter as unknown as Record<string, unknown>;
+  internals.provider = {
+    getFeeData: async () => ({ gasPrice: BigInt('20000000000') }),
+    getBlock: async () => null,
+  };
+  internals.getRecentFeeMarket = async () => null;
+  internals.getRpcPriorityFee = async () => null;
+}
+
+describe('EthereumAdapter — sendPayment network binding', () => {
+  const TO = '0x2222222222222222222222222222222222222222';
+
+  beforeEach(() => {
+    Object.defineProperty(preferenceManager, 'preferences', {
+      value: { ...defaultPreferences },
+      writable: true,
+      configurable: true,
+    });
+    jest.spyOn(assetPriceService, 'getUsdPrices').mockResolvedValue({ ethereum: 2000 });
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  function spyOnCreateProvider(adapter: EthereumAdapter) {
+    return jest.spyOn(
+      adapter as unknown as { createProvider: (url: string, timeoutMs?: number) => ethers.JsonRpcProvider },
+      'createProvider',
+    );
+  }
+
+  it('refuses a Sepolia quote after a switch to mainnet, before it builds a transaction', async () => {
+    const adapter = new EthereumAdapter();
+    adapter.initWithMnemonic(TEST_MNEMONIC, 0);
+    await adapter.init(Network.Testnet);
+    stubFeeReads(adapter);
+    const [quote] = await adapter.estimateFee(TO);
+
+    await adapter.init(Network.Mainnet);
+    const createProvider = spyOnCreateProvider(adapter);
+
+    await expect(adapter.sendPayment(TO, '0.5', quote.sendOptions)).rejects.toThrow(
+      'This send does not match the active Ethereum network',
+    );
+    expect(createProvider).not.toHaveBeenCalled();
+  });
+
+  it('refuses a token quote from another network instead of calling its contract here', async () => {
+    const adapter = new EthereumAdapter();
+    adapter.initWithMnemonic(TEST_MNEMONIC, 0);
+    await adapter.init(Network.Mainnet);
+    const createProvider = spyOnCreateProvider(adapter);
+
+    await expect(
+      adapter.sendPayment(TO, '10', {
+        network: Network.Testnet,
+        tokenSymbol: 'USDT',
+        tokenAddress: '0x3333333333333333333333333333333333333333',
+        gasLimit: '65000',
+        gasPriceWei: '20000000000',
+      }),
+    ).rejects.toThrow('This send does not match the active Ethereum network');
+    expect(createProvider).not.toHaveBeenCalled();
+  });
+
+  it('refuses a send that does not say which network it was quoted on', async () => {
+    const adapter = new EthereumAdapter();
+    adapter.initWithMnemonic(TEST_MNEMONIC, 0);
+    await adapter.init(Network.Mainnet);
+    const createProvider = spyOnCreateProvider(adapter);
+
+    await expect(adapter.sendPayment(TO, '0.5', { gasLimit: '21000', gasPriceWei: '20000000000' })).rejects.toThrow(
+      'This send does not match the active Ethereum network',
+    );
+    await expect(adapter.sendPayment(TO, '0.5')).rejects.toThrow(
+      'This send does not match the active Ethereum network',
+    );
+    expect(createProvider).not.toHaveBeenCalled();
+  });
+
+  it('goes ahead with a quote from the active network', async () => {
+    const adapter = new EthereumAdapter();
+    adapter.initWithMnemonic(TEST_MNEMONIC, 0);
+    await adapter.init(Network.Testnet);
+    stubFeeReads(adapter);
+    const [quote] = await adapter.estimateFee(TO);
+    const createProvider = spyOnCreateProvider(adapter);
+
+    // A zero amount stops the send after the network check, before anything is broadcast.
+    await expect(adapter.sendPayment(TO, '0', quote.sendOptions)).rejects.toThrow('greater than 0');
+    expect(createProvider).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -536,9 +635,9 @@ describe('EthereumAdapter — RPC request timeouts', () => {
       'createProvider',
     );
 
-    await expect(adapter.sendPayment('0x2222222222222222222222222222222222222222', '0')).rejects.toThrow(
-      'greater than 0',
-    );
+    await expect(
+      adapter.sendPayment('0x2222222222222222222222222222222222222222', '0', { network: Network.Mainnet }),
+    ).rejects.toThrow('greater than 0');
 
     const sendProvider = createProvider.mock.results.at(-1)?.value as ethers.JsonRpcProvider;
     expect(sendProvider._getConnection().timeout).toBe(ETHERS_DEFAULT_TIMEOUT_MS);
@@ -926,5 +1025,58 @@ describe('EthereumAdapter — transaction history', () => {
     const adapter = await usdtAdapter();
 
     await expect(adapter.getTransactionHistory({ tokenSymbol: 'USDT' })).resolves.toEqual([]);
+  });
+
+  describe('network binding', () => {
+    const sepoliaRow = {
+      historyId: '0xsepolia',
+      hash: '0xsepolia',
+      from: '0x1111111111111111111111111111111111111111',
+      to: '0x2222222222222222222222222222222222222222',
+      amount: 1,
+      fee: 0.001,
+      timestamp: 1_790_000_000,
+      confirmations: 3,
+      status: 'confirmed' as const,
+      chain: ChainType.Ethereum,
+    };
+
+    // The adapter has switched to Sepolia while the popup still names mainnet.
+    async function sepoliaAdapterWithSavedRow(): Promise<EthereumAdapter> {
+      const adapter = new EthereumAdapter();
+      adapter.initWithMnemonic(TEST_MNEMONIC, 0);
+      await adapter.init(Network.Testnet);
+      await chainTransactionHistoryCache.merge(
+        { chain: ChainType.Ethereum, network: Network.Testnet, address: adapter.getReceivingAddress() },
+        [sepoliaRow],
+      );
+      return adapter;
+    }
+
+    it('refuses a saved history read for another network', async () => {
+      const adapter = await sepoliaAdapterWithSavedRow();
+
+      await expect(adapter.getCachedTransactionHistory({ network: Network.Mainnet })).rejects.toThrow(
+        'This history read does not match the active Ethereum network',
+      );
+    });
+
+    it('refuses a history refresh for another network before it asks an indexer', async () => {
+      mockFetch(INDEXERS, () => jsonResponse({ status: '1', message: 'OK', result: [] }));
+      const adapter = await sepoliaAdapterWithSavedRow();
+
+      await expect(adapter.getTransactionHistory({ network: Network.Mainnet })).rejects.toThrow(
+        'This history read does not match the active Ethereum network',
+      );
+      expect(getFetchCalls()).toHaveLength(0);
+    });
+
+    it('reads history for the network it was asked for', async () => {
+      const adapter = await sepoliaAdapterWithSavedRow();
+
+      const history = await adapter.getCachedTransactionHistory({ network: Network.Testnet });
+
+      expect(history.map(tx => tx.hash)).toEqual([sepoliaRow.hash]);
+    });
   });
 });

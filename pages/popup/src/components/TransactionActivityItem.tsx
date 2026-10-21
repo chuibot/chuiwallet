@@ -2,6 +2,7 @@ import type * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatNumber, formatTime, getStatusMeta } from '@src/utils';
 import type { TxStatus, TxType } from '@extension/backend/src/types/cache';
+import type { Network } from '@src/types';
 import { useWalletContext } from '@src/context/WalletContext';
 
 export interface TransactionActivityItemProps {
@@ -24,6 +25,8 @@ export interface TransactionActivityItemProps {
   feeUnit?: string;
   /** Whether the network fee should be included in the top-line activity total */
   includeFeeInTotals?: boolean;
+  /** Network the transaction was read on, carried to the detail screen for its explorer link */
+  network: Network;
 }
 
 export const TransactionActivityItem: React.FC<TransactionActivityItemProps> = props => {

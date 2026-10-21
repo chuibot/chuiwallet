@@ -112,6 +112,7 @@ export function getTokenContractAddress(currency: string | undefined, network: N
   return getErc20ContractAddress(meta.tokenSymbol, network as unknown as BackendNetwork);
 }
 
+/** Takes the network the transaction was sent or listed on, which can differ from the active one. */
 export function buildTransactionExplorerUrl(currency: string | undefined, network: Network, txHash: string): string {
   const meta = getCurrencyMeta(currency);
 
