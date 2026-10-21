@@ -355,14 +355,14 @@ export class EthereumAdapter implements IChainAdapter {
 
   async getTransactionHistory(options?: ChainTransactionHistoryOptions): Promise<ChainTransaction[]> {
     this.assertHistoryNetwork(options);
+    const tokenAddress = this.resolveTokenContractAddress(options?.tokenSymbol);
+    if (options?.tokenSymbol && !tokenAddress) {
+      return [];
+    }
+
     const historyScope = this.getHistoryScope(options);
     const rpcGeneration = this.rpcGeneration;
     const cachedTransactions = await chainTransactionHistoryCache.get(historyScope);
-
-    const tokenAddress = this.resolveTokenContractAddress(options?.tokenSymbol);
-    if (options?.tokenSymbol && !tokenAddress) {
-      return cachedTransactions;
-    }
 
     let latest: IndexerHistory;
     try {
@@ -391,6 +391,9 @@ export class EthereumAdapter implements IChainAdapter {
 
   async getCachedTransactionHistory(options?: ChainTransactionHistoryOptions): Promise<ChainTransaction[]> {
     this.assertHistoryNetwork(options);
+    if (options?.tokenSymbol && !this.resolveTokenContractAddress(options.tokenSymbol)) {
+      return [];
+    }
     return chainTransactionHistoryCache.get(this.getHistoryScope(options));
   }
 

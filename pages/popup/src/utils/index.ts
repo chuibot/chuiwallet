@@ -139,6 +139,7 @@ export function isValidAddress(addr: string, currency: string, network: Network)
     case 'btc':
       return isValidBTCAddress(addr, network);
     case 'usdt':
+    case 'usdc':
     case 'eth':
       return isValidETHAddress(addr);
     default:

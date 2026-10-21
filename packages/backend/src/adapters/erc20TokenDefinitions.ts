@@ -16,7 +16,7 @@ export type Erc20TokenDefinition = Readonly<{
  */
 export const ERC20_TOKEN_DEFINITIONS: Record<string, Erc20TokenDefinition> = {
   /**
-   * Tether USD (ERC-20)
+   * Tether USD (ERC-20). No official Sepolia deployment.
    * @see https://etherscan.io/token/0xdac17f958d2ee523a2206206994597c13d831ec7
    */
   USDT: {
@@ -25,6 +25,18 @@ export const ERC20_TOKEN_DEFINITIONS: Record<string, Erc20TokenDefinition> = {
     coingeckoId: 'tether',
     contracts: {
       [Network.Mainnet]: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+    },
+  },
+  /**
+   * USD Coin (ERC-20)
+   * @see https://etherscan.io/token/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48
+   */
+  USDC: {
+    symbol: 'USDC',
+    decimals: 6,
+    coingeckoId: 'usd-coin',
+    contracts: {
+      [Network.Mainnet]: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
       [Network.Testnet]: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
     },
   },
