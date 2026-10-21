@@ -356,12 +356,21 @@ importers:
       '@extension/vite-config':
         specifier: workspace:*
         version: link:../../packages/vite-config
+      '@types/jest':
+        specifier: ^29.5.14
+        version: 29.5.14
       '@types/webextension-polyfill':
         specifier: ^0.12.6
         version: 0.12.6
       cross-env:
         specifier: ^7.0.3
         version: 7.0.3
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@22.20.4)(ts-node@10.9.2(@swc/core@1.15.47)(@types/node@22.20.4)(typescript@5.7.3))
+      ts-jest:
+        specifier: ^29.4.12
+        version: 29.4.12(@babel/core@7.26.9)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.26.9))(esbuild@0.28.2)(jest-util@29.7.0)(jest@29.7.0(@types/node@22.20.4)(ts-node@10.9.2(@swc/core@1.15.47)(@types/node@22.20.4)(typescript@5.7.3)))(typescript@5.7.3)
 
 packages:
 
