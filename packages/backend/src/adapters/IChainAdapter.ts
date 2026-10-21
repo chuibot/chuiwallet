@@ -128,6 +128,8 @@ export interface ChainSendOptions {
   tokenAddress?: string;
   /** Sweep the entire spendable balance to `to`, netting the real fee off the amount sent */
   isMax?: boolean;
+  /** For EVM transactions: the network the fee was quoted on. A send on any other network is refused. */
+  network?: Network;
 }
 
 /**
