@@ -354,6 +354,7 @@ export class EthereumAdapter implements IChainAdapter {
   };
 
   async getTransactionHistory(options?: ChainTransactionHistoryOptions): Promise<ChainTransaction[]> {
+    this.assertHistoryNetwork(options);
     const historyScope = this.getHistoryScope(options);
     const rpcGeneration = this.rpcGeneration;
     const cachedTransactions = await chainTransactionHistoryCache.get(historyScope);
@@ -389,7 +390,15 @@ export class EthereumAdapter implements IChainAdapter {
   }
 
   async getCachedTransactionHistory(options?: ChainTransactionHistoryOptions): Promise<ChainTransaction[]> {
+    this.assertHistoryNetwork(options);
     return chainTransactionHistoryCache.get(this.getHistoryScope(options));
+  }
+
+  /** The adapter switches network before the popups hear of it, so a caller names the network it will label rows with. */
+  private assertHistoryNetwork(options?: ChainTransactionHistoryOptions): void {
+    if (options?.network !== undefined && options.network !== this.network) {
+      throw new Error('This history read does not match the active Ethereum network');
+    }
   }
 
   private async reconcilePendingTransactions(

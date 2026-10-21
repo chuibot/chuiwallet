@@ -993,4 +993,57 @@ describe('EthereumAdapter — transaction history', () => {
 
     await expect(adapter.getTransactionHistory({ tokenSymbol: 'USDT' })).resolves.toEqual([]);
   });
+
+  describe('network binding', () => {
+    const sepoliaRow = {
+      historyId: '0xsepolia',
+      hash: '0xsepolia',
+      from: '0x1111111111111111111111111111111111111111',
+      to: '0x2222222222222222222222222222222222222222',
+      amount: 1,
+      fee: 0.001,
+      timestamp: 1_790_000_000,
+      confirmations: 3,
+      status: 'confirmed' as const,
+      chain: ChainType.Ethereum,
+    };
+
+    // The adapter has switched to Sepolia while the popup still names mainnet.
+    async function sepoliaAdapterWithSavedRow(): Promise<EthereumAdapter> {
+      const adapter = new EthereumAdapter();
+      adapter.initWithMnemonic(TEST_MNEMONIC, 0);
+      await adapter.init(Network.Testnet);
+      await chainTransactionHistoryCache.merge(
+        { chain: ChainType.Ethereum, network: Network.Testnet, address: adapter.getReceivingAddress() },
+        [sepoliaRow],
+      );
+      return adapter;
+    }
+
+    it('refuses a saved history read for another network', async () => {
+      const adapter = await sepoliaAdapterWithSavedRow();
+
+      await expect(adapter.getCachedTransactionHistory({ network: Network.Mainnet })).rejects.toThrow(
+        'This history read does not match the active Ethereum network',
+      );
+    });
+
+    it('refuses a history refresh for another network before it asks an indexer', async () => {
+      mockFetch(INDEXERS, () => jsonResponse({ status: '1', message: 'OK', result: [] }));
+      const adapter = await sepoliaAdapterWithSavedRow();
+
+      await expect(adapter.getTransactionHistory({ network: Network.Mainnet })).rejects.toThrow(
+        'This history read does not match the active Ethereum network',
+      );
+      expect(getFetchCalls()).toHaveLength(0);
+    });
+
+    it('reads history for the network it was asked for', async () => {
+      const adapter = await sepoliaAdapterWithSavedRow();
+
+      const history = await adapter.getCachedTransactionHistory({ network: Network.Testnet });
+
+      expect(history.map(tx => tx.hash)).toEqual([sepoliaRow.hash]);
+    });
+  });
 });

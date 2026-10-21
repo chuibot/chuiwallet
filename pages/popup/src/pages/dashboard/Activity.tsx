@@ -167,9 +167,12 @@ export const Activity: React.FC = () => {
     }
 
     let cancelled = false;
+    const historyNetwork = preferences?.activeEvmNetwork ?? Network.Mainnet;
+    // The background refuses a read on any other network, so the rows match the network they are labelled with.
+    const historyOptions = { ...chainHistoryOptions, network: historyNetwork };
 
     setChainTxs([]);
-    setChainTxsNetwork(preferences?.activeEvmNetwork ?? Network.Mainnet);
+    setChainTxsNetwork(historyNetwork);
     setChainTxsLoading(true);
     setChainTxsFailed(false);
 
@@ -188,7 +191,7 @@ export const Activity: React.FC = () => {
     const loadSavedTransactions = () =>
       sendMessage<ChainTransaction[]>('chain.getCachedTransactionHistory', {
         chain: meta.chain,
-        ...(chainHistoryOptions ? { options: chainHistoryOptions } : {}),
+        options: historyOptions,
       });
 
     (async () => {
@@ -215,7 +218,7 @@ export const Activity: React.FC = () => {
       try {
         const latestTransactions = await sendMessage<ChainTransaction[]>('chain.getTransactionHistory', {
           chain: meta.chain,
-          ...(chainHistoryOptions ? { options: chainHistoryOptions } : {}),
+          options: historyOptions,
         });
 
         if (!cancelled) {

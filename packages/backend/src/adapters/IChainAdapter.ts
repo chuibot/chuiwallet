@@ -65,6 +65,8 @@ export interface ChainTransaction {
 export interface ChainTransactionHistoryOptions {
   /** Optional token symbol for token transfer history on multi-asset chains */
   tokenSymbol?: string;
+  /** For EVM history: the network the caller will label the rows with. A read on any other network is refused. */
+  network?: Network;
 }
 
 /**
