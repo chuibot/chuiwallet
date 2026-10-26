@@ -14,7 +14,6 @@ export const availableServerList: ServerConfig[] = [
   { host: '0xrpc.io', port: 50004, useTls: true, network: Network.Mainnet },
   { host: 'bitcoin.grey.pw', port: 50004, useTls: true, network: Network.Mainnet },
   { host: 'e.keff.org', port: 50004, useTls: true, network: Network.Mainnet },
-  { host: 'mempool.8333.mobi', port: 50004, useTls: true, network: Network.Mainnet },
   { host: 'testnet4.electrs.btcscan.net', port: 443, useTls: true, network: Network.Testnet },
   { host: 'testnet4.electrum.blockonomics.co', port: 443, useTls: true, network: Network.Testnet },
 ];
