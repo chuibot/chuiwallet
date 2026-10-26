@@ -52,16 +52,10 @@ export const TermsCheckbox: React.FC<TermsCheckboxProps> = ({
   initialChecked = false,
 }) => {
   const [termsChecked, setTermsChecked] = React.useState(initialChecked);
-  const [custodyChecked, setCustodyChecked] = React.useState(initialChecked);
 
   const handleTermsChange = (value: boolean) => {
     setTermsChecked(value);
-    onAcceptChange(value && custodyChecked);
-  };
-
-  const handleCustodyChange = (value: boolean) => {
-    setCustodyChecked(value);
-    onAcceptChange(value && termsChecked);
+    onAcceptChange(value);
   };
 
   const handleTosClick = async (e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -99,11 +93,6 @@ export const TermsCheckbox: React.FC<TermsCheckboxProps> = ({
         </a>
         <span className="text-neutral-400">Read how Chui handles information.</span>
       </div>
-
-      <CheckRow id="self-custody" checked={custodyChecked} onChange={handleCustodyChange}>
-        I understand that Chui is self-custodial. OneByZero cannot recover my recovery phrase or private keys, restore
-        access to my wallet, or reverse blockchain transactions.
-      </CheckRow>
     </div>
   );
 };
