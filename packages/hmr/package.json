@@ -27,11 +27,11 @@
   "devDependencies": {
     "@extension/tsconfig": "workspace:*",
     "@rollup/plugin-sucrase": "^5.1.0",
-    "@types/ws": "^8.18.1",
+    "@types/ws": "^8.18.2",
     "esm": "^3.2.25",
     "fast-glob": "^3.3.2",
     "rollup": "^4.63.4",
     "ts-node": "^10.9.2",
-    "ws": "8.21.3"
+    "ws": "8.22.0"
   }
 }
