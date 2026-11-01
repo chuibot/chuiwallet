@@ -12,8 +12,8 @@
   "dependencies": {
     "@bitcoinerlab/secp256k1": "1.2.0",
     "bip32": "4.0.0",
-    "bip39": "3.1.0",
-    "bitcoinjs-lib": "6.1.8",
+    "bip39": "3.1.2",
+    "bitcoinjs-lib": "6.1.9",
     "bs58check": "4.0.0",
     "buffer": "6.0.3",
     "ethers": "6.17.0",
